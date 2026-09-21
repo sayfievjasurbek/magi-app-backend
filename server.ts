@@ -30,6 +30,7 @@ app.use(
 )
 app.use(sameOrigin);
 
+app.get("/health", (req, res) => res.json({ success: true }));
 app.get("/docs.json", (req, res) => res.json(openapi));
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi, { customSiteTitle: "MAGI API" }));
 
