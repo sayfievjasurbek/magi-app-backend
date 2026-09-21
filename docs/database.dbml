@@ -1,0 +1,402 @@
+// ========== ENUMS ==========
+
+Enum type_question_type {
+  multiple_choice
+  true_false
+  short_answer
+  essay
+}
+
+Enum type_time_unit {
+  seconds
+  minutes
+  hours
+  days
+}
+
+Enum type_user_active_status {
+  pending
+  active
+  suspended
+  banned
+  deleted
+  inactive
+}
+
+Enum type_assignment_status {
+  pending
+  in_progress
+  submitted
+  auto_submitted
+  graded
+  flagged
+}
+
+Enum type_email_usage_case {
+  reset_password_account_email
+  update_password_account_email
+  verify_account_email
+  welcome_user_email
+}
+
+Enum type_cheating_types {
+  tab_switch_limit
+  copy_paste
+  devtools
+  multiple_monitors
+  face_mismatch
+  screen_share
+  unauthorized_app
+  manual_review
+}
+
+Enum type_exam_event {
+  browser_version
+  active_app
+  menu_bar_icon
+  open_window
+  monitor_count
+  monitor_hotplug
+  chrome_extension
+  tab_switch
+  app_switch
+  screen_mirror
+  devtools_opened
+  copy_paste
+  url_access
+}
+
+Enum type_exam_status {
+  demo
+  scheduled
+  ongoing
+  completed
+  delayed
+  cancelled
+}
+
+Enum type_token_type {
+  verify_account_email
+  update_account_password
+  cookie_token_login
+}
+
+// ========== USERS & ROLES ==========
+
+Table users {
+  id bigint [pk, increment]
+  first_name varchar(100) [not null]
+  last_name varchar(100)
+  email text [not null, unique]
+  password text [not null]
+  is_verified boolean [not null, default: false]
+  active_status type_user_active_status [not null, default: "pending"]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table professors {
+  user_id bigint [pk, ref: - users.id]
+}
+
+Table students {
+  user_id bigint [pk, ref: - users.id]
+}
+
+Table examiners {
+  user_id bigint [pk, ref: - users.id]
+}
+
+// ========== MODULES ==========
+
+Table modules {
+  id bigint [pk, increment]
+  name varchar(100) [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table module_student {
+  module_id bigint [ref: > modules.id]
+  student_id bigint [ref: > students.user_id]
+  indexes { (module_id, student_id) [pk] }
+}
+
+Table module_professor {
+  module_id bigint [ref: > modules.id]
+  professor_id bigint [ref: > professors.user_id]
+  indexes { (module_id, professor_id) [pk] }
+}
+
+// ========== EXAMS ==========
+
+Table exams {
+  id bigint [pk, increment]
+  name varchar(100) [not null]
+  shuffle_questions boolean [not null, default: true]
+  scheduled_start timestamptz [not null]
+  scheduled_end timestamptz [not null]
+  status type_exam_status [not null, default: "scheduled"]
+  max_marks int [not null, default: 100]
+  passing_marks int [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table exam_examiner {
+  exam_id bigint [ref: > exams.id]
+  examiner_id bigint [ref: > examiners.user_id]
+  indexes { (exam_id, examiner_id) [pk] }
+}
+
+Table exam_module {
+  exam_id bigint [ref: > exams.id]
+  module_id bigint [ref: > modules.id]
+  indexes { (exam_id, module_id) [pk] }
+}
+
+Table exam_student {
+  exam_id bigint [ref: > exams.id]
+  student_id bigint [ref: > students.user_id]
+  indexes { (exam_id, student_id) [pk] }
+}
+
+// ========== EVENTS ==========
+
+Table events {
+  id bigint [pk, increment]
+  name type_exam_event [not null]
+  description text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table exam_events {
+  exam_id bigint [ref: > exams.id]
+  event_id bigint [ref: > events.id]
+  indexes { (exam_id, event_id) [pk] }
+}
+
+// ========== QUESTIONS ==========
+
+Table questions {
+  id bigint [pk, increment]
+  title varchar(100) [not null]
+  question_type type_question_type [not null, default: "multiple_choice"]
+  question text [not null, default: ""]
+  expected_duration int [not null, default: 0]
+  expected_duration_unit type_time_unit [not null, default: "seconds"]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table question_options {
+  id bigint [pk, increment]
+  question_id bigint [not null, ref: > questions.id]
+  option_text text [not null]
+  is_correct boolean [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+// ========== ASSIGNMENTS ==========
+
+Table assignments {
+  id bigint [pk, increment]
+  exam_id bigint [not null, ref: > exams.id]
+  session_duration int [not null, default: 0]
+  session_duration_unit type_time_unit [not null, default: "seconds"]
+  started_at timestamptz
+  submitted_at timestamptz
+  auto_submitted boolean [not null, default: false]
+  status type_assignment_status [not null, default: "pending"]
+  score int [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table question_assignment {
+  assignment_id bigint [ref: > assignments.id]
+  question_id bigint [ref: > questions.id]
+  answer text [not null]
+  typing_duration int [not null, default: 0]
+  typing_duration_unit type_time_unit [not null, default: "seconds"]
+  text_typed int [not null, default: 0]
+  text_edited int [not null, default: 0]
+  text_pasted int [not null, default: 0]
+  last_synced_at timestamptz
+  started_at timestamptz
+  answered_at timestamptz
+  indexes { (assignment_id, question_id) [pk] }
+}
+
+Table question_assignment_option {
+  assignment_id bigint [ref: > assignments.id]
+  question_id bigint [ref: > questions.id]
+  option_id bigint [ref: > question_options.id]
+  indexes { (assignment_id, question_id, option_id) [pk] }
+}
+
+Table student_assignment {
+  student_id bigint [ref: > students.user_id]
+  assignment_id bigint [ref: > assignments.id]
+  indexes { (student_id, assignment_id) [pk] }
+}
+
+// ========== PERMITTED URLs ==========
+
+Table permitted_urls {
+  id bigint [pk, increment]
+  url text [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table exam_permitted_url {
+  exam_id bigint [ref: > exams.id]
+  permitted_url_id bigint [ref: > permitted_urls.id]
+  indexes { (exam_id, permitted_url_id) [pk] }
+}
+
+Table assignment_permitted_url {
+  assignment_id bigint [ref: > assignments.id]
+  permitted_url_id bigint [ref: > permitted_urls.id]
+  indexes { (assignment_id, permitted_url_id) [pk] }
+}
+
+// ========== MONITORING ==========
+
+Table panoramic_view {
+  id bigint [pk, increment]
+  url text [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+  deleted_at timestamp
+  reason text
+}
+
+Table assignment_panoramic_view {
+  panoramic_view_id bigint [ref: > panoramic_view.id]
+  assignment_id bigint [ref: > assignments.id]
+  indexes { (assignment_id, panoramic_view_id) [pk] }
+}
+
+Table video_recordings {
+  id bigint [pk, increment]
+  url text [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+  deleted_at timestamp
+  reason text
+}
+
+Table assignment_video_recording {
+  video_recording_id bigint [ref: > video_recordings.id]
+  assignment_id bigint [ref: > assignments.id]
+  indexes { (assignment_id, video_recording_id) [pk] }
+}
+
+Table face_snapshots {
+  id bigint [pk, increment]
+  url text [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+  deleted_at timestamp
+  reason text
+}
+
+Table assignment_face_snapshot {
+  face_snapshot_id bigint [ref: > face_snapshots.id]
+  assignment_id bigint [ref: > assignments.id]
+  indexes { (assignment_id, face_snapshot_id) [pk] }
+}
+
+Table snapshots {
+  id bigint [pk, increment]
+  url text [not null]
+  created_at timestamp [not null, default: `now()`]
+  updated_at timestamp [not null, default: `now()`]
+  deleted_at timestamp
+  reason text
+}
+
+Table assignment_snapshot {
+  snapshot_id bigint [ref: > snapshots.id]
+  assignment_id bigint [ref: > assignments.id]
+  indexes { (assignment_id, snapshot_id) [pk] }
+}
+
+// ========== CHEATING ==========
+
+Table cheatings {
+  id bigint [pk, increment]
+  name type_cheating_types [not null]
+  explanation text [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+  deleted_at timestamptz
+  reason text
+}
+
+Table cheating_reason {
+  assignment_id bigint [ref: > assignments.id]
+  cheating_id bigint [ref: > cheatings.id]
+  indexes { (assignment_id, cheating_id) [pk] }
+}
+
+// ========== EMAIL SYSTEM ==========
+
+Table email_rules {
+  id bigint [pk, increment]
+  email_usage_case type_email_usage_case [not null, unique]
+  max_per_day int [not null, default: 3]
+  cooldown_duration int [not null, default: 60]
+  cooldown_unit type_time_unit [not null, default: "minutes"]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table email_usage {
+  user_id bigint [ref: > users.id]
+  email_usage_case bigint [ref: > email_rules.id]
+  last_sent timestamptz [not null, default: `now()`]
+  indexes { (user_id, email_usage_case) [pk] }
+}
+
+Table email_logs {
+  user_id bigint [ref: > users.id]
+  email_usage_case bigint [ref: > email_rules.id]
+  sent_at timestamptz [not null, default: `now()`]
+  indexes { (user_id, email_usage_case, sent_at) [pk] }
+}
+
+// ========== TOKENS ==========
+
+Table tokens {
+  id bigint [pk, increment]
+  token text [not null]
+  token_type type_token_type [not null]
+  expires_at timestamptz [not null]
+  revoked boolean [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table users_tokens {
+  user_id bigint [ref: > users.id]
+  token_id bigint [ref: > tokens.id]
+  indexes { (user_id, token_id) [pk] }
+}

@@ -1,0 +1,43 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "server.ts",
+  "scripts": {
+    "dev": "nodemon --exec tsx server.ts",
+    "migrate": "tsx scripts/migrate.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "tsx e2e/smoke.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.106.2",
+    "bcrypt": "^6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "crypto": "^1.0.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mailtrap": "^4.6.0",
+    "swagger-ui-express": "^5.0.1",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
+    "@types/cookie-parser": "^1.4.10",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^26.6.2",
+    "@types/swagger-ui-express": "^4.1.8",
+    "@types/ws": "^8.18.1",
+    "nodemon": "^3.1.14",
+    "tsx": "^4.22.4",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1"
+  }
+}
