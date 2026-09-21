@@ -47,7 +47,7 @@ export const generateToken = async (id: number, first_name: string, last_name: s
   res.cookie("jwt", token, {
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     httpOnly: true,
-    sameSite: isProduction ? "strict" : "lax",
+    sameSite: isProduction ? "none" : "lax", // frontend and API are on different sites in production
     secure: isProduction ? true : false,
     path: "/",
   });

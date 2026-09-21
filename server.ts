@@ -5,6 +5,7 @@ import cors from 'cors';
 import swaggerUi from 'swagger-ui-express';
 import { openapi } from './docs/openapi.js';
 import { defaultBody } from './middleware/body.middleware.js';
+import { sameOrigin } from './middleware/origin.middleware.js';
 import authRoutes from './routes/auth.route.js';
 import moduleRoutes from './routes/module.route.js';
 import examRoutes from './routes/exam.route.js';
@@ -27,6 +28,7 @@ app.use(
     credentials: true,
   })
 )
+app.use(sameOrigin);
 
 app.get("/docs.json", (req, res) => res.json(openapi));
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi, { customSiteTitle: "MAGI API" }));

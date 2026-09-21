@@ -283,7 +283,7 @@ export const logout = async (req: Request, res: Response) => {
     const isProduction = process.env.NODE_ENV === 'production';
     res.clearCookie("jwt", {
       httpOnly: true,
-      sameSite: isProduction ? "strict" : "lax",
+      sameSite: isProduction ? "none" : "lax",
       secure: isProduction ? true : false,
       path: "/",
     });

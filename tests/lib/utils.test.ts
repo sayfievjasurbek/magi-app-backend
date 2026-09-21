@@ -194,7 +194,7 @@ describe('generateToken', () => {
     });
   });
 
-  it('sets a strict, secure cookie in production', async () => {
+  it('sets a cross-site, secure cookie in production', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     const { generateToken } = await loadUtils(SECRET);
     const res = { cookie: vi.fn() } as unknown as Response & { cookie: ReturnType<typeof vi.fn> };
@@ -204,7 +204,7 @@ describe('generateToken', () => {
     expect(res.cookie).toHaveBeenCalledWith('jwt', token, {
       maxAge: 7 * 24 * 60 * 60 * 1000,
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'none',
       secure: true,
       path: '/',
     });
