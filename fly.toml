@@ -1,3 +1,4 @@
+app = 'magi-api'
 primary_region = 'sin'
 
 [build]
