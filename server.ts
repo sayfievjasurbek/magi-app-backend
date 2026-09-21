@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import './lib/env-check.js';
 import express from "express";
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
@@ -43,6 +44,14 @@ app.use("/api/monitoring", monitoringRoutes);
 app.use("/api/cheatings", cheatingRoutes);
 
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`The server running on PORT:${PORT}`)
 })
+
+// let in-flight requests finish when the machine is stopped
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    server.close(() => process.exit(0));
+    server.closeIdleConnections();
+  });
+};
