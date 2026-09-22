@@ -12,6 +12,6 @@
     "resolveJsonModule": true,
     "verbatimModuleSyntax": false
   },
-  "include": ["*.ts", "controllers/**/*.ts", "docs/**/*.ts", "e2e/**/*.ts", "email/**/*.ts", "lib/**/*.ts", "middleware/**/*.ts", "routes/**/*.ts", "scripts/**/*.ts", "services/**/*.ts", "tests/**/*.ts"],
+  "include": ["*.ts", "docs/**/*.ts", "e2e/**/*.ts", "email/**/*.ts", "features/**/*.ts", "lib/**/*.ts", "middleware/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "legacy"]
 }

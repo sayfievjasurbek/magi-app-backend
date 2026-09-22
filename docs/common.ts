@@ -1,5 +1,5 @@
 // Building blocks shared by the OpenAPI contributions. A domain only writes its own
-// docs/paths/<domain>.ts and docs/schemas/<domain>.ts, openapi.ts merges them.
+// features/<domain>/<domain>.docs.ts, openapi.ts merges them.
 
 export const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 export const id = { type: 'integer', format: 'int64', minimum: 1 };

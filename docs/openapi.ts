@@ -1,21 +1,14 @@
 import { ok, ref, sharedSchemas } from './common.js';
-import * as authPaths from './paths/auth.js';
-import * as modulePaths from './paths/module.js';
-import * as examPaths from './paths/exam.js';
-import * as questionPaths from './paths/question.js';
-import * as attemptPaths from './paths/attempt.js';
-import * as monitoringPaths from './paths/monitoring.js';
-import * as cheatingPaths from './paths/cheating.js';
-import { schemas as authSchemas } from './schemas/auth.js';
-import { schemas as moduleSchemas } from './schemas/module.js';
-import { schemas as examSchemas } from './schemas/exam.js';
-import { schemas as questionSchemas } from './schemas/question.js';
-import { schemas as attemptSchemas } from './schemas/attempt.js';
-import { schemas as monitoringSchemas } from './schemas/monitoring.js';
-import { schemas as cheatingSchemas } from './schemas/cheating.js';
+import * as authDocs from '../features/auth/auth.docs.js';
+import * as moduleDocs from '../features/modules/module.docs.js';
+import * as examDocs from '../features/exams/exam.docs.js';
+import * as questionDocs from '../features/questions/question.docs.js';
+import * as attemptDocs from '../features/attempts/attempt.docs.js';
+import * as monitoringDocs from '../features/monitoring/monitoring.docs.js';
+import * as cheatingDocs from '../features/cheatings/cheating.docs.js';
 
-// every domain owns its files under paths/ and schemas/, so adding endpoints never touches this one
-const domains = [authPaths, modulePaths, examPaths, questionPaths, attemptPaths, monitoringPaths, cheatingPaths];
+// every domain owns its <domain>.docs.ts, so adding endpoints never touches this one
+const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs];
 
 // two domains claiming the same name would otherwise silently keep the last one: a schema shared by
 // several domains belongs in common.ts, an endpoint belongs to exactly one domain
@@ -69,16 +62,7 @@ export const openapi = {
       NotFound: ok('Not found (or not visible to the current user)', ref('Error')),
       Conflict: ok('Already exists', ref('Error')),
     },
-    schemas: mergeSchemas([
-      sharedSchemas,
-      authSchemas,
-      moduleSchemas,
-      examSchemas,
-      questionSchemas,
-      attemptSchemas,
-      monitoringSchemas,
-      cheatingSchemas,
-    ]),
+    schemas: mergeSchemas([sharedSchemas, ...domains.map((domain) => domain.schemas)]),
   },
   paths: mergePaths(domains.map((domain) => domain.paths)),
 };

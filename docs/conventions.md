@@ -3,20 +3,23 @@
 Express 5 + TypeScript ESM (run with tsx), Supabase with the service_role key, vitest.
 Imports always carry the `.js` extension. `legacy/` is the replaced academic code: never import from it.
 
-## Adding a resource
+## Where files go
 
-1. `routes/<domain>.route.ts` — wiring only. The router already has `router.use(protectRoute)`
-   and is already mounted in `server.ts`. Add `requireRole('professor', 'examiner')` per endpoint.
-2. `controllers/<domain>.controller.ts` — thin: read `req.params`/`req.body`/`req.user`, call the
-   service, answer `{ success: true, ... }`, and `catch (error) { return
-   handleControllerError(res, error, "<name> controller"); }`.
-3. `services/<domain>.service.ts` — all business logic and every database call.
-   Expected failures are `throw new HttpError(status, message)`; anything else becomes a 500.
-4. Document the endpoint in `docs/paths/<domain>.ts` and its schemas in `docs/schemas/<domain>.ts`
-   in the same change. `docs/openapi.ts` merges them and **throws** when two domains claim the same
-   schema name or path+method, so a shared schema (`Person`, `PermittedUrl`) belongs in
-   `sharedSchemas` of `docs/common.ts`. `tests/docs/openapi.test.ts` checks every `$ref` and that
-   the documented operations are exactly the ones the routers wire.
+Five files per domain in `features/<domain>/`; `lib/` and `middleware/` are shared by every domain and stay at the root, next to the `server.ts` that mounts the routers.
+
+1. `<domain>.route.ts` — wiring only. The router already has `router.use(protectRoute)` and is
+   already mounted in `server.ts`. Add `requireRole('professor', 'examiner')` per endpoint.
+2. `<domain>.controller.ts` — thin: read `req.params`/`req.body`/`req.user`, call the service, answer
+   `{ success: true, ... }`, `catch (error) { return handleControllerError(res, error, "<name> controller"); }`.
+3. `<domain>.service.ts` — all business logic and every database call. Expected failures are
+   `throw new HttpError(status, message)`; anything else becomes a 500. `auth` has no service,
+   its logic sits in the controller.
+4. `<domain>.entities.ts` — one exported type per table the domain owns, PascalCase singular after
+   the table (`module_professor` → `ModuleProfessor`), fields straight from `migrations/`.
+5. `<domain>.docs.ts` — the endpoints and their schemas in one file (`tags`, `paths`, `schemas`), written in
+   the same change. `docs/openapi.ts` merges them and **throws** when two domains claim the same schema name
+   or path+method, so a shared schema (`Person`, `PermittedUrl`) belongs in `sharedSchemas` of `docs/common.ts`.
+   `tests/docs/openapi.test.ts` checks every `$ref` and that the operations documented are the ones wired.
 
 ## Ids, validation, errors
 
@@ -74,7 +77,8 @@ the permitted urls. The service keeps the cheap checks and the session duration,
 
 ## Tests
 
-`tests/<layer>/<name>.test.ts`, run with `npm test` (vitest, `legacy/` excluded); `npm run typecheck`
+`tests/features/<domain>/<name>.test.ts`, `tests/lib|middleware|docs/` for what crosses domains, run
+with `npm test` (vitest, `legacy/` excluded); `npm run typecheck`
 (`tsc --noEmit`, strict, `tsconfig.json`) covers the same files and has to stay clean. Everything that
 does not need a database gets a test. `lib/db.ts` throws without env vars, so mock it with a fake:
 
@@ -86,12 +90,12 @@ const { from, maybeSingle } = vi.hoisted(() => {
   return { from, maybeSingle };
 });
 
-vi.mock('../../lib/db.js', () => ({ database: { from } }));
+vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 ```
 
 Then set the result per case (`maybeSingle.mockResolvedValue({ data: null, error: null })`) and
 assert on the calls (`expect(from).toHaveBeenCalledWith('exams')`). A service that calls a database
-function mocks `database.rpc` next to `from`, as `tests/services/attempt.service.test.ts` does.
+function mocks `database.rpc` next to `from`, as `tests/features/attempts/attempt.service.test.ts` does.
 
 `e2e/smoke.ts` (`npm run e2e`) is not part of `npm test`: it starts the real server on port 8011 and drives it over HTTP
 against the Supabase project in `.env`. It seeds its own users with the service client (no endpoint that sends mail),

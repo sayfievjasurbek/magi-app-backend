@@ -7,13 +7,13 @@ import swaggerUi from 'swagger-ui-express';
 import { openapi } from './docs/openapi.js';
 import { defaultBody } from './middleware/body.middleware.js';
 import { sameOrigin } from './middleware/origin.middleware.js';
-import authRoutes from './routes/auth.route.js';
-import moduleRoutes from './routes/module.route.js';
-import examRoutes from './routes/exam.route.js';
-import questionRoutes from './routes/question.route.js';
-import attemptRoutes from './routes/attempt.route.js';
-import monitoringRoutes from './routes/monitoring.route.js';
-import cheatingRoutes from './routes/cheating.route.js';
+import authRoutes from './features/auth/auth.route.js';
+import moduleRoutes from './features/modules/module.route.js';
+import examRoutes from './features/exams/exam.route.js';
+import questionRoutes from './features/questions/question.route.js';
+import attemptRoutes from './features/attempts/attempt.route.js';
+import monitoringRoutes from './features/monitoring/monitoring.route.js';
+import cheatingRoutes from './features/cheatings/cheating.route.js';
 
 
 const app = express();

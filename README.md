@@ -21,7 +21,7 @@ Backend of the MAGI exam-proctoring platform: Express 5, TypeScript, Supabase (P
 
 ## Layout
 
-Routes wire the endpoints, controllers are thin, services hold the logic, `lib/` has the shared helpers. Domains: modules, questions, exams, attempts (`/api/assignments`), monitoring, cheatings.
+One folder per domain under `features/`, holding its route, controller, service, entities and API docs. `lib/` and `middleware/` are the shared infrastructure. Domains: auth, modules, questions, exams, attempts (`/api/assignments`), monitoring, cheatings.
 
 - `docs/conventions.md`: how to add a resource
 - `docs/database.dbml`: the database design
