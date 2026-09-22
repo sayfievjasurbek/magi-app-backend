@@ -3,7 +3,7 @@ import './lib/env-check.js';
 import express from "express";
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
-import swaggerUi from 'swagger-ui-express';
+import { apiReference } from '@scalar/express-api-reference';
 import { openapi } from './docs/openapi.js';
 import { defaultBody } from './middleware/body.middleware.js';
 import { sameOrigin } from './middleware/origin.middleware.js';
@@ -33,7 +33,7 @@ app.use(sameOrigin);
 
 app.get("/health", (req, res) => res.json({ success: true }));
 app.get("/docs.json", (req, res) => res.json(openapi));
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapi, { customSiteTitle: "MAGI API" }));
+app.use("/docs", apiReference({ content: openapi, theme: "purple", pageTitle: "MAGI API" }));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/modules", moduleRoutes);
