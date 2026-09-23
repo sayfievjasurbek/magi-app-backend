@@ -3,19 +3,19 @@ import { authed, dateTime, envelope, errors, id, json, nullable, ok, pathParam, 
 
 export const tags = [{ name: 'Attempts', description: 'A student sitting an exam: answers, timing and score (table assignments)' }];
 
-const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'] };
-const attemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'] };
+const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' };
+const attemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'], example: 'submitted' };
 // `flagged` is staff business: a student reads in_progress while the attempt runs, submitted or auto_submitted afterwards
-const studentAttemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded'] };
+const studentAttemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded'], example: 'in_progress' };
 
 const answerFields = {
-  answer: { type: 'string', description: 'The text the student typed (empty for a pure choice question)' },
+  answer: { type: 'string', example: 'It removes the transitive dependency of a non key column on another non key column.', description: 'The text the student typed (empty for a pure choice question)' },
   selected_option_ids: { type: 'array', items: id },
-  typing_duration: { type: 'integer' },
+  typing_duration: { type: 'integer', example: 240 },
   typing_duration_unit: timeUnit,
-  text_typed: { type: 'integer', description: 'Characters typed by hand' },
-  text_edited: { type: 'integer' },
-  text_pasted: { type: 'integer', description: 'Characters pasted into the answer' },
+  text_typed: { type: 'integer', example: 412, description: 'Characters typed by hand' },
+  text_edited: { type: 'integer', example: 37 },
+  text_pasted: { type: 'integer', example: 58, description: 'Characters pasted into the answer' },
   started_at: nullable(dateTime),
   answered_at: nullable(dateTime),
   last_synced_at: nullable(dateTime),
@@ -23,13 +23,13 @@ const answerFields = {
 
 const questionFields = {
   question_id: id,
-  position: { type: 'integer', description: 'Order of the question in this attempt (shuffled per attempt when the exam shuffles)' },
-  title: { type: 'string' },
-  question: { type: 'string' },
-  question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'] },
-  expected_duration: { type: 'integer' },
+  position: { type: 'integer', example: 1, description: 'Order of the question in this attempt (shuffled per attempt when the exam shuffles)' },
+  title: { type: 'string', example: 'Third normal form' },
+  question: { type: 'string', example: 'Which anomaly does the third normal form remove?' },
+  question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'short_answer' },
+  expected_duration: { type: 'integer', example: 90 },
   expected_duration_unit: timeUnit,
-  marks: { type: 'integer', description: 'What the question is worth in this exam (exam_question.marks)' },
+  marks: { type: 'integer', example: 10, description: 'What the question is worth in this exam (exam_question.marks)' },
 };
 
 const attemptFields = (status: object) => ({
@@ -38,11 +38,11 @@ const attemptFields = (status: object) => ({
   status,
   started_at: nullable(dateTime),
   submitted_at: nullable(dateTime),
-  auto_submitted: { type: 'boolean', description: 'The time ran out and the attempt was closed by the server' },
-  session_duration: { type: 'integer' },
+  auto_submitted: { type: 'boolean', example: false, description: 'The time ran out and the attempt was closed by the server' },
+  session_duration: { type: 'integer', example: 5400 },
   session_duration_unit: timeUnit,
   expires_at: dateTime,
-  remaining_seconds: { type: 'integer', description: '0 once the attempt is closed' },
+  remaining_seconds: { type: 'integer', example: 2700, description: '0 once the attempt is closed' },
   exam: ref('AttemptExam'),
 });
 
@@ -51,21 +51,21 @@ export const schemas = {
     type: 'object',
     properties: {
       id,
-      name: { type: 'string' },
+      name: { type: 'string', example: 'Databases, final' },
       scheduled_start: dateTime,
       scheduled_end: dateTime,
-      status: { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] },
-      max_marks: { type: 'integer' },
-      passing_marks: { type: 'integer' },
+      status: { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'], example: 'ongoing' },
+      max_marks: { type: 'integer', example: 100 },
+      passing_marks: { type: 'integer', example: 40 },
     },
   },
   AttemptOption: {
     type: 'object',
-    properties: { id, option_text: { type: 'string' } },
+    properties: { id, option_text: { type: 'string', example: 'A transitive dependency on a non key column' } },
   },
   StaffAttemptOption: {
     type: 'object',
-    properties: { id, option_text: { type: 'string' }, is_correct: { type: 'boolean' } },
+    properties: { id, option_text: { type: 'string', example: 'A transitive dependency on a non key column' }, is_correct: { type: 'boolean', example: true } },
   },
   StudentAttemptQuestion: {
     type: 'object',
@@ -74,7 +74,7 @@ export const schemas = {
       ...questionFields,
       options: { type: 'array', items: ref('AttemptOption') },
       ...answerFields,
-      marks_awarded: { type: 'integer', description: 'Only present when the attempt is graded' },
+      marks_awarded: { type: 'integer', example: 8, description: 'Only present when the attempt is graded' },
     },
   },
   StaffAttemptQuestion: {
@@ -83,8 +83,8 @@ export const schemas = {
       ...questionFields,
       options: { type: 'array', items: ref('StaffAttemptOption') },
       ...answerFields,
-      marks_awarded: { type: 'integer' },
-      paste_ratio: nullable({ type: 'number', description: 'text_pasted / (text_typed + text_pasted), null when nothing was written' }),
+      marks_awarded: { type: 'integer', example: 8 },
+      paste_ratio: nullable({ type: 'number', example: 0.12, description: 'text_pasted / (text_typed + text_pasted), null when nothing was written' }),
     },
   },
   StudentAttempt: {
@@ -92,9 +92,9 @@ export const schemas = {
     description: 'score, passed and feedback appear only once the status is graded; the student is never told the attempt is flagged.',
     properties: {
       ...attemptFields(studentAttemptStatus),
-      score: { type: 'integer' },
-      passed: { type: 'boolean' },
-      feedback: nullable({ type: 'string' }),
+      score: { type: 'integer', example: 78 },
+      passed: { type: 'boolean', example: true },
+      feedback: nullable({ type: 'string', example: 'Good answers, watch the normalisation detail.' }),
     },
   },
   StudentAttemptDetail: {
@@ -113,9 +113,9 @@ export const schemas = {
     type: 'object',
     properties: {
       ...attemptFields(attemptStatus),
-      score: { type: 'integer' },
-      passed: nullable({ type: 'boolean', description: 'null while the attempt is not graded' }),
-      feedback: nullable({ type: 'string' }),
+      score: { type: 'integer', example: 78 },
+      passed: nullable({ type: 'boolean', example: true, description: 'null while the attempt is not graded' }),
+      feedback: nullable({ type: 'string', example: 'Good answers, watch the normalisation detail.' }),
       student: nullable(ref('Person')),
     },
   },
@@ -131,13 +131,13 @@ export const schemas = {
     description: 'Every field but questionId is optional: only what is sent is written.',
     properties: {
       questionId: id,
-      answer: { type: 'string' },
+      answer: { type: 'string', example: 'It removes the transitive dependency of a non key column on another non key column.' },
       optionIds: { type: 'array', items: id, description: 'Replaces the chosen options of that question; [] clears them' },
-      typingDuration: { type: 'integer', minimum: 0 },
+      typingDuration: { type: 'integer', minimum: 0, example: 240 },
       typingDurationUnit: timeUnit,
-      textTyped: { type: 'integer', minimum: 0 },
-      textEdited: { type: 'integer', minimum: 0 },
-      textPasted: { type: 'integer', minimum: 0 },
+      textTyped: { type: 'integer', minimum: 0, example: 412 },
+      textEdited: { type: 'integer', minimum: 0, example: 37 },
+      textPasted: { type: 'integer', minimum: 0, example: 58 },
       startedAt: dateTime,
       answeredAt: dateTime,
     },
@@ -147,7 +147,7 @@ export const schemas = {
     required: ['questionId', 'marks'],
     properties: {
       questionId: id,
-      marks: { type: 'integer', minimum: 0, description: 'Never more than exam_question.marks of that question' },
+      marks: { type: 'integer', minimum: 0, example: 8, description: 'Never more than exam_question.marks of that question' },
     },
   },
 };
@@ -180,7 +180,7 @@ export const paths = {
           in: 'query',
           required: false,
           description: 'Keep only the attempts in this status',
-          schema: { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'] },
+          schema: { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'], example: 'submitted' },
         },
       ],
       responses: { '200': ok('Attempts of the exam', envelope({ attempts: { type: 'array', items: ref('StaffAttempt') } })), ...errors(400, 401, 403, 404) },
@@ -225,7 +225,7 @@ export const paths = {
         content: json({ type: 'object', required: ['answers'], properties: { answers: { type: 'array', minItems: 1, items: ref('AnswerSync') } } }),
       },
       responses: {
-        '200': ok('Answers written', envelope({ synced: { type: 'integer' }, remaining_seconds: { type: 'integer' } })),
+        '200': ok('Answers written', envelope({ synced: { type: 'integer', example: 12 }, remaining_seconds: { type: 'integer', example: 2700 } })),
         ...errors(400, 401, 403, 404, 409),
       },
     },
@@ -241,7 +241,7 @@ export const paths = {
       ...authed,
       parameters: [attemptId],
       responses: {
-        '200': ok('Attempt submitted', envelope({ attempt: ref('StudentAttempt'), message: { type: 'string' } })),
+        '200': ok('Attempt submitted', envelope({ attempt: ref('StudentAttempt'), message: { type: 'string', example: 'Your answers have been submitted' } })),
         ...errors(401, 403, 404, 409),
       },
     },
@@ -261,7 +261,7 @@ export const paths = {
           type: 'object',
           properties: {
             marks: { type: 'array', items: ref('QuestionMark') },
-            feedback: { type: 'string', description: 'Note for the student, shown once the attempt is graded' },
+            feedback: { type: 'string', example: 'Good answers, watch the normalisation detail.', description: 'Note for the student, shown once the attempt is graded' },
           },
         }),
       },

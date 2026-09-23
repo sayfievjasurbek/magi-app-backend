@@ -7,20 +7,21 @@ export const tags = [{ name: 'Cheatings', description: 'Cheating findings attach
 const name = {
   type: 'string',
   enum: ['tab_switch_limit', 'copy_paste', 'devtools', 'multiple_monitors', 'face_mismatch', 'screen_share', 'unauthorized_app', 'manual_review'],
+  example: 'copy_paste',
 };
 
 export const schemas = {
   CheatingType: name,
   Cheating: {
     type: 'object',
-    properties: { id, name, explanation: { type: 'string' }, created_at: dateTime },
+    properties: { id, name, explanation: { type: 'string', example: 'The candidate pasted 58 characters into the answer of question 3' }, created_at: dateTime },
   },
   CheatingDetail: {
     type: 'object',
     properties: {
       id,
       name,
-      explanation: { type: 'string' },
+      explanation: { type: 'string', example: 'The candidate pasted 58 characters into the answer of question 3' },
       created_at: dateTime,
       updated_at: dateTime,
       assignment_id: id,
@@ -28,11 +29,11 @@ export const schemas = {
   },
   DismissedCheating: {
     type: 'object',
-    properties: { id, name, deleted_at: dateTime, reason: nullable({ type: 'string' }) },
+    properties: { id, name, deleted_at: dateTime, reason: nullable({ type: 'string', example: 'The text was pasted from the exam instructions' }) },
   },
   CheatingCount: {
     type: 'object',
-    properties: { name, count: { type: 'integer', minimum: 1 } },
+    properties: { name, count: { type: 'integer', minimum: 1, example: 3 } },
   },
 };
 
@@ -52,7 +53,7 @@ export const paths = {
         content: json({
           type: 'object',
           required: ['name', 'explanation'],
-          properties: { name: ref('CheatingType'), explanation: { type: 'string', maxLength: 1000 } },
+          properties: { name: ref('CheatingType'), explanation: { type: 'string', maxLength: 1000, example: 'The candidate pasted 58 characters into the answer of question 3' } },
         }),
       },
       responses: {
@@ -102,7 +103,7 @@ export const paths = {
       description: 'Only a professor of the exam behind the attempt. The incident is soft deleted with the reason; the attempt keeps the status it has, dismissing never unflags it.',
       ...authed,
       parameters: [pathParam('cheatingId', 'Incident (cheatings.id)')],
-      requestBody: { required: true, content: json({ type: 'object', required: ['reason'], properties: { reason: { type: 'string', maxLength: 1000 } } }) },
+      requestBody: { required: true, content: json({ type: 'object', required: ['reason'], properties: { reason: { type: 'string', maxLength: 1000, example: 'The text was pasted from the exam instructions' } } }) },
       responses: {
         '200': ok('Incident dismissed', envelope({ cheating: ref('DismissedCheating') })),
         ...errors(400, 401, 403, 404),

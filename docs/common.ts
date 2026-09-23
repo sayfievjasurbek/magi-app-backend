@@ -2,8 +2,8 @@
 // features/<domain>/<domain>.docs.ts, openapi.ts merges them.
 
 export const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
-export const id = { type: 'integer', format: 'int64', minimum: 1 };
-export const dateTime = { type: 'string', format: 'date-time' };
+export const id = { type: 'integer', format: 'int64', minimum: 1, example: 12 };
+export const dateTime = { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' };
 // siblings of $ref are ignored in OpenAPI 3.0, so a nullable reference (always an object here) is wrapped in allOf,
 // nullable only takes effect next to an explicit type, and a nullable enum has to list null itself
 export const nullable = (schema: Record<string, any>) => {
@@ -30,20 +30,20 @@ export const errors = (...statuses: number[]) => {
   return Object.fromEntries(statuses.map((status) => [String(status), errorResponse(names[status] as string)]));
 };
 
-export const messageOnly = envelope({ message: { type: 'string' } });
+export const messageOnly = envelope({ message: { type: 'string', example: 'Completed successfully' } });
 
 export const sharedSchemas = {
   Error: {
     type: 'object',
-    properties: { success: { type: 'boolean', example: false }, message: { type: 'string' } },
+    properties: { success: { type: 'boolean', example: false }, message: { type: 'string', example: 'Invalid or expired token' } },
   },
   Person: {
     type: 'object',
-    properties: { id, first_name: { type: 'string' }, last_name: nullable({ type: 'string' }), email: { type: 'string', format: 'email' } },
+    properties: { id, first_name: { type: 'string', example: 'Sarah' }, last_name: nullable({ type: 'string', example: 'Chen' }), email: { type: 'string', format: 'email', example: 'sarah.chen@magi.edu' } },
   },
   // permitted urls belong to an exam and are copied onto every attempt of it, so both domains answer with them
   PermittedUrl: {
     type: 'object',
-    properties: { id, url: { type: 'string', format: 'uri' } },
+    properties: { id, url: { type: 'string', format: 'uri', example: 'https://docs.python.org/3/' } },
   },
 };

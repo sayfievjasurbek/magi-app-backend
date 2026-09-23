@@ -3,8 +3,8 @@ import { authed, dateTime, envelope, errors, id, json, messageOnly, nullable, ok
 
 export const tags = [{ name: 'Questions', description: 'Questions and their options' }];
 
-const questionType = { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'] };
-const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'] };
+const questionType = { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' };
+const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' };
 
 export const schemas = {
   QuestionOption: {
@@ -14,7 +14,7 @@ export const schemas = {
       id,
       question_id: id,
       option_text: { type: 'string', example: '42' },
-      is_correct: { type: 'boolean' },
+      is_correct: { type: 'boolean', example: true },
       created_at: dateTime,
       updated_at: dateTime,
     },
@@ -32,7 +32,7 @@ export const schemas = {
       created_at: dateTime,
       updated_at: dateTime,
       deleted_at: nullable(dateTime),
-      reason: nullable({ type: 'string' }),
+      reason: nullable({ type: 'string', example: 'replaced by a clearer wording' }),
     },
   },
   QuestionWithOptions: {
@@ -42,7 +42,7 @@ export const schemas = {
   QuestionOptionInput: {
     type: 'object',
     required: ['optionText'],
-    properties: { optionText: { type: 'string', example: 'O(log n)' }, isCorrect: { type: 'boolean', default: false } },
+    properties: { optionText: { type: 'string', example: 'O(log n)' }, isCorrect: { type: 'boolean', default: false, example: true } },
   },
   QuestionInput: {
     type: 'object',
@@ -50,10 +50,10 @@ export const schemas = {
       'The option set has to match the type: `multiple_choice` at least 2 options and at least 1 correct, ' +
       '`true_false` exactly 2 options and exactly 1 correct, `short_answer` and `essay` no options at all.',
     properties: {
-      title: { type: 'string', maxLength: 100 },
+      title: { type: 'string', maxLength: 100, example: 'Complexity of binary search' },
       questionType,
-      question: { type: 'string' },
-      expectedDuration: { type: 'integer', minimum: 0 },
+      question: { type: 'string', example: 'What is the worst case complexity of binary search?' },
+      expectedDuration: { type: 'integer', minimum: 0, example: 90 },
       expectedDurationUnit: timeUnit,
       options: { type: 'array', items: ref('QuestionOptionInput') },
     },
@@ -77,8 +77,8 @@ export const paths = {
       summary: 'List own questions (professor)',
       ...authed,
       parameters: [
-        { name: 'questionType', in: 'query', required: false, description: 'Only questions of this type', schema: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'] } },
-        { name: 'search', in: 'query', required: false, description: 'Case insensitive match on the title', schema: { type: 'string' } },
+        { name: 'questionType', in: 'query', required: false, description: 'Only questions of this type', schema: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' } },
+        { name: 'search', in: 'query', required: false, description: 'Case insensitive match on the title', schema: { type: 'string', example: 'binary search' } },
       ],
       responses: { '200': ok('Questions', envelope({ questions: { type: 'array', items: ref('Question') } })), ...errors(400, 401, 403) },
     },

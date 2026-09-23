@@ -3,7 +3,7 @@ import { authed, dateTime, envelope, errors, id, json, messageOnly, nullable, ok
 
 export const tags = [{ name: 'Exams', description: 'Exams, their schedule, modules, examiners, students, questions, monitored events and permitted urls' }];
 
-export const examStatus = { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] };
+export const examStatus = { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'], example: 'ongoing' };
 
 export const schemas = {
   Exam: {
@@ -11,13 +11,13 @@ export const schemas = {
     description: 'An exam as staff see it.',
     properties: {
       id,
-      name: { type: 'string' },
-      shuffle_questions: { type: 'boolean' },
+      name: { type: 'string', example: 'Databases, final' },
+      shuffle_questions: { type: 'boolean', example: true },
       scheduled_start: dateTime,
       scheduled_end: dateTime,
       status: examStatus,
-      max_marks: { type: 'integer' },
-      passing_marks: { type: 'integer' },
+      max_marks: { type: 'integer', example: 100 },
+      passing_marks: { type: 'integer', example: 40 },
       created_by: nullable(id),
       created_at: dateTime,
       updated_at: dateTime,
@@ -28,12 +28,12 @@ export const schemas = {
     description: 'An exam as the students assigned to it see it: no questions, no owner, no shuffling.',
     properties: {
       id,
-      name: { type: 'string' },
+      name: { type: 'string', example: 'Databases, final' },
       scheduled_start: dateTime,
       scheduled_end: dateTime,
       status: examStatus,
-      max_marks: { type: 'integer' },
-      passing_marks: { type: 'integer' },
+      max_marks: { type: 'integer', example: 100 },
+      passing_marks: { type: 'integer', example: 40 },
       permitted_urls: { type: 'array', items: ref('PermittedUrl') },
     },
   },
@@ -43,13 +43,13 @@ export const schemas = {
       {
         type: 'object',
         properties: {
-          modules: { type: 'array', items: { type: 'object', properties: { id, name: { type: 'string' } } } },
+          modules: { type: 'array', items: { type: 'object', properties: { id, name: { type: 'string', example: 'Databases' } } } },
           examiners: { type: 'array', items: ref('Person') },
           students: { type: 'array', items: ref('Person') },
           events: { type: 'array', items: ref('MonitoredEvent') },
           permitted_urls: { type: 'array', items: ref('PermittedUrl') },
           questions: { type: 'array', items: ref('ExamQuestion') },
-          marks_total: { type: 'integer', description: 'The marks of the questions added up; it has to equal max_marks before the exam can go ongoing' },
+          marks_total: { type: 'integer', example: 100, description: 'The marks of the questions added up; it has to equal max_marks before the exam can go ongoing' },
         },
       },
     ],
@@ -59,13 +59,13 @@ export const schemas = {
     description: 'A question of an exam, with the position and the marks it carries in that exam.',
     properties: {
       id,
-      title: { type: 'string' },
-      question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'] },
-      question: { type: 'string' },
-      expected_duration: { type: 'integer' },
-      expected_duration_unit: { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'] },
-      position: { type: 'integer' },
-      marks: { type: 'integer' },
+      title: { type: 'string', example: 'Third normal form' },
+      question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' },
+      question: { type: 'string', example: 'Which anomaly does the third normal form remove?' },
+      expected_duration: { type: 'integer', example: 90 },
+      expected_duration_unit: { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' },
+      position: { type: 'integer', example: 1 },
+      marks: { type: 'integer', example: 10 },
       options: { type: 'array', items: ref('ExamQuestionOption') },
     },
   },
@@ -75,13 +75,13 @@ export const schemas = {
     properties: {
       id,
       question_id: id,
-      option_text: { type: 'string' },
-      is_correct: { type: 'boolean' },
+      option_text: { type: 'string', example: 'A transitive dependency on a non key column' },
+      is_correct: { type: 'boolean', example: true },
     },
   },
   ExamQuestionLink: {
     type: 'object',
-    properties: { question_id: id, position: { type: 'integer' }, marks: { type: 'integer' } },
+    properties: { question_id: id, position: { type: 'integer', example: 1 }, marks: { type: 'integer', example: 10 } },
   },
   MonitoredEvent: {
     type: 'object',
@@ -93,8 +93,9 @@ export const schemas = {
           'browser_version', 'active_app', 'menu_bar_icon', 'open_window', 'monitor_count', 'monitor_hotplug',
           'chrome_extension', 'tab_switch', 'app_switch', 'screen_mirror', 'devtools_opened', 'copy_paste', 'url_access',
         ],
+        example: 'tab_switch',
       },
-      description: { type: 'string' },
+      description: { type: 'string', example: 'The candidate moved to another browser tab' },
     },
   },
 };
@@ -137,12 +138,12 @@ export const paths = {
           required: ['name', 'scheduledStart', 'scheduledEnd'],
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final' },
-            scheduledStart: { type: 'string', format: 'date-time' },
-            scheduledEnd: { type: 'string', format: 'date-time', description: 'Must be after scheduledStart' },
-            status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled' },
-            maxMarks: { type: 'integer', minimum: 0, default: 100 },
-            passingMarks: { type: 'integer', minimum: 0, default: 0, description: 'Cannot be above maxMarks' },
-            shuffleQuestions: { type: 'boolean', default: true },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
+            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart' },
+            status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled', example: 'scheduled' },
+            maxMarks: { type: 'integer', minimum: 0, default: 100, example: 100 },
+            passingMarks: { type: 'integer', minimum: 0, default: 0, example: 40, description: 'Cannot be above maxMarks' },
+            shuffleQuestions: { type: 'boolean', default: true, example: true },
           },
         }),
       },
@@ -176,12 +177,12 @@ export const paths = {
         content: json({
           type: 'object',
           properties: {
-            name: { type: 'string', maxLength: 100 },
-            scheduledStart: { type: 'string', format: 'date-time' },
-            scheduledEnd: { type: 'string', format: 'date-time' },
-            maxMarks: { type: 'integer', minimum: 0 },
-            passingMarks: { type: 'integer', minimum: 0 },
-            shuffleQuestions: { type: 'boolean' },
+            name: { type: 'string', maxLength: 100, example: 'Databases, final' },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
+            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z' },
+            maxMarks: { type: 'integer', minimum: 0, example: 100 },
+            passingMarks: { type: 'integer', minimum: 0, example: 40 },
+            shuffleQuestions: { type: 'boolean', example: true },
           },
         }),
       },
@@ -297,8 +298,8 @@ export const paths = {
       responses: {
         '200': ok('The questions', envelope({
           questions: { type: 'array', items: ref('ExamQuestion') },
-          marks_total: { type: 'integer' },
-          max_marks: { type: 'integer' },
+          marks_total: { type: 'integer', example: 100 },
+          max_marks: { type: 'integer', example: 100 },
         })),
         ...errors(401, 403, 404),
       },
@@ -316,7 +317,7 @@ export const paths = {
         content: json({
           type: 'object',
           required: ['questionId'],
-          properties: { questionId: id, marks: { type: 'integer', minimum: 0, default: 1 }, position: { type: 'integer', minimum: 1 } },
+          properties: { questionId: id, marks: { type: 'integer', minimum: 0, default: 1, example: 10 }, position: { type: 'integer', minimum: 1, example: 1 } },
         }),
       },
       responses: { ...created('Added', envelope({ question: ref('ExamQuestionLink') })), ...errors(400, 401, 403, 404, 409) },
@@ -341,7 +342,7 @@ export const paths = {
       description: 'Structural: 409 once the exam has attempts. *professor*',
       ...authed,
       parameters: [examParam, pathParam('questionId', 'Id of the question')],
-      requestBody: { required: true, content: json({ type: 'object', required: ['marks'], properties: { marks: { type: 'integer', minimum: 0 } } }) },
+      requestBody: { required: true, content: json({ type: 'object', required: ['marks'], properties: { marks: { type: 'integer', minimum: 0, example: 10 } } }) },
       responses: { '200': ok('The updated link', envelope({ question: ref('ExamQuestionLink') })), ...errors(400, 401, 403, 404, 409) },
     },
     delete: {

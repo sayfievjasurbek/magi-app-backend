@@ -16,9 +16,9 @@ export const schemas = {
     type: 'object',
     properties: {
       id,
-      url: { type: 'string', format: 'uri' },
+      url: { type: 'string', format: 'uri', example: 'https://media.magi.edu/attempts/12/snapshot-3.png' },
       deleted_at: dateTime,
-      reason: nullable({ type: 'string' }),
+      reason: nullable({ type: 'string', example: 'Recording of the wrong candidate' }),
     },
   },
 };
@@ -29,7 +29,7 @@ const kindParam = {
   in: 'path',
   required: true,
   description: 'Which media of the attempt. An unknown kind answers 404.',
-  schema: { type: 'string', enum: ['panoramic-views', 'video-recordings', 'face-snapshots', 'snapshots'] },
+  schema: { type: 'string', enum: ['panoramic-views', 'video-recordings', 'face-snapshots', 'snapshots'], example: 'snapshots' },
 };
 
 export const paths = {
@@ -42,7 +42,7 @@ export const paths = {
         'Only while the attempt is in progress and inside its time limit (409 once the time is over), and only `http`/`https` urls of at most 2048 characters.',
       ...authed,
       parameters: [pathParam('attemptId', 'Attempt (assignments.id)'), kindParam],
-      requestBody: { required: true, content: json({ type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri' } } }) },
+      requestBody: { required: true, content: json({ type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', example: 'https://media.magi.edu/attempts/12/snapshot-3.png' } } }) },
       responses: {
         '201': ok('Media stored', envelope({ media: ref('MonitoringMedia') })),
         ...errors(400, 401, 403, 404, 409),
@@ -69,7 +69,7 @@ export const paths = {
       description: 'Only a professor of the exam behind the attempt. The media row is soft deleted with the reason, the link to the attempt stays.',
       ...authed,
       parameters: [kindParam, pathParam('mediaId', 'Media item of that kind')],
-      requestBody: { required: true, content: json({ type: 'object', required: ['reason'], properties: { reason: { type: 'string', maxLength: 1000 } } }) },
+      requestBody: { required: true, content: json({ type: 'object', required: ['reason'], properties: { reason: { type: 'string', maxLength: 1000, example: 'Recording of the wrong candidate' } } }) },
       responses: {
         '200': ok('Media deleted', envelope({ media: ref('DeletedMonitoringMedia') })),
         ...errors(400, 401, 403, 404),

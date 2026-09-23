@@ -12,7 +12,7 @@ export const schemas = {
       created_at: dateTime,
       updated_at: dateTime,
       deleted_at: nullable(dateTime),
-      reason: nullable({ type: 'string' }),
+      reason: nullable({ type: 'string', example: 'merged into Algorithms II' }),
     },
   },
   ManagedModule: {
@@ -24,7 +24,7 @@ export const schemas = {
     type: 'object',
     description: 'The member is named by email or by id; the id field is `professorId` or `studentId` depending on the list.',
     properties: {
-      email: { type: 'string', format: 'email' },
+      email: { type: 'string', format: 'email', example: 'diego.ochoa@magi.edu' },
       professorId: id,
       studentId: id,
     },
@@ -74,7 +74,7 @@ export const paths = {
       parameters: [moduleParam],
       requestBody: {
         required: true,
-        content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 100 } } }),
+        content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 100, example: 'Algorithms II' } } }),
       },
       responses: { '200': ok('Module updated', envelope({ module: ref('Module') })), ...errors(400, 401, 403, 404) },
     },
