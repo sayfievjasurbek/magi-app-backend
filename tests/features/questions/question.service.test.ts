@@ -44,6 +44,12 @@ describe('createQuestion', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('needs the question text', async () => {
+    await expect(questionService.createQuestion(3, { title: 'Q' })).rejects.toMatchObject({ status: 400, message: 'Question text is required' });
+    await expect(questionService.createQuestion(3, { title: 'Q', question: '   ' })).rejects.toMatchObject({ status: 400 });
+    expect(from).not.toHaveBeenCalled();
+  });
+
   it('checks questionType, expectedDuration and its unit against the enums', async () => {
     await expect(questionService.createQuestion(3, { title: 'Q', questionType: 'oral' })).rejects.toMatchObject({ status: 400 });
     await expect(questionService.createQuestion(3, { title: 'Q', questionType: 'essay', expectedDuration: -1 })).rejects.toMatchObject({ status: 400 });
@@ -52,15 +58,15 @@ describe('createQuestion', () => {
   });
 
   it('wants at least 2 options and 1 correct one for multiple_choice', async () => {
-    await expect(questionService.createQuestion(3, { title: 'Q', options: [{ optionText: 'only' }] })).rejects.toMatchObject({ status: 400 });
-    await expect(questionService.createQuestion(3, { title: 'Q' })).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', options: [{ optionText: 'only' }] })).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?' })).rejects.toMatchObject({ status: 400 });
     await expect(
-      questionService.createQuestion(3, { title: 'Q', options: [{ optionText: 'a' }, { optionText: 'b' }] })
+      questionService.createQuestion(3, { title: 'Q', question: 'Q?', options: [{ optionText: 'a' }, { optionText: 'b' }] })
     ).rejects.toMatchObject({ status: 400, message: 'A multiple_choice question needs at least 1 correct option' });
   });
 
   it('wants exactly 2 options and exactly 1 correct one for true_false', async () => {
-    const body = { title: 'Q', questionType: 'true_false' };
+    const body = { title: 'Q', question: 'Q?', questionType: 'true_false' };
 
     await expect(questionService.createQuestion(3, { ...body, options: [{ optionText: 'true', isCorrect: true }] })).rejects.toMatchObject({ status: 400 });
     await expect(
@@ -69,11 +75,11 @@ describe('createQuestion', () => {
   });
 
   it('takes no options for short_answer and essay', async () => {
-    await expect(questionService.createQuestion(3, { title: 'Q', questionType: 'essay', options: choices })).rejects.toMatchObject({
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay', options: choices })).rejects.toMatchObject({
       status: 400,
       message: 'essay questions take no options',
     });
-    await expect(questionService.createQuestion(3, { title: 'Q', questionType: 'short_answer', options: choices })).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'short_answer', options: choices })).rejects.toMatchObject({ status: 400 });
   });
 
   it('rejects options that are not a list of texts', async () => {
@@ -85,11 +91,11 @@ describe('createQuestion', () => {
   it('writes the question with its owner and its options', async () => {
     queue(ok(QUESTION), ok(OPTIONS));
 
-    const created = await questionService.createQuestion(3, { title: '  Binary search  ', options: choices });
+    const created = await questionService.createQuestion(3, { title: '  Binary search  ', question: '  How fast is binary search?  ', options: choices });
 
     expect(created).toEqual({ ...QUESTION, options: OPTIONS });
     expect(from).toHaveBeenNthCalledWith(1, 'questions');
-    expect(builder.insert).toHaveBeenNthCalledWith(1, { title: 'Binary search', question_type: 'multiple_choice', created_by: 3 });
+    expect(builder.insert).toHaveBeenNthCalledWith(1, { title: 'Binary search', question: 'How fast is binary search?', question_type: 'multiple_choice', created_by: 3 });
     expect(from).toHaveBeenNthCalledWith(2, 'question_options');
     expect(builder.insert).toHaveBeenNthCalledWith(2, [
       { option_text: 'O(log n)', is_correct: true, question_id: 11 },
@@ -100,12 +106,13 @@ describe('createQuestion', () => {
   it('writes no options for an essay question', async () => {
     queue(ok({ ...QUESTION, question_type: 'essay' }));
 
-    const created = await questionService.createQuestion(3, { title: 'Essay', questionType: 'essay', expectedDuration: 30, expectedDurationUnit: 'minutes' });
+    const created = await questionService.createQuestion(3, { title: 'Essay', question: 'Write an essay.', questionType: 'essay', expectedDuration: 30, expectedDurationUnit: 'minutes' });
 
     expect(created.options).toEqual([]);
     expect(from).toHaveBeenCalledTimes(1);
     expect(builder.insert).toHaveBeenCalledWith({
       title: 'Essay',
+      question: 'Write an essay.',
       question_type: 'essay',
       expected_duration: 30,
       expected_duration_unit: 'minutes',
@@ -116,7 +123,7 @@ describe('createQuestion', () => {
   it('removes the question again when its options cannot be written', async () => {
     queue(ok(QUESTION), fail({ message: 'options failed' }), ok(null));
 
-    await expect(questionService.createQuestion(3, { title: 'Q', options: choices })).rejects.toThrow('options failed');
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', options: choices })).rejects.toThrow('options failed');
     expect(from).toHaveBeenNthCalledWith(3, 'questions');
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('id', 11);
@@ -268,8 +275,15 @@ describe('deleteQuestion', () => {
     expect(builder.update).not.toHaveBeenCalled();
   });
 
+  it('refuses to delete a question still attached to an exam', async () => {
+    queue(ok(QUESTION), ok([]), ok([{ exam_id: 5 }]));
+
+    await expect(questionService.deleteQuestion(3, '11', {})).rejects.toMatchObject({ status: 409 });
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
   it('stamps deleted_at and keeps the reason', async () => {
-    queue(ok(QUESTION), ok([]), ok(null));
+    queue(ok(QUESTION), ok([]), ok([]), ok(null));
 
     await questionService.deleteQuestion(3, '11', { reason: 'replaced by a clearer wording' });
 

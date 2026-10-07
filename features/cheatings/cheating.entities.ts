@@ -8,7 +8,11 @@ export type CheatingType =
   | 'face_mismatch'
   | 'screen_share'
   | 'unauthorized_app'
-  | 'manual_review';
+  | 'manual_review'
+  | 'phone_seen'
+  | 'camera_away'
+  | 'link_blocked'
+  | 'app_closed';
 
 export type Cheating = {
   id: number;

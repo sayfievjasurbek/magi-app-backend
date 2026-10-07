@@ -42,8 +42,8 @@ const parseQuestionFields = (body: Record<string, unknown>): QuestionFields => {
   };
 
   if (body.question !== undefined) {
-    if (typeof body.question !== 'string') throw new HttpError(400, 'question must be a string');
-    fields.question = body.question;
+    if (typeof body.question !== 'string' || !body.question.trim()) throw new HttpError(400, 'Question text must be a non-empty string');
+    fields.question = body.question.trim();
   };
 
   if (body.questionType !== undefined) fields.question_type = parseQuestionType(body.questionType);
@@ -173,6 +173,19 @@ const hasAnswers = async (questionId: number) => {
   return Boolean(data?.length);
 };
 
+// deleting a question still asked by an exam would silently drop it from every attempt
+// start_attempt builds (migrations/008_start_attempt.sql joins on questions.deleted_at is null)
+const isAttachedToExam = async (questionId: number) => {
+  const { data, error } = await database
+    .from('exam_question')
+    .select('exam_id')
+    .eq('question_id', questionId)
+    .limit(1);
+
+  if (error) throw new Error(error.message);
+  return Boolean(data?.length);
+};
+
 const listOptions = async (questionId: number) => {
   const { data, error } = await activeOnly(
     database.from('question_options').select(OPTION_COLUMNS).eq('question_id', questionId)
@@ -233,6 +246,7 @@ const updateFields = async (questionId: number, fields: QuestionFields) => {
 export const createQuestion = async (professorId: number, body: Record<string, unknown>) => {
   const fields = parseQuestionFields(body);
   if (!fields.title) throw new HttpError(400, 'Question title is required');
+  if (!fields.question) throw new HttpError(400, 'Question text is required');
 
   const questionType = fields.question_type ?? 'multiple_choice';
   const options = parseOptions(body.options ?? [], questionType);
@@ -311,6 +325,7 @@ export const deleteQuestion = async (professorId: number, questionIdParam: strin
   const reason = parseReason(body.reason);
 
   if (await hasAnswers(question.id)) throw new HttpError(409, 'This question has been answered and cannot be deleted');
+  if (await isAttachedToExam(question.id)) throw new HttpError(409, 'This question is attached to an exam and cannot be deleted');
 
   const { error } = await database.from('questions').update(softDelete(reason)).eq('id', question.id);
   if (error) throw new Error(error.message);

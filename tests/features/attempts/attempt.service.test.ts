@@ -382,6 +382,27 @@ describe('getAttempt as staff', () => {
     expect(attempt.student).toMatchObject({ id: 3, email: 'sam@magi.edu' });
     expect(attempt).toMatchObject({ score: 0, passed: null });
     expect(attempt).not.toHaveProperty('permitted_urls');
+    expect(attempt.completion).toEqual({ answered: 1, total: 1, marks_answered: 10, marks_total: 10 });
+  });
+
+  it('counts an unanswered question toward the total but not toward what was answered', async () => {
+    queueStaffAttempt(attemptRow({ status: 'submitted', submitted_at: '2026-09-21T09:50:00.000Z' }));
+    queue('users', { id: 3, first_name: 'Sam', last_name: 'Lee', email: 'sam@magi.edu' });
+    queue('question_assignment', [
+      { question_id: 8, position: 1, answer: 'done', typing_duration: 0, typing_duration_unit: 'seconds', text_typed: 0, text_edited: 0, text_pasted: 0, last_synced_at: null, started_at: null, answered_at: null, marks_awarded: 0 },
+      { question_id: 9, position: 2, answer: '', typing_duration: 0, typing_duration_unit: 'seconds', text_typed: 0, text_edited: 0, text_pasted: 0, last_synced_at: null, started_at: null, answered_at: null, marks_awarded: 0 },
+    ]);
+    queue('questions', [
+      { id: 8, title: 'Q8', question: 'pick', question_type: 'short_answer', expected_duration: 60, expected_duration_unit: 'seconds' },
+      { id: 9, title: 'Q9', question: 'write', question_type: 'short_answer', expected_duration: 60, expected_duration_unit: 'seconds' },
+    ]);
+    queue('question_options', []);
+    queue('question_assignment_option', []);
+    queue('exam_question', [{ question_id: 8, marks: 10 }, { question_id: 9, marks: 15 }]);
+
+    const attempt = await getAttempt(PROFESSOR, 9) as any;
+
+    expect(attempt.completion).toEqual({ answered: 1, total: 2, marks_answered: 10, marks_total: 25 });
   });
 
   it('lets the professor who created the exam in even when it is linked to no module', async () => {

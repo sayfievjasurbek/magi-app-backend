@@ -397,10 +397,24 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
 
   const { attempt, exam, studentId } = await loadStaffAttempt(caller, attemptId);
   const current = await ensureCurrent(attempt, exam);
+  const questions = await attemptQuestions(current, true);
 
   return {
     ...staffSummary(current, exam, await loadStudent(studentId)),
-    questions: await attemptQuestions(current, true),
+    questions,
+    completion: completionOf(questions),
+  };
+};
+
+// how much of the exam the student actually answered, independent of whether it was graded yet
+// or whether any answer is right - a reference figure next to the staff's own marks
+const completionOf = (questions: Array<{ answer: string; selected_option_ids: number[]; marks: number }>) => {
+  const answered = questions.filter((q) => q.answer.trim() !== '' || q.selected_option_ids.length > 0);
+  return {
+    answered: answered.length,
+    total: questions.length,
+    marks_answered: answered.reduce((sum, q) => sum + q.marks, 0),
+    marks_total: questions.reduce((sum, q) => sum + q.marks, 0),
   };
 };
 

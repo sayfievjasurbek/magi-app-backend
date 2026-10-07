@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { type Request, type Response, type NextFunction } from 'express';
-import { sameOrigin } from '../../middleware/origin.middleware.js';
+import { type sameOrigin as SameOrigin } from '../../middleware/origin.middleware.js';
 
 const makeRes = () => {
   const res = {
@@ -18,10 +18,14 @@ const makeReq = (method: string, origin?: string) => ({
 }) as unknown as Request;
 
 let next: NextFunction;
+let sameOrigin: typeof SameOrigin;
 
-beforeEach(() => {
+// CLIENT_URL is read once at import time, so each case re-imports the module
+beforeEach(async () => {
   next = vi.fn();
+  vi.resetModules();
   vi.stubEnv('CLIENT_URL', 'https://app.magi.test');
+  ({ sameOrigin } = await import('../../middleware/origin.middleware.js'));
 });
 
 afterEach(() => {

@@ -74,9 +74,9 @@ export const login = async ( req: Request, res: Response ) => {
       });
     };
 
-    if(user.deleted_at) {
-      return  res.status(403).json({ 
-        success: false, 
+    if(user.deleted_at || user.active_status !== 'active') {
+      return  res.status(403).json({
+        success: false,
         message: `Account is ${user.active_status}. Please contact support.`
       });
     };
@@ -99,11 +99,13 @@ export const login = async ( req: Request, res: Response ) => {
     const expires_at = new Date();
 		expires_at.setDate(expires_at.getDate() + 7); // 7days
 
-    // Store the token in the database
+    // Store the token in the database (hashed, like every other token type - a DB leak
+    // should not hand out ready-to-use session cookies)
+    const hashedSessionToken = crypto.createHash('sha256').update(token).digest('hex');
     const { error: tokenError } = await database
       .from('tokens')
       .insert({
-        token,
+        token: hashedSessionToken,
         expires_at,
         token_type: 'cookie_token_login'
       });
@@ -219,21 +221,16 @@ export const signup = async ( req: Request, res: Response ) => {
         param_email_type: 'verify_account_email',
         param_email: trimmedEmail,
       });
-    
+
     if (canSendError) {
       console.log('Error checking email send capability:', canSendError);
       throw new Error(canSendError.message);
     };
 
-    if (canSend === true) {
-      // Send verification email
-      const isSent = await sendVerificationEmail(trimmedEmail, token);
-      if (!isSent) 
-        return res.status(400).json({ message: "Message is not sent (Error in signup controller)" });
-    } else {
+    if (canSend !== true) {
       return res.status(400).json({ message: 'Email limit reached or cooldown active' });
-    }
-    
+    };
+
     // Set token expiration time
     const expires_at: Date = new Date();
     expires_at.setHours(expires_at.getHours() + 1); // Token expires in 1 hour
@@ -241,7 +238,8 @@ export const signup = async ( req: Request, res: Response ) => {
     // Hash the token before storing
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-    // Store the token in the database
+    // Store the token before sending the email: a send failure after this is recoverable
+    // (resend through verifyEmail), a send that goes out before the token exists is not
     const { data: tokenData, error: tokenError } = await database
       .from('tokens')
       .insert({
@@ -250,8 +248,8 @@ export const signup = async ( req: Request, res: Response ) => {
         expires_at,
       })
       .select('id')
-      .single<{id: number}>() 
-    
+      .single<{id: number}>()
+
     if (tokenError) {
       console.log('Error storing verification token during signup:', tokenError);
       throw new Error(tokenError.message);
@@ -261,7 +259,7 @@ export const signup = async ( req: Request, res: Response ) => {
       console.log('Token data is null after insertion');
       throw new Error('Token data is null after insertion');
     };
-    
+
     const { error: userTokenError } = await database
       .from('users_tokens')
       .insert({ user_id: newUser.id, token_id: tokenData.id });
@@ -270,6 +268,11 @@ export const signup = async ( req: Request, res: Response ) => {
       console.log('Error linking verification token to user:', userTokenError);
       throw new Error(userTokenError.message);
     };
+
+    // Send verification email
+    const isSent = await sendVerificationEmail(trimmedEmail, token);
+    if (!isSent)
+      return res.status(400).json({ message: "Message is not sent (Error in signup controller)" });
 
     return res.status( 200 ).json( { success: true, message: 'User signed up successfully. Please verify your email address.' } );
   } catch (error: unknown) {
@@ -280,6 +283,20 @@ export const signup = async ( req: Request, res: Response ) => {
 //logout
 export const logout = async (req: Request, res: Response) => {
   try {
+    const token = req.cookies.jwt;
+
+    // revoke the session row so protectRoute refuses this cookie even if it leaks or lingers in a browser
+    if (token) {
+      const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+      const { error: revokeError } = await database
+        .from('tokens')
+        .update({ revoked: true })
+        .eq('token', hashedToken)
+        .eq('token_type', 'cookie_token_login');
+
+      if (revokeError) console.log('Error revoking session token during logout:', revokeError.message);
+    };
+
     const isProduction = process.env.NODE_ENV === 'production';
     res.clearCookie("jwt", {
       httpOnly: true,
@@ -297,17 +314,6 @@ export const logout = async (req: Request, res: Response) => {
 export const verifyAccount = async ( req: Request, res: Response ) => {
   try {
     const {token} = req.params as { token: s };
-    const {data: validateUser, error: validateUserError} = await database
-      .from('users')
-      .select('id')
-      .eq("active_status", "active");
-    
-    if (validateUserError) {
-      console.log('Error validating user for account verification:', validateUserError);
-      throw new Error(validateUserError.message);
-    };
-    if (!validateUser) return res.status(404).json({ success: false, message: "Invalid token" });
-
     if (!token) return res.status(400).json({ success: false, message: "Token is required" });
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     
@@ -424,9 +430,9 @@ export const verifyEmail = async ( req: Request, res: Response) => {
     //Check if user exists
     const { data: user, error: userError } = await database
       .from('users')
-      .select('id, is_verified, deleted_at')
+      .select('id, is_verified, active_status, deleted_at')
       .eq('email', trimmedEmail)
-      .maybeSingle<{id: number, is_verified: boolean,  deleted_at: Date}>();
+      .maybeSingle<{id: number, is_verified: boolean, active_status: string, deleted_at: Date}>();
 
     if (userError) {
       console.log('Error fetching user for email verification:', userError);
@@ -434,7 +440,7 @@ export const verifyEmail = async ( req: Request, res: Response) => {
     };
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
     if (user.is_verified) return res.status(400).json({ success: false, message: "Email is already verified" });
-    if (user.deleted_at) return res.status(400).json({ success: false, message: "Account has been permanently deleted.Please contact support if you believe this is an error." });
+    if (user.deleted_at || user.active_status !== 'pending') return res.status(400).json({ success: false, message: `Account is ${user.active_status}. Please contact support.` });
 
     const {data: canSend, error: canSendError } = await database
       .rpc('can_send_email', {
@@ -480,7 +486,7 @@ export const verifyEmail = async ( req: Request, res: Response) => {
         throw new Error(userTokenError.message);
       };
 
-      // Send verification email
+      // Send verification email (token is already stored, so a send failure here is recoverable)
       const isSent = await sendVerificationEmail(trimmedEmail, token);
       if (!isSent) {
         console.log("Verification email not sent");
@@ -513,16 +519,16 @@ export const forgotPassword = async ( req: Request, res: Response ) => {
     //Check if user exists
     const { data: user, error: userError } = await database
       .from('users')
-      .select('id, email, is_verified, deleted_at')
+      .select('id, email, is_verified, active_status, deleted_at')
       .eq('email', trimmedEmail)
-      .maybeSingle<{id: number, email: string, is_verified: boolean, deleted_at: string | null}>();
+      .maybeSingle<{id: number, email: string, is_verified: boolean, active_status: string, deleted_at: string | null}>();
     if (userError) {
       console.log('Error fetching user for password reset:', userError);
       throw new Error(userError.message)
     };
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
     if (!user.is_verified) return res.status(403).json({ success: false, message: "Email is not verified" });
-    if (user.deleted_at) return res.status(403).json({ success: false, message: "Account is deactivated. Please contact support." });
+    if (user.deleted_at || user.active_status !== 'active') return res.status(403).json({ success: false, message: `Account is ${user.active_status}. Please contact support.` });
 
     //Check if can send email
     const {data: canSend, error: canSendError } = await database

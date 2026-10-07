@@ -27,6 +27,7 @@ const isRunning = (attempt: Attempt) =>
 const cheatingTypes = [
   'tab_switch_limit', 'copy_paste', 'devtools', 'multiple_monitors',
   'face_mismatch', 'screen_share', 'unauthorized_app', 'manual_review',
+  'phone_seen', 'camera_away', 'link_blocked', 'app_closed',
 ];
 const automaticTypes = cheatingTypes.filter((name) => name !== 'manual_review');
 
@@ -133,17 +134,15 @@ export const createIncident = async (attemptIdParam: string, user: Caller, name:
     throw new Error(linkError.message);
   };
 
-  // one conditional update, so a concurrently graded attempt is never flagged afterwards
+  // one conditional update, so a concurrently graded attempt is never flagged afterwards;
+  // the incident is already recorded at this point, so a hiccup here must not undo it
   const { error: statusError } = await database
     .from('assignments')
     .update({ status: 'flagged' })
     .eq('id', attemptId)
     .in('status', flaggableStatuses);
 
-  if (statusError) {
-    await database.from('cheatings').delete().eq('id', incident.id);
-    throw new Error(statusError.message);
-  };
+  if (statusError) console.error('Error flagging attempt after recording a cheating incident:', statusError.message);
 
   return incident;
 };

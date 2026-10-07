@@ -93,11 +93,11 @@ describe('handleControllerError', () => {
     expect(consoleError).not.toHaveBeenCalled();
   });
 
-  it('turns a plain Error into a 500 with its message', () => {
+  it('turns a plain Error into a generic 500, logging the real message instead of leaking it', () => {
     handleControllerError(res, new Error('column does not exist'), 'class controller');
 
     expect(res.status).toHaveBeenCalledWith(500);
-    expect(res.json).toHaveBeenCalledWith({ success: false, message: 'column does not exist' });
+    expect(res.json).toHaveBeenCalledWith({ success: false, message: 'Something went wrong. Please try again later.' });
     expect(consoleError).toHaveBeenCalledWith('Error in class controller:', 'column does not exist');
   });
 

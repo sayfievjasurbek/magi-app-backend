@@ -206,14 +206,17 @@ describe('createIncident', () => {
     expect(calls.at(-1)).toEqual(['eq', 'id', 31]);
   });
 
-  it('drops the incident again when the attempt cannot be flagged', async () => {
-    queue(running, owner, openWindow, incident, none, fails('status exploded'), none);
+  it('keeps the incident even when the attempt cannot be flagged, and logs the failure instead', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    queue(running, owner, openWindow, incident, none, fails('status exploded'));
 
-    const error = await rejected(createIncident('7', student, 'copy_paste', 'because'));
+    const cheating = await createIncident('7', student, 'copy_paste', 'because');
 
-    expect(error.message).toBe('status exploded');
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'cheatings', 'cheating_reason', 'assignments', 'cheatings']);
-    expect(callsOf('delete')).toEqual([['delete']]);
+    expect(cheating.id).toBe(31);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'cheatings', 'cheating_reason', 'assignments']);
+    expect(callsOf('delete')).toEqual([]);
+    expect(consoleError).toHaveBeenCalledWith('Error flagging attempt after recording a cheating incident:', 'status exploded');
+    consoleError.mockRestore();
   });
 });
 

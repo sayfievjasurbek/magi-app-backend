@@ -21,6 +21,7 @@ vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 import * as moduleService from '../../../features/modules/module.service.js';
 
 const ok = (data: unknown) => ({ data, error: null });
+const okCount = (count: number) => ({ data: null, error: null, count });
 const fail = (error: unknown) => ({ data: null, error });
 const queue = (...items: { data: unknown; error: unknown }[]) => results.push(...items);
 
@@ -329,16 +330,24 @@ describe('removeStudent', () => {
 describe('removeProfessor', () => {
   it('answers 404 when the professor does not manage the module', async () => {
     managed();
-    queue(ok([]));
+    queue(okCount(2), ok([]));
 
     await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({ status: 404 });
   });
 
   it('removes the co-professor', async () => {
     managed();
-    queue(ok([{ professor_id: 4 }]));
+    queue(okCount(2), ok([{ professor_id: 4 }]));
 
     await moduleService.removeProfessor(3, '7', '4');
     expect(builder.eq).toHaveBeenCalledWith('professor_id', 4);
+  });
+
+  it('refuses to remove the last professor managing the module', async () => {
+    managed();
+    queue(okCount(1));
+
+    await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({ status: 409 });
+    expect(builder.delete).not.toHaveBeenCalled();
   });
 });

@@ -13,7 +13,7 @@ type Attempt = {
   session_duration_unit: TimeUnit;
   started_at: string | null;
 };
-type Media = { id: number; url: string; created_at: string };
+type Media = { id: number; url: string; label: string | null; created_at: string };
 
 const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, session_duration_unit, started_at';
 
@@ -110,7 +110,7 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
   const { data: row, error } = await database
     .from(media.table)
     .insert({ url: mediaUrl })
-    .select('id, url, created_at')
+    .select('id, url, label, created_at')
     .single<Media>();
 
   if (error) throw new Error(error.message);
@@ -148,7 +148,7 @@ export const listMedia = async (kind: string, attemptIdParam: string, user: Call
   if (!links?.length) return [];
 
   const { data, error } = await activeOnly(
-    database.from(media.table).select('id, url, created_at').in('id', links.map((row: Record<string, number>) => row[media.column]))
+    database.from(media.table).select('id, url, label, created_at').in('id', links.map((row: Record<string, number>) => row[media.column]))
   ).order('created_at', { ascending: false }).limit(MEDIA_LIMIT);
 
   if (error) throw new Error(error.message);

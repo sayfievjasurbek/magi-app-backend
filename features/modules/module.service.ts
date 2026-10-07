@@ -266,6 +266,15 @@ export const removeProfessor = async (professorId: number, moduleIdParam: string
   const targetId = parseId(targetIdParam);
   if (!targetId) throw notInModule();
 
+  // the last professor on a module can't remove themselves: nobody could manage it again afterwards
+  const { count, error: countError } = await database
+    .from('module_professor')
+    .select('professor_id', { count: 'exact', head: true })
+    .eq('module_id', managed.id);
+
+  if (countError) throw new Error(countError.message);
+  if ((count ?? 0) <= 1) throw new HttpError(409, 'A module must have at least one professor');
+
   const { data: removed, error } = await database
     .from('module_professor')
     .delete()

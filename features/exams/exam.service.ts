@@ -211,6 +211,7 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const scheduled_start = requireDate(body.scheduledStart, 'scheduledStart');
   const scheduled_end = requireDate(body.scheduledEnd, 'scheduledEnd');
   if (scheduled_end <= scheduled_start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
+  if (new Date(scheduled_start).getTime() < Date.now()) throw new HttpError(400, 'scheduledStart cannot be in the past');
 
   const max_marks = body.maxMarks === undefined ? 100 : requireMarks(body.maxMarks, 'maxMarks');
   const passing_marks = body.passingMarks === undefined ? 0 : requireMarks(body.passingMarks, 'passingMarks');
@@ -253,6 +254,9 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   const start = new Date((patch.scheduled_start ?? exam.scheduled_start) as string);
   const end = new Date((patch.scheduled_end ?? exam.scheduled_end) as string);
   if (end <= start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
+  if (patch.scheduled_start !== undefined && start.getTime() < Date.now()) {
+    throw new HttpError(400, 'scheduledStart cannot be in the past');
+  };
 
   const max = (patch.max_marks ?? exam.max_marks) as number;
   const passing = (patch.passing_marks ?? exam.passing_marks) as number;
@@ -271,6 +275,7 @@ export const deleteExam = async (professorId: number, examId: number, body: any 
   if (!reason) throw new HttpError(400, 'reason is required');
 
   await loadManagedExam(professorId, examId);
+  await assertNoAttempts(examId);
 
   const { error } = await database.from('exams').update(softDelete(reason)).eq('id', examId);
   throwOnError(error);

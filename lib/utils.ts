@@ -16,7 +16,7 @@ export const handleControllerError = (res: Response, error: unknown, context: st
     console.error(`Error in ${context}:`, error.message);
     return res.status(500).json({
       success: false,
-      message: error.message
+      message: "Something went wrong. Please try again later."
     });
   }
 

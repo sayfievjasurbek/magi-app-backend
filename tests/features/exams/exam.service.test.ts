@@ -181,7 +181,7 @@ describe('getExam', () => {
 });
 
 describe('createExam', () => {
-  const body = { name: 'Databases', scheduledStart: '2026-01-10T09:00:00Z', scheduledEnd: '2026-01-10T11:00:00Z' };
+  const body = { name: 'Databases', scheduledStart: '2027-01-10T09:00:00Z', scheduledEnd: '2027-01-10T11:00:00Z' };
 
   it('refuses an empty name, a bad date and an end before the start', async () => {
     await expect(createExam(7, { ...body, name: '  ' })).rejects.toMatchObject({ status: 400 });

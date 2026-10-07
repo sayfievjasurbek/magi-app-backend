@@ -25,7 +25,8 @@ app.use(cookieParser());
 app.set("trust proxy", 1);
 app.use(
   cors({
-    origin: process.env.CLIENT_URL,
+    // comma-separated for local dev, where admin and frontend run on different ports
+    origin: process.env.CLIENT_URL?.split(',').map((url) => url.trim()),
     credentials: true,
   })
 )

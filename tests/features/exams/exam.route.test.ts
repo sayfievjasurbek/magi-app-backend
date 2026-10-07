@@ -10,13 +10,19 @@ vi.hoisted(() => {
   process.env.JWT_SECRET = 'exam-route-test-secret';
 });
 
-// the fake answers every query with nothing, so a service that is reached stops at its first lookup
+// the fake answers every query with nothing, so a service that is reached stops at its first lookup;
+// 'tokens' is special-cased so protectRoute's session-revocation check finds a live, unrevoked session
 vi.mock('../../../lib/db.js', () => {
-  const builder: any = { then: (resolve: (value: unknown) => unknown) => resolve({ data: null, error: null }) };
-  for (const method of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'in', 'is', 'order', 'limit', 'maybeSingle', 'single']) {
-    builder[method] = () => builder;
+  const makeBuilder = (resolved: unknown) => {
+    const builder: any = { then: (resolve: (value: unknown) => unknown) => resolve(resolved) };
+    for (const method of ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'in', 'is', 'order', 'limit', 'maybeSingle', 'single']) {
+      builder[method] = () => builder;
+    };
+    return builder;
   };
-  return { database: { from: () => builder } };
+  const emptyBuilder = makeBuilder({ data: null, error: null });
+  const sessionBuilder = makeBuilder({ data: { revoked: false }, error: null });
+  return { database: { from: (table: string) => (table === 'tokens' ? sessionBuilder : emptyBuilder) } };
 });
 
 import examRoutes from '../../../features/exams/exam.route.js';
