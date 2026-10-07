@@ -48,6 +48,11 @@ describe('sameOrigin', () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it.each(['tauri://localhost', 'http://tauri.localhost'])('lets writes from the desktop app (%s) through', (origin) => {
+    sameOrigin(makeReq('POST', origin), makeRes(), next);
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it('lets reads from any origin through', () => {
     sameOrigin(makeReq('GET', 'https://evil.test'), makeRes(), next);
     expect(next).toHaveBeenCalledOnce();
