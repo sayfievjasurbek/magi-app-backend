@@ -25,6 +25,9 @@ const { from, calls, results } = vi.hoisted(() => {
 
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 
+const uploadPhoto = vi.hoisted(() => vi.fn());
+vi.mock('../../../lib/storage.js', () => ({ uploadPhoto }));
+
 import { addMedia, listMedia, deleteMedia } from '../../../features/monitoring/monitoring.service.js';
 import { HttpError } from '../../../lib/errors.js';
 
@@ -55,18 +58,20 @@ beforeEach(() => {
   calls.length = 0;
   results.length = 0;
   from.mockClear();
+  uploadPhoto.mockReset().mockResolvedValue('https://x.test/a');
 });
 
 describe('addMedia', () => {
-  it('stores the url and links it to the attempt', async () => {
-    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://media.magi.edu/s.png', created_at: 'now' }), none);
+  it('uploads the photo and stores the resulting url, with the label, linked to the attempt', async () => {
+    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', label: 'ID number 12', created_at: 'now' }), none);
 
-    const media = await addMedia('snapshots', '7', 5, 'https://media.magi.edu/s.png');
+    const media = await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', 'ID number 12');
 
-    expect(media).toEqual({ id: 21, url: 'https://media.magi.edu/s.png', created_at: 'now' });
+    expect(uploadPhoto).toHaveBeenCalledWith(7, 'snapshots', 'data:image/jpeg;base64,AAA');
+    expect(media).toEqual({ id: 21, url: 'https://x.test/a', label: 'ID number 12', created_at: 'now' });
     expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'snapshots', 'assignment_snapshot']);
     expect(callsOf('insert')).toEqual([
-      ['insert', { url: 'https://media.magi.edu/s.png' }],
+      ['insert', { url: 'https://x.test/a', label: 'ID number 12' }],
       ['insert', { assignment_id: 7, snapshot_id: 21 }],
     ]);
   });
@@ -83,23 +88,35 @@ describe('addMedia', () => {
       calls.length = 0;
       queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
 
-      await addMedia(kind, '7', 5, 'https://x.test/a');
+      await addMedia(kind, '7', 5, 'data:image/jpeg;base64,AAA', undefined);
 
       expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', table, join]);
       expect(callsOf('insert')[1]).toEqual(['insert', { assignment_id: 7, [column]: 21 }]);
     }
   });
 
-  it('trims the url', async () => {
+  it('defaults an empty or missing label to null', async () => {
+    for (const label of [undefined, '', '   ']) {
+      calls.length = 0;
+      queue(inProgress, owner, openWindow, row({ id: 21 }), none);
+
+      await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', label);
+
+      expect(callsOf('insert')[0]).toEqual(['insert', { url: 'https://x.test/a', label: null }]);
+    }
+  });
+
+  it('trims the label and 400s past 200 characters', async () => {
     queue(inProgress, owner, openWindow, row({ id: 21 }), none);
+    await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', '  Phone seen  ');
+    expect(callsOf('insert')[0]).toEqual(['insert', { url: 'https://x.test/a', label: 'Phone seen' }]);
 
-    await addMedia('snapshots', '7', 5, '  https://x.test/a  ');
-
-    expect(callsOf('insert')[0]).toEqual(['insert', { url: 'https://x.test/a' }]);
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', 'x'.repeat(201)));
+    expect(error.status).toBe(400);
   });
 
   it('404s on an unknown kind without touching the database', async () => {
-    const error = await rejected(addMedia('webcam', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('webcam', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error).toBeInstanceOf(HttpError);
     expect(error.status).toBe(404);
@@ -107,31 +124,16 @@ describe('addMedia', () => {
   });
 
   it('404s on an attempt id that does not parse', async () => {
-    const error = await rejected(addMedia('snapshots', 'abc', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', 'abc', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(404);
     expect(from).not.toHaveBeenCalled();
   });
 
-  it('400s on a missing or malformed url', async () => {
-    for (const url of [undefined, '', '   ', 'media.magi.edu/s.png', 'ftp://x.test/a', 'javascript:alert(1)', 42]) {
-      const error = await rejected(addMedia('snapshots', '7', 5, url));
-      expect(error.status).toBe(400);
-    }
-    expect(from).not.toHaveBeenCalled();
-  });
-
-  it('400s on a url past 2048 characters', async () => {
-    const error = await rejected(addMedia('snapshots', '7', 5, `https://x.test/${'a'.repeat(2048)}`));
-
-    expect(error.status).toBe(400);
-    expect(error.message).toBe('url must be at most 2048 characters');
-  });
-
   it('404s when the attempt does not exist', async () => {
     queue(none);
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(404);
     expect(tables()).toEqual(['assignments']);
@@ -140,7 +142,7 @@ describe('addMedia', () => {
   it('404s on an attempt of another student', async () => {
     queue(inProgress, none);
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(404);
     expect(error.message).toBe('Attempt not found');
@@ -152,7 +154,7 @@ describe('addMedia', () => {
       calls.length = 0;
       queue(row({ id: 7, exam_id: 3, status, submitted_at: null, ...timing }), owner);
 
-      const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+      const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
       expect(error.status).toBe(409);
       expect(tables()).toEqual(['assignments', 'student_assignment']);
@@ -162,13 +164,13 @@ describe('addMedia', () => {
   it('keeps taking media of an attempt that a cheating incident has flagged', async () => {
     queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: null, ...timing }), owner, openWindow, row({ id: 21 }), none);
 
-    expect(await addMedia('snapshots', '7', 5, 'https://x.test/a')).toEqual({ id: 21 });
+    expect(await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined)).toEqual({ id: 21 });
   });
 
   it('409s on a flagged attempt that has been submitted', async () => {
     queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: '2026-09-21T10:00:00Z', ...timing }), owner);
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(409);
   });
@@ -176,24 +178,41 @@ describe('addMedia', () => {
   it('409s once the time of the attempt is over, even while it still says in_progress', async () => {
     queue(inProgress, owner, closedWindow);
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(409);
     expect(error.message).toBe('Time is up: this attempt is over');
     expect(tables()).toEqual(['assignments', 'student_assignment', 'exams']);
     expect(callsOf('insert')).toEqual([]);
+    expect(uploadPhoto).not.toHaveBeenCalled();
   });
 
   it('409s when the exam behind the attempt is gone', async () => {
     queue(inProgress, owner, none);
 
-    expect((await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'))).status).toBe(409);
+    expect((await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined))).status).toBe(409);
+  });
+
+  it('does not upload anything once a 400/404/409 check has already failed', async () => {
+    const error = await rejected(addMedia('webcam', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
+    expect(error.status).toBe(404);
+    expect(uploadPhoto).not.toHaveBeenCalled();
+  });
+
+  it('propagates a storage upload failure as a plain error, without writing any row', async () => {
+    queue(inProgress, owner, openWindow);
+    uploadPhoto.mockRejectedValue(new Error('bucket not found'));
+
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
+
+    expect(error.message).toBe('bucket not found');
+    expect(callsOf('insert')).toEqual([]);
   });
 
   it('drops the media row again when the link cannot be written', async () => {
     queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a' }), fails('link exploded'), none);
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toBe('link exploded');
@@ -205,7 +224,7 @@ describe('addMedia', () => {
   it('turns an unexpected database error into a plain error', async () => {
     queue(fails('connection reset'));
 
-    const error = await rejected(addMedia('snapshots', '7', 5, 'https://x.test/a'));
+    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toBe('connection reset');

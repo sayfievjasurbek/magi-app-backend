@@ -7,7 +7,10 @@ import { type TokenPayload } from '../lib/types.js';
 
 export const protectRoute = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = req.cookies.jwt;
+    // the desktop app has no browser cookie jar to rely on, so it sends a bearer token instead;
+    // web clients keep using the httpOnly cookie exactly as before
+    const bearer = req.headers?.authorization;
+    const token = bearer?.startsWith('Bearer ') ? bearer.slice(7) : req.cookies.jwt;
 
     if (!token) return res.status(401).json({ success: false, message: "Not authorized, token missing" });
 

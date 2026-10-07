@@ -115,14 +115,18 @@ export const login = async ( req: Request, res: Response ) => {
       throw new Error(tokenError.message);
     };
 
-    return res.status(200).json( { 
-      success: true, 
+    return res.status(200).json( {
+      success: true,
+      // the cookie is what web clients actually use; the desktop app (no cookie jar) reads
+      // this token instead and sends it back as `Authorization: Bearer <token>`
+      token,
       user: {
         id: user.id,
         first_name: user.first_name,
         last_name: user?.last_name,
         email: user.email,
-      },    
+        role: userRole,
+      },
       message: 'User logged in successfully'
     } );
   } catch (error: unknown) {

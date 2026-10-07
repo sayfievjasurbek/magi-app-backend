@@ -177,6 +177,14 @@ const examQuestions = async (examId: number) => {
 
 const totalMarks = (questions: { marks: number }[]) => questions.reduce((total, question) => total + question.marks, 0);
 
+// 'flagged' is an internal bookkeeping state (see attempt.service.ts's studentStatus) - a
+// student sees what it actually means for them instead
+const displayStatus = (attempt: { status: string; submitted_at: string | null; auto_submitted: boolean }) => {
+  if (attempt.status !== 'flagged') return attempt.status;
+  if (!attempt.submitted_at) return 'in_progress';
+  return attempt.auto_submitted ? 'auto_submitted' : 'submitted';
+};
+
 export const listExams = async (user: TokenPayload) => {
   const ids = user.role === 'professor' ? await managedExamIds(user.id) : await assignedExamIds(user);
   if (!ids.length) return [];
@@ -185,7 +193,34 @@ export const listExams = async (user: TokenPayload) => {
     database.from('exams').select(user.role === 'student' ? STUDENT_EXAM_COLUMNS : EXAM_COLUMNS).in('id', ids)
   ).order('scheduled_start');
   throwOnError(error);
-  return data ?? [];
+  // the select string is a runtime ternary (student vs staff columns), not a literal, so
+  // supabase-js's column-level typing can't follow it - the row shape is known at this point either way
+  const exams = (data ?? []) as unknown as Array<{ id: number; [column: string]: unknown }>;
+  if (user.role !== 'student') return exams;
+
+  // the app's Start/Resume/Submitted label per exam: whether (and how) this student has
+  // already attempted it
+  const { data: links, error: linksError } = await database
+    .from('student_assignment')
+    .select('assignment_id, exam_id')
+    .eq('student_id', user.id)
+    .in('exam_id', ids);
+  throwOnError(linksError);
+  if (!links?.length) return exams.map((exam) => ({ ...exam, attempt_status: null }));
+
+  const { data: attempts, error: attemptsError } = await activeOnly(
+    database.from('assignments').select('id, status, submitted_at, auto_submitted').in('id', links.map((link) => link.assignment_id))
+  );
+  throwOnError(attemptsError);
+  const attemptById = new Map((attempts ?? []).map((attempt) => [attempt.id, attempt]));
+  const statusByExamId = new Map(
+    links.flatMap((link) => {
+      const attempt = attemptById.get(link.assignment_id);
+      return attempt ? [[link.exam_id, displayStatus(attempt)] as const] : [];
+    }),
+  );
+
+  return exams.map((exam) => ({ ...exam, attempt_status: statusByExamId.get(exam.id) ?? null }));
 };
 
 export const getExam = async (user: TokenPayload, examId: number) => {

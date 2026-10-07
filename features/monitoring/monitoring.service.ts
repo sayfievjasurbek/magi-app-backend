@@ -2,6 +2,7 @@ import { database } from '../../lib/db.js';
 import { attemptExpired, type TimeUnit } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
 import { type Caller, findVisibleExam } from '../../lib/exam-access.js';
+import { uploadPhoto } from '../../lib/storage.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 
 type Attempt = {
@@ -32,8 +33,8 @@ const kinds = {
 
 // reads are not paginated: an attempt answers with its newest media only
 const MEDIA_LIMIT = 100;
-const MAX_URL = 2048;
 const MAX_REASON = 1000;
+const MAX_LABEL = 200;
 
 // an unknown kind is a path segment that cannot exist, like an id that does not parse
 const kindOf = (kind: string) => {
@@ -42,20 +43,11 @@ const kindOf = (kind: string) => {
   return media;
 };
 
-const parseUrl = (value: unknown): string => {
-  const url = typeof value === 'string' ? value.trim() : '';
-  if (!url) throw new HttpError(400, 'url is required');
-  if (url.length > MAX_URL) throw new HttpError(400, `url must be at most ${MAX_URL} characters`);
-
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new HttpError(400, 'url must be an http or https URL');
-  };
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new HttpError(400, 'url must be an http or https URL');
-
-  return url;
+const parseLabel = (value: unknown): string | null => {
+  const label = typeof value === 'string' ? value.trim() : '';
+  if (!label) return null;
+  if (label.length > MAX_LABEL) throw new HttpError(400, `label must be at most ${MAX_LABEL} characters`);
+  return label;
 };
 
 const parseReason = (value: unknown): string => {
@@ -95,11 +87,11 @@ const findStaffAttempt = async (attemptId: number, user: Caller, missing: string
   return attempt;
 };
 
-export const addMedia = async (kind: string, attemptIdParam: string, studentId: number, url: unknown): Promise<Media> => {
+export const addMedia = async (kind: string, attemptIdParam: string, studentId: number, image: unknown, label: unknown): Promise<Media> => {
   const media = kindOf(kind);
   const attemptId = parseId(attemptIdParam);
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
-  const mediaUrl = parseUrl(url);
+  const mediaLabel = parseLabel(label);
 
   const attempt = await findAttempt(attemptId);
   if (!(await ownsAttempt(attemptId, studentId))) throw new HttpError(404, 'Attempt not found');
@@ -107,9 +99,11 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
   // the attempt is only auto submitted by the attempts domain, so the clock is checked here as well
   if (await attemptExpired(attempt)) throw new HttpError(409, 'Time is up: this attempt is over');
 
+  const mediaUrl = await uploadPhoto(attemptId, kind, image);
+
   const { data: row, error } = await database
     .from(media.table)
-    .insert({ url: mediaUrl })
+    .insert({ url: mediaUrl, label: mediaLabel })
     .select('id, url, label, created_at')
     .single<Media>();
 

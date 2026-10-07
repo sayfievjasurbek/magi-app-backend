@@ -79,13 +79,47 @@ describe('listExams', () => {
   });
 
   it('hides the owner and the shuffling from a student', async () => {
-    queue.push(rows([{ exam_id: 3 }]), rows([{ id: 3 }]));
+    queue.push(rows([{ exam_id: 3 }]), rows([{ id: 3 }]), rows([]));
 
     await listExams(asUser(9, 'student'));
 
     const [[columns]] = argsOf('exams', 'select');
     expect(columns).not.toContain('created_by');
     expect(columns).not.toContain('shuffle_questions');
+  });
+
+  it('gives a student the Start/Resume/Submitted label for an exam they have attempted', async () => {
+    queue.push(
+      rows([{ exam_id: 3 }]),
+      rows([{ id: 3 }]),
+      rows([{ assignment_id: 50, exam_id: 3 }]),
+      rows([{ id: 50, status: 'in_progress', submitted_at: null, auto_submitted: false }]),
+    );
+
+    const exams = await listExams(asUser(9, 'student'));
+
+    expect(exams).toEqual([{ id: 3, attempt_status: 'in_progress' }]);
+  });
+
+  it("shows a flagged attempt as what it actually means for the student (auto-submitted, submitted, or still running)", async () => {
+    queue.push(
+      rows([{ exam_id: 3 }]),
+      rows([{ id: 3 }]),
+      rows([{ assignment_id: 50, exam_id: 3 }]),
+      rows([{ id: 50, status: 'flagged', submitted_at: '2026-01-01T00:00:00Z', auto_submitted: true }]),
+    );
+
+    const exams = await listExams(asUser(9, 'student'));
+
+    expect(exams).toEqual([{ id: 3, attempt_status: 'auto_submitted' }]);
+  });
+
+  it('leaves attempt_status null for an exam the student has not touched yet', async () => {
+    queue.push(rows([{ exam_id: 3 }]), rows([{ id: 3 }]), rows([]));
+
+    const exams = await listExams(asUser(9, 'student'));
+
+    expect(exams).toEqual([{ id: 3, attempt_status: null }]);
   });
 
   it('does not query the exams when nothing is assigned', async () => {

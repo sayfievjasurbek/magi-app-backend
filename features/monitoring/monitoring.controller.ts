@@ -2,10 +2,10 @@ import { type Request, type Response } from 'express';
 import { addMedia, listMedia, deleteMedia } from './monitoring.service.js';
 import { handleControllerError } from '../../lib/utils.js';
 
-//add a media url to an attempt (student)
+//add a media photo to an attempt (student)
 export const addMonitoringMedia = async (req: Request, res: Response) => {
   try {
-    const media = await addMedia(req.params.kind as string, req.params.attemptId as string, req.user!.id, req.body?.url);
+    const media = await addMedia(req.params.kind as string, req.params.attemptId as string, req.user!.id, req.body?.image, req.body?.label);
     return res.status(201).json({ success: true, media });
   } catch (error: unknown) {
     return handleControllerError(res, error, "addMonitoringMedia controller");

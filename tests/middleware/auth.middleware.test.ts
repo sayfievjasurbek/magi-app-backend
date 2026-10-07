@@ -23,6 +23,7 @@ const makeRes = () => {
 const SECRET = 'auth-middleware-test-secret';
 const sign = (payload: object) => jwt.sign(payload, SECRET, { expiresIn: '1h' });
 const makeReq = (token?: string) => ({ cookies: token ? { jwt: token } : {} }) as unknown as Request;
+const makeBearerReq = (token: string) => ({ cookies: {}, headers: { authorization: `Bearer ${token}` } }) as unknown as Request;
 const ok = (data: unknown) => ({ data, error: null });
 
 let next: NextFunction;
@@ -90,5 +91,40 @@ describe('protectRoute', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it("lets a bearer token through for a client with no cookie jar (the desktop app)", async () => {
+    const token = sign({ id: 1, role: 'student' });
+    const res = makeRes();
+    results.push(ok({ revoked: false }));
+
+    const req = makeBearerReq(token);
+    await protectRoute(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.user).toMatchObject({ id: 1, role: 'student' });
+  });
+
+  it('rejects a revoked session the same way whether it arrives as a bearer token or a cookie', async () => {
+    const token = sign({ id: 1, role: 'student' });
+    const res = makeRes();
+    results.push(ok({ revoked: true }));
+
+    await protectRoute(makeBearerReq(token), res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
+  it('falls back to the cookie when the Authorization header is present but not a bearer token', async () => {
+    const token = sign({ id: 1, role: 'student' });
+    const res = makeRes();
+    results.push(ok({ revoked: false }));
+
+    const req = { cookies: { jwt: token }, headers: { authorization: 'Basic somebase64' } } as unknown as Request;
+    await protectRoute(req, res, next);
+
+    expect(next).toHaveBeenCalledOnce();
+    expect(req.user).toMatchObject({ id: 1 });
   });
 });
