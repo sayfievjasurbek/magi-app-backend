@@ -315,7 +315,8 @@ const uniqueStudentCode = async (): Promise<string> => {
 // the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, phone, parentPhone }: { firstName: s, lastName: s | null, phone?: s, parentPhone?: s } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation }:
+      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -324,6 +325,13 @@ export const createStudent = async (req: Request, res: Response) => {
 
     const trimmedFirstName = firstName.trim();
     const trimmedLastName = lastName ? lastName.trim() : null;
+    const trimmedPhone = phone?.trim() || null;
+    const trimmedParentPhone = parentPhone?.trim() || null;
+
+    if (trimmedPhone && trimmedParentPhone && trimmedPhone === trimmedParentPhone) return res.status(400).json({
+      success: false,
+      message: 'The student and parent phone numbers cannot be the same',
+    });
 
     const email = await uniqueLogin(trimmedFirstName);
     const studentCode = await uniqueStudentCode();
@@ -351,8 +359,9 @@ export const createStudent = async (req: Request, res: Response) => {
       student_code: studentCode,
       recovery_secret: encryptSecret(generatedPassword),
       created_by: req.user!.id,
-      phone: phone?.trim() || null,
-      parent_phone: parentPhone?.trim() || null,
+      phone: trimmedPhone,
+      parent_phone: trimmedParentPhone,
+      parent_relation: parentRelation?.trim() || null,
     });
     if (roleError) throw new Error(roleError.message);
 
@@ -373,7 +382,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
   try {
     const { data: rows, error } = await database
       .from('students')
-      .select('user_id, student_code, phone, parent_phone')
+      .select('user_id, student_code, phone, parent_phone, parent_relation')
       .eq('created_by', req.user!.id)
       .order('user_id', { ascending: false });
 
@@ -392,7 +401,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
       .map((row) => {
         const user = userById.get(row.user_id);
         if (!user) return null;
-        return { ...user, student_code: row.student_code, phone: row.phone, parent_phone: row.parent_phone };
+        return { ...user, student_code: row.student_code, phone: row.phone, parent_phone: row.parent_phone, parent_relation: row.parent_relation };
       })
       .filter((s) => s !== null);
 
