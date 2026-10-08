@@ -104,17 +104,16 @@ export const paths = {
     post: {
       tags: ['Auth'],
       summary: 'Create a student account directly (professor only)',
-      description: 'No verification email - the account is active immediately and the generated password is returned once, for the professor to hand to the student.',
+      description: 'Login email and a random 5-digit student code are both generated from the first name - no verification email, the account is active immediately. The password and student code are returned once, for the professor to hand to the student; a recoverable copy of the password is also kept for the professor to look up later (see GET .../credentials).',
       ...authed,
       requestBody: {
         required: true,
         content: json({
           type: 'object',
-          required: ['firstName', 'email'],
+          required: ['firstName'],
           properties: {
             firstName: { type: 'string', example: 'Sarah' },
             lastName: { type: 'string', example: 'Chen' },
-            email: { type: 'string', format: 'email', example: 'sarah.chen@magi.edu' },
           },
         }),
       },
@@ -122,11 +121,32 @@ export const paths = {
         '201': ok(
           'Student created',
           envelope({
-            student: { type: 'object', properties: { id, first_name: { type: 'string', example: 'Sarah' }, last_name: nullable({ type: 'string', example: 'Chen' }), email: { type: 'string', example: 'sarah.chen@magi.edu' } } },
+            student: { type: 'object', properties: { id, first_name: { type: 'string', example: 'Sarah' }, last_name: nullable({ type: 'string', example: 'Chen' }), email: { type: 'string', example: 'sarah@magi.com' } } },
+            student_code: { type: 'string', example: '04213' },
             password: { type: 'string', example: 'xK9mPq2a' },
           })
         ),
         ...errors(400, 403, 409),
+      },
+    },
+  },
+  '/api/auth/students/{id}/credentials': {
+    get: {
+      tags: ['Auth'],
+      summary: "Look up a student's login and password (professor only)",
+      description: 'Only works for accounts createStudent made - self-signup accounts have no recoverable password and this returns 404 for them.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      responses: {
+        '200': ok(
+          'Credentials',
+          envelope({
+            email: { type: 'string', example: 'sarah@magi.com' },
+            student_code: nullable({ type: 'string', example: '04213' }),
+            password: { type: 'string', example: 'xK9mPq2a' },
+          })
+        ),
+        ...errors(400, 403, 404),
       },
     },
   },

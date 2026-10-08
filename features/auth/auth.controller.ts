@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt';
 import crypto from "crypto";
 import { sendWelcomeEmail, sendPasswordResetEmail, sendResetSuccessEmail, sendVerificationEmail } from "../../email/email.js";
 import { generateToken, handleControllerError } from '../../lib/utils.js';
+import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
 
 type s = string;
 type n = string;
@@ -284,33 +285,48 @@ export const signup = async ( req: Request, res: Response ) => {
   };
 };
 
-// a professor creating a student directly: no email to verify, the professor hands the
-// generated password to the student themselves, so the account is active immediately
+// students created this way have no real inbox of their own - "humoyun@magi.com" rather than
+// something they'd need to own - so a collision just means trying the next suffix
+const uniqueLogin = async (firstName: string): Promise<string> => {
+  const base = firstName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'student';
+  for (let suffix = 0; suffix < 50; suffix++) {
+    const candidate = `${base}${suffix || ''}@magi.com`;
+    const { data, error } = await database.from('users').select('email').eq('email', candidate).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return candidate;
+  };
+  return `${base}${crypto.randomInt(1000, 9999)}@magi.com`;
+};
+
+// shown on proctoring photos and meant to double as a login identifier - a random 5-digit code,
+// not the users.id primary key, which is never meant to be shown to anyone
+const uniqueStudentCode = async (): Promise<string> => {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const candidate = String(crypto.randomInt(0, 100_000)).padStart(5, '0');
+    const { data, error } = await database.from('students').select('student_code').eq('student_code', candidate).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) return candidate;
+  };
+  throw new Error('Could not generate a unique student code');
+};
+
+// a professor creating a student directly: no email to verify, login and password are both
+// generated, and a recoverable copy of the password is kept so the professor can look it up if
+// the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, email }: { firstName: s, lastName: s | null, email: s } = req.body;
+    const { firstName, lastName }: { firstName: s, lastName: s | null } = req.body;
 
-    if (!firstName || !email) return res.status(400).json({
+    if (!firstName) return res.status(400).json({
       success: false,
-      message: 'firstName and email are required',
+      message: 'firstName is required',
     });
 
-    const trimmedEmail = email.trim().toLowerCase();
     const trimmedFirstName = firstName.trim();
     const trimmedLastName = lastName ? lastName.trim() : null;
 
-    const { data: userExists, error: userExistsError } = await database
-      .from('users')
-      .select('email')
-      .eq('email', trimmedEmail)
-      .maybeSingle();
-
-    if (userExistsError) throw new Error(userExistsError.message);
-    if (userExists) return res.status(409).json({
-      success: false,
-      message: 'Email is already registered. Please check your email or log in.',
-    });
-
+    const email = await uniqueLogin(trimmedFirstName);
+    const studentCode = await uniqueStudentCode();
     const generatedPassword = crypto.randomBytes(6).toString('base64url');
     const hashedPassword = await bcrypt.hash(generatedPassword, 10);
 
@@ -319,7 +335,7 @@ export const createStudent = async (req: Request, res: Response) => {
       .insert([{
         first_name: trimmedFirstName,
         last_name: trimmedLastName,
-        email: trimmedEmail,
+        email,
         password: hashedPassword,
         is_verified: true,
         active_status: 'active',
@@ -330,16 +346,58 @@ export const createStudent = async (req: Request, res: Response) => {
     if (newUserError) throw new Error(newUserError.message);
     if (!newUser) throw new Error('New user data is null after insertion');
 
-    const { error: roleError } = await database.from('students').insert({ user_id: newUser.id });
+    const { error: roleError } = await database.from('students').insert({
+      user_id: newUser.id,
+      student_code: studentCode,
+      recovery_secret: encryptSecret(generatedPassword),
+    });
     if (roleError) throw new Error(roleError.message);
 
     return res.status(201).json({
       success: true,
       student: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
+      student_code: studentCode,
       password: generatedPassword,
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "createStudent controller");
+  };
+};
+
+// a professor looking up a student's credentials because they forgot them - only works for
+// accounts created through createStudent above; self-signup accounts have no recovery_secret
+export const getStudentCredentials = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+
+    const { data: user, error: userError } = await database
+      .from('users')
+      .select('email')
+      .eq('id', studentId)
+      .maybeSingle<{ email: string }>();
+    if (userError) throw new Error(userError.message);
+    if (!user) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const { data: student, error: studentError } = await database
+      .from('students')
+      .select('student_code, recovery_secret')
+      .eq('user_id', studentId)
+      .maybeSingle<{ student_code: string | null; recovery_secret: string | null }>();
+    if (studentError) throw new Error(studentError.message);
+    if (!student?.recovery_secret) return res.status(404).json({
+      success: false,
+      message: 'No recoverable credentials for this account (it was not created by a professor)',
+    });
+
+    return res.status(200).json({
+      success: true,
+      email: user.email,
+      student_code: student.student_code,
+      password: decryptSecret(student.recovery_secret),
+    });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getStudentCredentials controller");
   };
 };
 
