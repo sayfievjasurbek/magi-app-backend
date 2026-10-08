@@ -284,6 +284,65 @@ export const signup = async ( req: Request, res: Response ) => {
   };
 };
 
+// a professor creating a student directly: no email to verify, the professor hands the
+// generated password to the student themselves, so the account is active immediately
+export const createStudent = async (req: Request, res: Response) => {
+  try {
+    const { firstName, lastName, email }: { firstName: s, lastName: s | null, email: s } = req.body;
+
+    if (!firstName || !email) return res.status(400).json({
+      success: false,
+      message: 'firstName and email are required',
+    });
+
+    const trimmedEmail = email.trim().toLowerCase();
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName ? lastName.trim() : null;
+
+    const { data: userExists, error: userExistsError } = await database
+      .from('users')
+      .select('email')
+      .eq('email', trimmedEmail)
+      .maybeSingle();
+
+    if (userExistsError) throw new Error(userExistsError.message);
+    if (userExists) return res.status(409).json({
+      success: false,
+      message: 'Email is already registered. Please check your email or log in.',
+    });
+
+    const generatedPassword = crypto.randomBytes(6).toString('base64url');
+    const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+    const { data: newUser, error: newUserError } = await database
+      .from('users')
+      .insert([{
+        first_name: trimmedFirstName,
+        last_name: trimmedLastName,
+        email: trimmedEmail,
+        password: hashedPassword,
+        is_verified: true,
+        active_status: 'active',
+      }])
+      .select('id, email, first_name, last_name')
+      .single<InsertedUser>();
+
+    if (newUserError) throw new Error(newUserError.message);
+    if (!newUser) throw new Error('New user data is null after insertion');
+
+    const { error: roleError } = await database.from('students').insert({ user_id: newUser.id });
+    if (roleError) throw new Error(roleError.message);
+
+    return res.status(201).json({
+      success: true,
+      student: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
+      password: generatedPassword,
+    });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "createStudent controller");
+  };
+};
+
 //logout
 export const logout = async (req: Request, res: Response) => {
   try {

@@ -1,6 +1,7 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
+import {requireRole} from '../../middleware/role.middleware.js';
 
 
 const router = express.Router();
@@ -14,6 +15,7 @@ router.post("/verify-email", verifyEmail);
 router.post("/logout", logout);
 router.post("/forgot-password", forgotPassword);
 router.post("/reset-password/:token", resetPassword);
+router.post("/create-student", protectRoute, requireRole('professor'), createStudent);
 
 
 //get
