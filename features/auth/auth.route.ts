@@ -1,5 +1,5 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, createStudent, getStudentCredentials, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentCredentials, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
 import {requireRole} from '../../middleware/role.middleware.js';
 
@@ -20,6 +20,7 @@ router.post("/create-student", protectRoute, requireRole('professor'), createStu
 
 //get
 router.get("/get-user", protectRoute, getUser);
+router.get("/students", protectRoute, requireRole('professor'), listCreatedStudents);
 router.get("/students/:id/credentials", protectRoute, requireRole('professor'), getStudentCredentials);
 
 

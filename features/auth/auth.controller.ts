@@ -315,7 +315,7 @@ const uniqueStudentCode = async (): Promise<string> => {
 // the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName }: { firstName: s, lastName: s | null } = req.body;
+    const { firstName, lastName, phone, parentPhone }: { firstName: s, lastName: s | null, phone?: s, parentPhone?: s } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -350,6 +350,9 @@ export const createStudent = async (req: Request, res: Response) => {
       user_id: newUser.id,
       student_code: studentCode,
       recovery_secret: encryptSecret(generatedPassword),
+      created_by: req.user!.id,
+      phone: phone?.trim() || null,
+      parent_phone: parentPhone?.trim() || null,
     });
     if (roleError) throw new Error(roleError.message);
 
@@ -361,6 +364,41 @@ export const createStudent = async (req: Request, res: Response) => {
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "createStudent controller");
+  };
+};
+
+// every student this professor created directly, newest first - shows up here even before being
+// linked to a module, which listing module rosters alone would miss
+export const listCreatedStudents = async (req: Request, res: Response) => {
+  try {
+    const { data: rows, error } = await database
+      .from('students')
+      .select('user_id, student_code, phone, parent_phone')
+      .eq('created_by', req.user!.id)
+      .order('user_id', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    if (!rows?.length) return res.status(200).json({ success: true, students: [] });
+
+    const { data: users, error: usersError } = await database
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', rows.map((row) => row.user_id));
+
+    if (usersError) throw new Error(usersError.message);
+
+    const userById = new Map((users ?? []).map((u) => [u.id, u]));
+    const students = rows
+      .map((row) => {
+        const user = userById.get(row.user_id);
+        if (!user) return null;
+        return { ...user, student_code: row.student_code, phone: row.phone, parent_phone: row.parent_phone };
+      })
+      .filter((s) => s !== null);
+
+    return res.status(200).json({ success: true, students });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "listCreatedStudents controller");
   };
 };
 

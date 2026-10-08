@@ -114,6 +114,8 @@ export const paths = {
           properties: {
             firstName: { type: 'string', example: 'Sarah' },
             lastName: { type: 'string', example: 'Chen' },
+            phone: { type: 'string', example: '+998901234567' },
+            parentPhone: { type: 'string', example: '+998901234567' },
           },
         }),
       },
@@ -127,6 +129,37 @@ export const paths = {
           })
         ),
         ...errors(400, 403, 409),
+      },
+    },
+  },
+  '/api/auth/students': {
+    get: {
+      tags: ['Auth'],
+      summary: "List the students this professor created directly",
+      description: 'Shows up here even before being linked to a module - the module roster endpoints only list enrolled students.',
+      ...authed,
+      responses: {
+        '200': ok(
+          'Students',
+          envelope({
+            students: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id,
+                  first_name: { type: 'string', example: 'Sarah' },
+                  last_name: nullable({ type: 'string', example: 'Chen' }),
+                  email: { type: 'string', example: 'sarah@magi.com' },
+                  student_code: nullable({ type: 'string', example: '04213' }),
+                  phone: nullable({ type: 'string', example: '+998901234567' }),
+                  parent_phone: nullable({ type: 'string', example: '+998901234567' }),
+                },
+              },
+            },
+          })
+        ),
+        ...errors(403),
       },
     },
   },
