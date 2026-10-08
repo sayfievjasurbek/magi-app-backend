@@ -185,6 +185,86 @@ export const paths = {
       },
     },
   },
+  '/api/auth/create-professor': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Create a professor account directly (professor only)',
+      description: 'Mirrors create-student: login and a random 5-digit professor code are generated from the first name, the account is active immediately, and a recoverable copy of the password is kept (see GET .../credentials).',
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['firstName'],
+          properties: {
+            firstName: { type: 'string', example: 'James' },
+            lastName: { type: 'string', example: 'Okafor' },
+            phone: { type: 'string', example: '+998901234567' },
+          },
+        }),
+      },
+      responses: {
+        '201': ok(
+          'Professor created',
+          envelope({
+            professor: { type: 'object', properties: { id, first_name: { type: 'string', example: 'James' }, last_name: nullable({ type: 'string', example: 'Okafor' }), email: { type: 'string', example: 'james@magi.com' } } },
+            professor_code: { type: 'string', example: '04213' },
+            password: { type: 'string', example: 'xK9mPq2a' },
+          })
+        ),
+        ...errors(400, 403, 409),
+      },
+    },
+  },
+  '/api/auth/professors': {
+    get: {
+      tags: ['Auth'],
+      summary: "List the professors this professor created directly",
+      ...authed,
+      responses: {
+        '200': ok(
+          'Professors',
+          envelope({
+            professors: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  id,
+                  first_name: { type: 'string', example: 'James' },
+                  last_name: nullable({ type: 'string', example: 'Okafor' }),
+                  email: { type: 'string', example: 'james@magi.com' },
+                  professor_code: nullable({ type: 'string', example: '04213' }),
+                  phone: nullable({ type: 'string', example: '+998901234567' }),
+                },
+              },
+            },
+          })
+        ),
+        ...errors(403),
+      },
+    },
+  },
+  '/api/auth/professors/{id}/credentials': {
+    get: {
+      tags: ['Auth'],
+      summary: "Look up a professor's login and password (professor only)",
+      description: 'Only works for accounts createProfessor made - self-signup accounts have no recoverable password and this returns 404 for them.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      responses: {
+        '200': ok(
+          'Credentials',
+          envelope({
+            email: { type: 'string', example: 'james@magi.com' },
+            professor_code: nullable({ type: 'string', example: '04213' }),
+            password: { type: 'string', example: 'xK9mPq2a' },
+          })
+        ),
+        ...errors(400, 403, 404),
+      },
+    },
+  },
   '/api/auth/get-user': {
     get: { tags: ['Auth'], summary: 'Current user (from the token)', ...authed, responses: { '200': ok('Token payload', ref('TokenPayload')), ...errors(401) } },
   },

@@ -298,16 +298,16 @@ const uniqueLogin = async (firstName: string): Promise<string> => {
   return `${base}${crypto.randomInt(1000, 9999)}@magi.com`;
 };
 
-// shown on proctoring photos and meant to double as a login identifier - a random 5-digit code,
-// not the users.id primary key, which is never meant to be shown to anyone
-const uniqueStudentCode = async (): Promise<string> => {
+// a random 5-digit code for the given role table/column - not the users.id primary key, which is
+// never meant to be shown to anyone. For students this also ends up on proctoring photos.
+const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student_code' | 'professor_code'): Promise<string> => {
   for (let attempt = 0; attempt < 20; attempt++) {
     const candidate = String(crypto.randomInt(0, 100_000)).padStart(5, '0');
-    const { data, error } = await database.from('students').select('student_code').eq('student_code', candidate).maybeSingle();
+    const { data, error } = await database.from(table).select(column).eq(column, candidate).maybeSingle();
     if (error) throw new Error(error.message);
     if (!data) return candidate;
   };
-  throw new Error('Could not generate a unique student code');
+  throw new Error(`Could not generate a unique ${column}`);
 };
 
 // a professor creating a student directly: no email to verify, login and password are both
@@ -334,7 +334,7 @@ export const createStudent = async (req: Request, res: Response) => {
     });
 
     const email = await uniqueLogin(trimmedFirstName);
-    const studentCode = await uniqueStudentCode();
+    const studentCode = await uniqueRoleCode('students', 'student_code');
     const generatedPassword = crypto.randomBytes(6).toString('base64url');
     const hashedPassword = await bcrypt.hash(generatedPassword, 10);
 
@@ -445,6 +445,131 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "getStudentCredentials controller");
+  };
+};
+
+// mirrors createStudent above, for a professor creating another professor directly
+export const createProfessor = async (req: Request, res: Response) => {
+  try {
+    const { firstName, lastName, phone }: { firstName: s, lastName: s | null, phone?: s } = req.body;
+
+    if (!firstName) return res.status(400).json({
+      success: false,
+      message: 'firstName is required',
+    });
+
+    const trimmedFirstName = firstName.trim();
+    const trimmedLastName = lastName ? lastName.trim() : null;
+
+    const email = await uniqueLogin(trimmedFirstName);
+    const professorCode = await uniqueRoleCode('professors', 'professor_code');
+    const generatedPassword = crypto.randomBytes(6).toString('base64url');
+    const hashedPassword = await bcrypt.hash(generatedPassword, 10);
+
+    const { data: newUser, error: newUserError } = await database
+      .from('users')
+      .insert([{
+        first_name: trimmedFirstName,
+        last_name: trimmedLastName,
+        email,
+        password: hashedPassword,
+        is_verified: true,
+        active_status: 'active',
+      }])
+      .select('id, email, first_name, last_name')
+      .single<InsertedUser>();
+
+    if (newUserError) throw new Error(newUserError.message);
+    if (!newUser) throw new Error('New user data is null after insertion');
+
+    const { error: roleError } = await database.from('professors').insert({
+      user_id: newUser.id,
+      professor_code: professorCode,
+      recovery_secret: encryptSecret(generatedPassword),
+      created_by: req.user!.id,
+      phone: phone?.trim() || null,
+    });
+    if (roleError) throw new Error(roleError.message);
+
+    return res.status(201).json({
+      success: true,
+      professor: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
+      professor_code: professorCode,
+      password: generatedPassword,
+    });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "createProfessor controller");
+  };
+};
+
+// every professor this professor created directly, newest first
+export const listCreatedProfessors = async (req: Request, res: Response) => {
+  try {
+    const { data: rows, error } = await database
+      .from('professors')
+      .select('user_id, professor_code, phone')
+      .eq('created_by', req.user!.id)
+      .order('user_id', { ascending: false });
+
+    if (error) throw new Error(error.message);
+    if (!rows?.length) return res.status(200).json({ success: true, professors: [] });
+
+    const { data: users, error: usersError } = await database
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .in('id', rows.map((row) => row.user_id));
+
+    if (usersError) throw new Error(usersError.message);
+
+    const userById = new Map((users ?? []).map((u) => [u.id, u]));
+    const professors = rows
+      .map((row) => {
+        const user = userById.get(row.user_id);
+        if (!user) return null;
+        return { ...user, professor_code: row.professor_code, phone: row.phone };
+      })
+      .filter((p) => p !== null);
+
+    return res.status(200).json({ success: true, professors });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "listCreatedProfessors controller");
+  };
+};
+
+// a professor looking up another professor's credentials because they forgot them - only works
+// for accounts created through createProfessor above
+export const getProfessorCredentials = async (req: Request, res: Response) => {
+  try {
+    const professorId = Number(req.params.id);
+    if (!Number.isInteger(professorId)) return res.status(400).json({ success: false, message: 'Invalid professor id' });
+
+    const { data: user, error: userError } = await database
+      .from('users')
+      .select('email')
+      .eq('id', professorId)
+      .maybeSingle<{ email: string }>();
+    if (userError) throw new Error(userError.message);
+    if (!user) return res.status(404).json({ success: false, message: 'Professor not found' });
+
+    const { data: professor, error: professorError } = await database
+      .from('professors')
+      .select('professor_code, recovery_secret')
+      .eq('user_id', professorId)
+      .maybeSingle<{ professor_code: string | null; recovery_secret: string | null }>();
+    if (professorError) throw new Error(professorError.message);
+    if (!professor?.recovery_secret) return res.status(404).json({
+      success: false,
+      message: 'No recoverable credentials for this account (it was not created by a professor)',
+    });
+
+    return res.status(200).json({
+      success: true,
+      email: user.email,
+      professor_code: professor.professor_code,
+      password: decryptSecret(professor.recovery_secret),
+    });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getProfessorCredentials controller");
   };
 };
 
