@@ -87,6 +87,16 @@ export const paths = {
       responses: { '200': ok('Module deleted', messageOnly), ...errors(400, 401, 403, 404) },
     },
   },
+  '/api/modules/students/{studentId}': {
+    get: {
+      tags: ['Modules'],
+      summary: 'Modules one student belongs to (professor)',
+      description: 'Not scoped to modules the caller manages - any professor can look this up, same as a student\'s credentials.',
+      ...authed,
+      parameters: [pathParam('studentId', 'User id of the student')],
+      responses: { '200': ok('Modules', envelope({ modules: { type: 'array', items: ref('Module') } })), ...errors(401, 403) },
+    },
+  },
   '/api/modules/{id}/roster': {
     get: {
       tags: ['Modules'],

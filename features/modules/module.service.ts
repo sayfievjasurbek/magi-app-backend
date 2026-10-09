@@ -169,6 +169,19 @@ export const listModules = async (userId: number, role: Role) => {
   return listModulesByIds(moduleIds);
 };
 
+// a professor looking up which modules one student belongs to - the Students detail page in
+// the admin panel, not scoped to modules this professor manages (same broad visibility as
+// looking up that student's credentials)
+export const getStudentModules = async (studentIdParam: string) => {
+  const studentId = parseId(studentIdParam);
+  if (!studentId) return [];
+
+  const moduleIds = await enrolledModuleIds(studentId);
+  if (!moduleIds.length) return [];
+
+  return listModulesByIds(moduleIds);
+};
+
 export const getModule = async (userId: number, role: Role, moduleIdParam: string) => {
   if (role === 'professor') {
     const managed = await requireManagedModule(moduleIdParam, userId);

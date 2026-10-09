@@ -32,6 +32,16 @@ export const getModule = async (req: Request, res: Response) => {
   };
 };
 
+//modules one student belongs to (professor only) - the Students detail page in the admin panel
+export const getStudentModules = async (req: Request, res: Response) => {
+  try {
+    const modules = await moduleService.getStudentModules(req.params.studentId as string);
+    return res.status(200).json({ success: true, modules });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getStudentModules controller");
+  };
+};
+
 //professors and students of the module
 export const getRoster = async (req: Request, res: Response) => {
   try {
