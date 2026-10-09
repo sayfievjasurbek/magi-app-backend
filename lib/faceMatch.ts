@@ -38,6 +38,12 @@ const descriptorFor = async (imageBytes: Buffer): Promise<Float32Array | null> =
   };
 };
 
+/** Whether face-api can find a face in the photo at all - used to reject an unusable reference photo at upload time. */
+export const hasFace = async (imageBytes: Buffer): Promise<boolean> => {
+  await ensureModelsLoaded();
+  return (await descriptorFor(imageBytes)) !== null;
+};
+
 export type FaceMatchResult =
   | { outcome: 'matched' | 'mismatched'; distance: number }
   | { outcome: 'no_face_in_photo' | 'no_face_in_reference' };

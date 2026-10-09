@@ -323,7 +323,9 @@ export const paths = {
     post: {
       tags: ['Auth'],
       summary: 'Set your own reference photo (student only)',
-      description: "Gives staff something to compare an exam's identity_check photo against. Stored in the same Supabase Storage bucket as other proctoring media.",
+      description:
+        "Gives staff something to compare an exam's identity_check photo against. Stored in the same Supabase Storage bucket as other proctoring media. " +
+        'One-time: rejected with 409 once a photo is already set. Rejected with 400 if no face is detected in it, or if it is over 3MB.',
       ...authed,
       requestBody: {
         required: true,
@@ -335,7 +337,7 @@ export const paths = {
       },
       responses: {
         '200': ok('Photo set', envelope({ profile_photo_url: { type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' } })),
-        ...errors(400, 403),
+        ...errors(400, 403, 409),
       },
     },
   },

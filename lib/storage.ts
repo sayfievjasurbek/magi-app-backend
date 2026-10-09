@@ -7,6 +7,7 @@ import { HttpError } from './errors.js';
 
 const BUCKET = 'proctoring';
 const MAX_BYTES = 5 * 1024 * 1024;
+const PROFILE_PHOTO_MAX_BYTES = 3 * 1024 * 1024;
 
 /** Strips a `data:image/...;base64,...` prefix if present and returns the raw bytes + mime type. */
 export const decodeImageData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
@@ -51,6 +52,7 @@ export const uploadPhoto = async (attemptId: number, kind: string, image: unknow
 /** Uploads a student's own reference photo under `profiles/{userId}/{random}.{ext}`. */
 export const uploadProfilePhoto = async (userId: number, image: unknown): Promise<string> => {
   const { bytes, mime, ext } = decodeImageData(image);
+  if (bytes.length > PROFILE_PHOTO_MAX_BYTES) throw new HttpError(400, 'invalid photo: must be at most 3MB');
   const path = `profiles/${userId}/${randomSuffix()}.${ext}`;
 
   const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });

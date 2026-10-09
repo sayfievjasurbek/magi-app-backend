@@ -5,7 +5,9 @@ import crypto from "crypto";
 import { sendWelcomeEmail, sendPasswordResetEmail, sendResetSuccessEmail, sendVerificationEmail } from "../../email/email.js";
 import { generateToken, handleControllerError } from '../../lib/utils.js';
 import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
-import { uploadProfilePhoto } from '../../lib/storage.js';
+import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
+import { hasFace } from '../../lib/faceMatch.js';
+import { HttpError } from '../../lib/errors.js';
 
 type s = string;
 type n = string;
@@ -671,6 +673,17 @@ export const getMyProfile = async (req: Request, res: Response) => {
 // identity_check photo taken during an exam against
 export const setMyProfilePhoto = async (req: Request, res: Response) => {
   try {
+    const { data: existing, error: fetchError } = await database
+      .from('students')
+      .select('profile_photo_url')
+      .eq('user_id', req.user!.id)
+      .single();
+    if (fetchError) throw new Error(fetchError.message);
+    if (existing?.profile_photo_url) throw new HttpError(409, 'A reference photo is already set and cannot be retaken.');
+
+    const { bytes } = decodeImageData(req.body?.image);
+    if (!(await hasFace(bytes))) throw new HttpError(400, 'invalid photo: no face detected');
+
     const url = await uploadProfilePhoto(req.user!.id, req.body?.image);
     const { error } = await database.from('students').update({ profile_photo_url: url }).eq('user_id', req.user!.id);
     if (error) throw new Error(error.message);
