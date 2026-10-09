@@ -58,6 +58,12 @@ const assignedExamIds = async (user: TokenPayload): Promise<number[]> => {
   return (data ?? []).map((row) => row.exam_id);
 };
 
+const examIdsForModule = async (moduleId: number): Promise<number[]> => {
+  const { data, error } = await database.from('exam_module').select('exam_id').eq('module_id', moduleId);
+  throwOnError(error);
+  return (data ?? []).map((row) => row.exam_id);
+};
+
 const loadExamRow = async (examId: number, columns: string) => {
   const { data, error } = await activeOnly(
     database.from('exams').select(columns).eq('id', examId)
@@ -185,8 +191,12 @@ const displayStatus = (attempt: { status: string; submitted_at: string | null; a
   return attempt.auto_submitted ? 'auto_submitted' : 'submitted';
 };
 
-export const listExams = async (user: TokenPayload) => {
-  const ids = user.role === 'professor' ? await managedExamIds(user.id) : await assignedExamIds(user);
+export const listExams = async (user: TokenPayload, moduleId?: number) => {
+  let ids = user.role === 'professor' ? await managedExamIds(user.id) : await assignedExamIds(user);
+  if (moduleId) {
+    const moduleExamIds = new Set(await examIdsForModule(moduleId));
+    ids = ids.filter((id) => moduleExamIds.has(id));
+  }
   if (!ids.length) return [];
 
   const { data, error } = await activeOnly(

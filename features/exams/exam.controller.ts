@@ -12,7 +12,8 @@ const pathId = (value: unknown, name: string) => {
 
 export const listExams = async (req: Request, res: Response) => {
   try {
-    const exams = await service.listExams(req.user!);
+    const moduleId = req.query.moduleId !== undefined ? (parseId(req.query.moduleId) ?? undefined) : undefined;
+    const exams = await service.listExams(req.user!, moduleId);
     return res.status(200).json({ success: true, exams });
   } catch (error: unknown) {
     return handleControllerError(res, error, "listExams controller");

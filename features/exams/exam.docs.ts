@@ -119,8 +119,10 @@ export const paths = {
       summary: 'List the exams of the current user',
       description:
         'A professor sees the exams they created plus the exams linked to a module they teach, an examiner the exams they are assigned to, ' +
-        'a student the exams they are assigned to (in the reduced student shape). Ordered by scheduled start.',
+        'a student the exams they are assigned to (in the reduced student shape). Ordered by scheduled start. ' +
+        'Pass `moduleId` to only get exams linked to that one module.',
       ...authed,
+      parameters: [{ name: 'moduleId', in: 'query', schema: { type: 'integer', example: 11 } }],
       responses: {
         '200': ok('The exams', envelope({ exams: { type: 'array', items: { oneOf: [ref('Exam'), ref('StudentExam')] } } })),
         ...errors(401),
