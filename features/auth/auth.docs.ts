@@ -300,6 +300,18 @@ export const paths = {
     },
   },
   '/api/auth/me/password': {
+    get: {
+      tags: ['Auth'],
+      summary: 'Your own current password, if recoverable',
+      description:
+        "So a password-change form can pre-fill it instead of asking the user to recall it. Only set for accounts created directly by a " +
+        "professor (same recovery_secret they'd look up for you) - null once you've changed your password yourself, or if you signed up directly.",
+      ...authed,
+      responses: {
+        '200': ok('Current password, if any', envelope({ password: nullable({ type: 'string', example: 'xK9mPq2a' }) })),
+        ...errors(401),
+      },
+    },
     patch: {
       tags: ['Auth'],
       summary: 'Change your own password',

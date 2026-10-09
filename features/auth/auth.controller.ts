@@ -641,6 +641,25 @@ export const changePassword = async (req: Request, res: Response) => {
   };
 };
 
+// the logged-in user's own current password, so the password-change form can pre-fill it
+// instead of asking them to recall it - only available for accounts created with a recoverable
+// password (same recovery_secret a professor would look up for them, see getStudentCredentials)
+export const getMyCurrentPassword = async (req: Request, res: Response) => {
+  try {
+    const table = req.user!.role === 'student' ? 'students' : 'professors';
+    const { data: row, error } = await database
+      .from(table)
+      .select('recovery_secret')
+      .eq('user_id', req.user!.id)
+      .maybeSingle<{ recovery_secret: string | null }>();
+    if (error) throw new Error(error.message);
+
+    return res.status(200).json({ success: true, password: row?.recovery_secret ? decryptSecret(row.recovery_secret) : null });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getMyCurrentPassword controller");
+  };
+};
+
 // the logged-in user's own full profile - role-specific fields (phone, student_code, the
 // reference photo) layer on top of the base user record for students
 export const getMyProfile = async (req: Request, res: Response) => {
