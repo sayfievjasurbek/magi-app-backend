@@ -9,7 +9,7 @@ const BUCKET = 'proctoring';
 const MAX_BYTES = 5 * 1024 * 1024;
 
 /** Strips a `data:image/...;base64,...` prefix if present and returns the raw bytes + mime type. */
-const decode = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
+export const decodeImageData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
   if (typeof value !== 'string' || !value) throw new HttpError(400, 'image is required');
 
   let mime = 'image/jpeg';
@@ -39,7 +39,7 @@ const randomSuffix = () => `${Date.now().toString(16)}-${Math.random().toString(
 
 /** Uploads one photo under `{attemptId}/{kind}/{random}.{ext}` and returns its public URL. */
 export const uploadPhoto = async (attemptId: number, kind: string, image: unknown): Promise<string> => {
-  const { bytes, mime, ext } = decode(image);
+  const { bytes, mime, ext } = decodeImageData(image);
   const path = `${attemptId}/${kind}/${randomSuffix()}.${ext}`;
 
   const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
@@ -50,7 +50,7 @@ export const uploadPhoto = async (attemptId: number, kind: string, image: unknow
 
 /** Uploads a student's own reference photo under `profiles/{userId}/{random}.{ext}`. */
 export const uploadProfilePhoto = async (userId: number, image: unknown): Promise<string> => {
-  const { bytes, mime, ext } = decode(image);
+  const { bytes, mime, ext } = decodeImageData(image);
   const path = `profiles/${userId}/${randomSuffix()}.${ext}`;
 
   const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });

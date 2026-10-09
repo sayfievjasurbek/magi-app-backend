@@ -1,8 +1,9 @@
 import { database } from '../../lib/db.js';
 import { attemptExpired, type TimeUnit } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
+import { compareFaces } from '../../lib/faceMatch.js';
 import { type Caller, findVisibleExam } from '../../lib/exam-access.js';
-import { uploadPhoto } from '../../lib/storage.js';
+import { decodeImageData, uploadPhoto } from '../../lib/storage.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 
 type Attempt = {
@@ -55,6 +56,53 @@ const parseReason = (value: unknown): string => {
   if (!reason) throw new HttpError(400, 'reason is required');
   if (reason.length > MAX_REASON) throw new HttpError(400, `reason must be at most ${MAX_REASON} characters`);
   return reason;
+};
+
+// mirrors cheating.service.ts's own flaggableStatuses/createIncident - duplicated rather than
+// imported cross-feature, same as isRunning/ATTEMPT_COLUMNS above
+const flaggableStatuses = ['in_progress', 'submitted', 'auto_submitted'];
+
+const flagFaceMismatch = async (attemptId: number, explanation: string): Promise<void> => {
+  const { data: incident, error } = await database
+    .from('cheatings')
+    .insert({ name: 'face_mismatch', explanation })
+    .select('id')
+    .single<{ id: number }>();
+  if (error || !incident) return console.error('Could not record face_mismatch incident:', error?.message);
+
+  const { error: linkError } = await database.from('cheating_reason').insert({ assignment_id: attemptId, cheating_id: incident.id });
+  if (linkError) {
+    await database.from('cheatings').delete().eq('id', incident.id);
+    return console.error('Could not link face_mismatch incident to the attempt:', linkError.message);
+  };
+
+  const { error: statusError } = await database.from('assignments').update({ status: 'flagged' }).eq('id', attemptId).in('status', flaggableStatuses);
+  if (statusError) console.error('Error flagging attempt after a face_mismatch incident:', statusError.message);
+};
+
+// a face-snapshot taken mid-exam, compared against the student's own reference photo (if they
+// ever set one in Settings) - a mismatch auto-flags the attempt the same way a self-reported
+// incident would. Never throws: a broken comparison must not fail the photo upload itself.
+const checkFaceMatch = async (attemptId: number, studentId: number, image: unknown): Promise<void> => {
+  try {
+    const { data: student, error } = await database
+      .from('students')
+      .select('profile_photo_url')
+      .eq('user_id', studentId)
+      .maybeSingle<{ profile_photo_url: string | null }>();
+    if (error || !student?.profile_photo_url) return;
+
+    const { bytes: photoBytes } = decodeImageData(image);
+    const referenceResponse = await fetch(student.profile_photo_url);
+    const referenceBytes = Buffer.from(await referenceResponse.arrayBuffer());
+
+    const result = await compareFaces(photoBytes, referenceBytes);
+    if (result.outcome === 'mismatched') {
+      await flagFaceMismatch(attemptId, `Face did not match the student's reference photo (distance ${result.distance.toFixed(3)}, threshold 0.6)`);
+    };
+  } catch (err) {
+    console.error('Face match check failed (upload itself is unaffected):', err);
+  };
 };
 
 const findAttempt = async (attemptId: number, missing = 'Attempt not found'): Promise<Attempt> => {
@@ -119,6 +167,10 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
     await database.from(media.table).delete().eq('id', row.id);
     throw new Error(linkError.message);
   };
+
+  // not awaited: the student's app gets its response immediately, the face check (a second or
+  // so of ML inference) runs after, and flags the attempt in the background if it mismatches
+  if (kind === 'face-snapshots') void checkFaceMatch(attemptId, studentId, image);
 
   return row;
 };

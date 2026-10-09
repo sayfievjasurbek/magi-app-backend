@@ -1,4 +1,5 @@
-FROM node:24-slim
+# 22, not latest: @tensorflow/tfjs-node (face match) doesn't support Node 23+
+FROM node:22-slim
 
 WORKDIR /app
 ENV NODE_ENV=production

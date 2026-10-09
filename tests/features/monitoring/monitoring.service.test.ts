@@ -26,7 +26,11 @@ const { from, calls, results } = vi.hoisted(() => {
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 
 const uploadPhoto = vi.hoisted(() => vi.fn());
-vi.mock('../../../lib/storage.js', () => ({ uploadPhoto }));
+const decodeImageData = vi.hoisted(() => vi.fn(() => ({ bytes: Buffer.from('photo'), mime: 'image/jpeg', ext: 'jpg' })));
+vi.mock('../../../lib/storage.js', () => ({ uploadPhoto, decodeImageData }));
+
+const compareFaces = vi.hoisted(() => vi.fn());
+vi.mock('../../../lib/faceMatch.js', () => ({ compareFaces }));
 
 import { addMedia, listMedia, deleteMedia } from '../../../features/monitoring/monitoring.service.js';
 import { HttpError } from '../../../lib/errors.js';
@@ -40,6 +44,10 @@ const tables = () => calls.filter(([method]) => method === 'from').map(([, table
 const callsOf = (method: string) => calls.filter(([name]) => name === method);
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
+
+// the face match check is fire-and-forget (addMedia does not await it), so tests give its
+// promise chain a tick to finish before asserting on what it did
+const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 // an attempt of an exam that runs until 2099: nothing here is ever out of time by the clock
 const timing = { session_duration: 3600, session_duration_unit: 'seconds', started_at: null };
@@ -59,6 +67,9 @@ beforeEach(() => {
   results.length = 0;
   from.mockClear();
   uploadPhoto.mockReset().mockResolvedValue('https://x.test/a');
+  decodeImageData.mockClear();
+  compareFaces.mockReset();
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(1)) }));
 });
 
 describe('addMedia', () => {
@@ -90,7 +101,11 @@ describe('addMedia', () => {
 
       await addMedia(kind, '7', 5, 'data:image/jpeg;base64,AAA', undefined);
 
-      expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', table, join]);
+      // face-snapshots also kicks off a (fire-and-forget) face match check, which reads the
+      // student's profile_photo_url first - its own synchronous prefix lands in the same tick
+      const expectedTables = ['assignments', 'student_assignment', 'exams', table, join];
+      if (kind === 'face-snapshots') expectedTables.push('students');
+      expect(tables()).toEqual(expectedTables);
       expect(callsOf('insert')[1]).toEqual(['insert', { assignment_id: 7, [column]: 21 }]);
     }
   });
@@ -228,6 +243,73 @@ describe('addMedia', () => {
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toBe('connection reset');
+  });
+
+  describe('face match check (face-snapshots only)', () => {
+    it('does nothing when the student has no reference photo set', async () => {
+      queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none, none);
+
+      await addMedia('face-snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
+      await flush();
+
+      expect(compareFaces).not.toHaveBeenCalled();
+    });
+
+    it('skips the check entirely for kinds other than face-snapshots', async () => {
+      queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
+
+      await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
+      await flush();
+
+      expect(compareFaces).not.toHaveBeenCalled();
+    });
+
+    it('flags the attempt with a face_mismatch incident when the faces do not match', async () => {
+      queue(
+        inProgress, owner, openWindow,
+        row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
+        row({ profile_photo_url: 'https://x.test/reference.jpg' }),
+        row({ id: 99 }), none, none,
+      );
+      compareFaces.mockResolvedValue({ outcome: 'mismatched', distance: 0.912 });
+
+      await addMedia('face-snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
+      await flush();
+
+      expect(compareFaces).toHaveBeenCalledOnce();
+      expect(callsOf('insert')).toContainEqual(['insert', { name: 'face_mismatch', explanation: expect.stringContaining('0.912') }]);
+      expect(callsOf('insert')).toContainEqual(['insert', { assignment_id: 7, cheating_id: 99 }]);
+      expect(callsOf('update')).toContainEqual(['update', { status: 'flagged' }]);
+    });
+
+    it('does not flag anything when the faces match', async () => {
+      queue(
+        inProgress, owner, openWindow,
+        row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
+        row({ profile_photo_url: 'https://x.test/reference.jpg' }),
+      );
+      compareFaces.mockResolvedValue({ outcome: 'matched', distance: 0.21 });
+
+      await addMedia('face-snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
+      await flush();
+
+      expect(compareFaces).toHaveBeenCalledOnce();
+      expect(callsOf('insert').some(([, payload]) => payload?.name === 'face_mismatch')).toBe(false);
+    });
+
+    it('never lets a face match failure affect the upload itself', async () => {
+      queue(
+        inProgress, owner, openWindow,
+        row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
+        row({ profile_photo_url: 'https://x.test/reference.jpg' }),
+      );
+      compareFaces.mockRejectedValue(new Error('model not loaded'));
+
+      const media = await addMedia('face-snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
+      await flush();
+
+      expect(media).toEqual({ id: 21, url: 'https://x.test/a', created_at: 'now' });
+    });
   });
 });
 

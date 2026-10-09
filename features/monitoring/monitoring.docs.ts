@@ -9,6 +9,7 @@ export const schemas = {
     properties: {
       id,
       url: { type: 'string', format: 'uri', example: 'https://media.magi.edu/attempts/12/snapshot-3.png' },
+      label: nullable({ type: 'string', example: 'ID number 12' }),
       created_at: dateTime,
     },
   },
@@ -36,13 +37,26 @@ export const paths = {
   '/api/monitoring/attempts/{attemptId}/{kind}': {
     post: {
       tags: ['Monitoring'],
-      summary: 'Add a media url to an attempt (student)',
+      summary: 'Upload a photo to an attempt (student)',
       description:
-        'The student who owns the attempt stores the url of a recording or snapshot taken by their client; the file itself is uploaded elsewhere. ' +
-        'Only while the attempt is in progress and inside its time limit (409 once the time is over), and only `http`/`https` urls of at most 2048 characters.',
+        'The student who owns the attempt uploads a photo, stored in Supabase Storage. ' +
+        'Only while the attempt is in progress and inside its time limit (409 once the time is over). ' +
+        "For `face-snapshots`, if the student has set a reference photo (see POST /api/auth/me/photo), it's compared against this one in the " +
+        'background (self-hosted, no response delay) - a mismatch auto-records a face_mismatch cheating incident and flags the attempt, the same ' +
+        'as a self-reported one would.',
       ...authed,
       parameters: [pathParam('attemptId', 'Attempt (assignments.id)'), kindParam],
-      requestBody: { required: true, content: json({ type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', example: 'https://media.magi.edu/attempts/12/snapshot-3.png' } } }) },
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['image'],
+          properties: {
+            image: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,...', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' },
+            label: { type: 'string', example: 'ID number 12' },
+          },
+        }),
+      },
       responses: {
         '201': ok('Media stored', envelope({ media: ref('MonitoringMedia') })),
         ...errors(400, 401, 403, 404, 409),
