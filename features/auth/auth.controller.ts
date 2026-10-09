@@ -322,8 +322,8 @@ const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student
 // the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, phone, parentPhone, parentRelation }:
-      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation, photo }:
+      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s, photo?: unknown } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -348,6 +348,14 @@ export const createStudent = async (req: Request, res: Response) => {
       message: 'The student and parent phone numbers cannot be the same',
     });
 
+    // optional - a professor can hand the student a reference photo up front instead of leaving
+    // it to the student to set later; same quality bar as the student's own upload (setMyProfilePhoto)
+    let photoBytes: Buffer | null = null;
+    if (photo) {
+      photoBytes = decodeImageData(photo).bytes;
+      if (!(await hasFace(photoBytes))) throw new HttpError(400, 'invalid photo: no face detected');
+    }
+
     const email = await uniqueLogin(trimmedFirstName);
     const studentCode = await uniqueRoleCode('students', 'student_code');
     const generatedPassword = crypto.randomBytes(6).toString('base64url');
@@ -369,6 +377,8 @@ export const createStudent = async (req: Request, res: Response) => {
     if (newUserError) throw new Error(newUserError.message);
     if (!newUser) throw new Error('New user data is null after insertion');
 
+    const profilePhotoUrl = photoBytes ? await uploadProfilePhoto(newUser.id, photo) : null;
+
     const { error: roleError } = await database.from('students').insert({
       user_id: newUser.id,
       student_code: studentCode,
@@ -377,6 +387,7 @@ export const createStudent = async (req: Request, res: Response) => {
       phone: trimmedPhone,
       parent_phone: trimmedParentPhone,
       parent_relation: parentRelation?.trim() || null,
+      profile_photo_url: profilePhotoUrl,
     });
     if (roleError) throw new Error(roleError.message);
 
@@ -385,6 +396,7 @@ export const createStudent = async (req: Request, res: Response) => {
       student: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
       student_code: studentCode,
       password: generatedPassword,
+      profile_photo_url: profilePhotoUrl,
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "createStudent controller");

@@ -104,7 +104,11 @@ export const paths = {
     post: {
       tags: ['Auth'],
       summary: 'Create a student account directly (professor only)',
-      description: 'Login email and a random 5-digit student code are both generated from the first name - no verification email, the account is active immediately. The password and student code are returned once, for the professor to hand to the student; a recoverable copy of the password is also kept for the professor to look up later (see GET .../credentials).',
+      description:
+        'Login email and a random 5-digit student code are both generated from the first name - no verification email, the account is active immediately. ' +
+        "The password and student code are returned once, for the professor to hand to the student; a recoverable copy of the password is also kept for " +
+        "the professor to look up later (see GET .../credentials). The optional photo becomes the student's reference photo (same as POST /api/auth/me/photo) " +
+        "- rejected with 400 if no face is detected in it, same as the student setting it themselves. They can no longer set their own after this.",
       ...authed,
       requestBody: {
         required: true,
@@ -117,6 +121,7 @@ export const paths = {
             phone: { type: 'string', example: '+998901234567' },
             parentPhone: { type: 'string', example: '+998901234567' },
             parentRelation: { type: 'string', example: 'mother' },
+            photo: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,...', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' },
           },
         }),
       },
@@ -127,6 +132,7 @@ export const paths = {
             student: { type: 'object', properties: { id, first_name: { type: 'string', example: 'Sarah' }, last_name: nullable({ type: 'string', example: 'Chen' }), email: { type: 'string', example: 'sarah@magi.com' } } },
             student_code: { type: 'string', example: '04213' },
             password: { type: 'string', example: 'xK9mPq2a' },
+            profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
           })
         ),
         ...errors(400, 403, 409),
