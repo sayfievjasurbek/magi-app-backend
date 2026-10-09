@@ -2,6 +2,7 @@ import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type Role } from '../../lib/types.js';
+import { notify } from '../../lib/notifications.js';
 
 type Person = { id: number; first_name: string; last_name: string | null; email: string };
 
@@ -312,6 +313,7 @@ export const addStudent = async (professorId: number, moduleIdParam: string, bod
     throw new Error(error.message);
   };
 
+  void notify(student.id, 'module_enrolled', 'Added to a group', managed.name, managed.id);
   return student;
 };
 

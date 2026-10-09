@@ -3,6 +3,7 @@ import { deadline, TIME_UNITS, type TimeUnit, toSeconds } from '../../lib/deadli
 import { HttpError } from '../../lib/errors.js';
 import { type Caller, findVisibleExam, sitsExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId } from '../../lib/utils.js';
+import { notify } from '../../lib/notifications.js';
 import { type Attempt, type AttemptStatus } from './attempt.entities.js';
 
 // the exam columns an attempt is judged by; the exams table itself belongs to features/exams
@@ -613,5 +614,6 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
     .select(ATTEMPT_COLUMNS)
     .single()) as Attempt;
 
+  if (studentId) void notify(studentId, 'exam_graded', 'Exam graded', `${exam.name}: ${graded.score}/${exam.max_marks}`, exam.id);
   return staffSummary(graded, exam, await loadStudent(studentId));
 };

@@ -3,6 +3,7 @@ import { HttpError } from '../../lib/errors.js';
 import { managedExamIds, managesExam, seesExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type TokenPayload } from '../../lib/types.js';
+import { notifyMany } from '../../lib/notifications.js';
 
 const EXAM_COLUMNS = 'id, name, shuffle_questions, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by, created_at, updated_at';
 // a student never sees who owns an exam, how it is shuffled or what it asks
@@ -443,7 +444,7 @@ export const addStudents = async (professorId: number, examId: number, body: any
   const moduleId = body.moduleId === undefined ? null : requireBodyId(body.moduleId, 'moduleId');
   if ((studentId === null) === (moduleId === null)) throw new HttpError(400, 'Send either studentId or moduleId');
 
-  await loadManagedExam(professorId, examId);
+  const exam = await loadManagedExam(professorId, examId);
   await assertNoAttempts(examId);
 
   const { data: links, error } = await database.from('exam_module').select('module_id').eq('exam_id', examId);
@@ -452,7 +453,9 @@ export const addStudents = async (professorId: number, examId: number, body: any
 
   if (moduleId !== null) {
     if (!moduleIds.includes(moduleId)) throw new HttpError(404, 'Module not found');
-    return addModuleStudents(examId, moduleId);
+    const result = await addModuleStudents(examId, moduleId);
+    void notifyMany(result.added, 'exam_assigned', 'New exam assigned', exam.name, examId);
+    return result;
   };
 
   // a student is only reachable through a module of this exam
@@ -468,6 +471,7 @@ export const addStudents = async (professorId: number, examId: number, body: any
 
   const { error: insertError } = await database.from('exam_student').insert({ exam_id: examId, student_id: studentId });
   throwOnError(insertError, 'The student is already assigned to this exam');
+  void notifyMany([studentId as number], 'exam_assigned', 'New exam assigned', exam.name, examId);
   return { added: [studentId] };
 };
 
