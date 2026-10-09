@@ -679,10 +679,20 @@ export const getMyProfile = async (req: Request, res: Response) => {
         .eq('user_id', req.user!.id)
         .maybeSingle();
       if (studentError) throw new Error(studentError.message);
-      return res.status(200).json({ success: true, profile: { ...user, ...student } });
+      return res.status(200).json({ success: true, profile: { ...user, ...student, role: req.user!.role } });
     }
 
-    return res.status(200).json({ success: true, profile: user });
+    if (req.user!.role === 'professor') {
+      const { data: professor, error: professorError } = await database
+        .from('professors')
+        .select('professor_code, phone')
+        .eq('user_id', req.user!.id)
+        .maybeSingle();
+      if (professorError) throw new Error(professorError.message);
+      return res.status(200).json({ success: true, profile: { ...user, ...professor, role: req.user!.role } });
+    }
+
+    return res.status(200).json({ success: true, profile: { ...user, role: req.user!.role } });
   } catch (error: unknown) {
     return handleControllerError(res, error, "getMyProfile controller");
   };

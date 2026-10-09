@@ -273,7 +273,9 @@ export const paths = {
     get: {
       tags: ['Auth'],
       summary: "The logged-in user's full profile",
-      description: 'For students, includes student_code, phone, parent_phone, parent_relation and profile_photo_url on top of the base user fields.',
+      description:
+        'For students, includes student_code, phone, parent_phone, parent_relation and profile_photo_url on top of the base user fields. ' +
+        'For professors, includes professor_code and phone instead.',
       ...authed,
       responses: {
         '200': ok(
@@ -286,11 +288,13 @@ export const paths = {
                 first_name: { type: 'string', example: 'Sarah' },
                 last_name: nullable({ type: 'string', example: 'Chen' }),
                 email: { type: 'string', example: 'sarah@magi.com' },
+                role: { type: 'string', enum: ['student', 'professor', 'examiner'], example: 'student' },
                 student_code: nullable({ type: 'string', example: '04213' }),
                 phone: nullable({ type: 'string', example: '+998901234567' }),
                 parent_phone: nullable({ type: 'string', example: '+998901234567' }),
                 parent_relation: nullable({ type: 'string', example: 'mother' }),
                 profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+                professor_code: nullable({ type: 'string', example: '04213' }),
               },
             },
           })
