@@ -47,3 +47,14 @@ export const uploadPhoto = async (attemptId: number, kind: string, image: unknow
 
   return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 };
+
+/** Uploads a student's own reference photo under `profiles/{userId}/{random}.{ext}`. */
+export const uploadProfilePhoto = async (userId: number, image: unknown): Promise<string> => {
+  const { bytes, mime, ext } = decode(image);
+  const path = `profiles/${userId}/${randomSuffix()}.${ext}`;
+
+  const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
+  if (error) throw new Error(`photo upload failed: ${error.message}`);
+
+  return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+};

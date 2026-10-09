@@ -268,4 +268,74 @@ export const paths = {
   '/api/auth/get-user': {
     get: { tags: ['Auth'], summary: 'Current user (from the token)', ...authed, responses: { '200': ok('Token payload', ref('TokenPayload')), ...errors(401) } },
   },
+  '/api/auth/me/profile': {
+    get: {
+      tags: ['Auth'],
+      summary: "The logged-in user's full profile",
+      description: 'For students, includes student_code, phone, parent_phone, parent_relation and profile_photo_url on top of the base user fields.',
+      ...authed,
+      responses: {
+        '200': ok(
+          'Profile',
+          envelope({
+            profile: {
+              type: 'object',
+              properties: {
+                id,
+                first_name: { type: 'string', example: 'Sarah' },
+                last_name: nullable({ type: 'string', example: 'Chen' }),
+                email: { type: 'string', example: 'sarah@magi.com' },
+                student_code: nullable({ type: 'string', example: '04213' }),
+                phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_relation: nullable({ type: 'string', example: 'mother' }),
+                profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+              },
+            },
+          })
+        ),
+        ...errors(401),
+      },
+    },
+  },
+  '/api/auth/me/password': {
+    patch: {
+      tags: ['Auth'],
+      summary: 'Change your own password',
+      description: 'Clears any recovery_secret a professor had on file for this account, since it would otherwise be stale.',
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['currentPassword', 'newPassword'],
+          properties: {
+            currentPassword: { type: 'string', example: 'xK9mPq2a' },
+            newPassword: { type: 'string', minLength: 6, example: 'N3wStr0ngPass!' },
+          },
+        }),
+      },
+      responses: { '200': ok('Password changed', messageOnly), ...errors(400, 401, 404) },
+    },
+  },
+  '/api/auth/me/photo': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Set your own reference photo (student only)',
+      description: "Gives staff something to compare an exam's identity_check photo against. Stored in the same Supabase Storage bucket as other proctoring media.",
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['image'],
+          properties: { image: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,...', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' } },
+        }),
+      },
+      responses: {
+        '200': ok('Photo set', envelope({ profile_photo_url: { type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' } })),
+        ...errors(400, 403),
+      },
+    },
+  },
 };

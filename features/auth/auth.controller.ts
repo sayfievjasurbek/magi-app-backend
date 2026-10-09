@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { sendWelcomeEmail, sendPasswordResetEmail, sendResetSuccessEmail, sendVerificationEmail } from "../../email/email.js";
 import { generateToken, handleControllerError } from '../../lib/utils.js';
 import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
+import { uploadProfilePhoto } from '../../lib/storage.js';
 
 type s = string;
 type n = string;
@@ -588,6 +589,87 @@ export const getProfessorCredentials = async (req: Request, res: Response) => {
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "getProfessorCredentials controller");
+  };
+};
+
+// a logged-in user changing their own password - any role
+export const changePassword = async (req: Request, res: Response) => {
+  try {
+    const { currentPassword, newPassword }: { currentPassword: s, newPassword: s } = req.body;
+
+    if (!currentPassword || !newPassword) return res.status(400).json({
+      success: false,
+      message: 'currentPassword and newPassword are required',
+    });
+    if (newPassword.toString().length < 6) return res.status(400).json({
+      success: false,
+      message: 'New password must be at least 6 characters long',
+    });
+
+    const { data: user, error } = await database
+      .from('users')
+      .select('password')
+      .eq('id', req.user!.id)
+      .maybeSingle<{ password: string }>();
+    if (error) throw new Error(error.message);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    const matches = await bcrypt.compare(currentPassword, user.password);
+    if (!matches) return res.status(400).json({ success: false, message: 'Current password is incorrect' });
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const { error: updateError } = await database.from('users').update({ password: hashedPassword }).eq('id', req.user!.id);
+    if (updateError) throw new Error(updateError.message);
+
+    // the password just changed, so any recovery_secret a professor had on file is now stale -
+    // only accounts createStudent/createProfessor made have one, this is a no-op otherwise
+    await database.from('students').update({ recovery_secret: null }).eq('user_id', req.user!.id);
+    await database.from('professors').update({ recovery_secret: null }).eq('user_id', req.user!.id);
+
+    return res.status(200).json({ success: true, message: 'Password changed' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "changePassword controller");
+  };
+};
+
+// the logged-in user's own full profile - role-specific fields (phone, student_code, the
+// reference photo) layer on top of the base user record for students
+export const getMyProfile = async (req: Request, res: Response) => {
+  try {
+    const { data: user, error } = await database
+      .from('users')
+      .select('id, first_name, last_name, email')
+      .eq('id', req.user!.id)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+
+    if (req.user!.role === 'student') {
+      const { data: student, error: studentError } = await database
+        .from('students')
+        .select('student_code, phone, parent_phone, parent_relation, profile_photo_url')
+        .eq('user_id', req.user!.id)
+        .maybeSingle();
+      if (studentError) throw new Error(studentError.message);
+      return res.status(200).json({ success: true, profile: { ...user, ...student } });
+    }
+
+    return res.status(200).json({ success: true, profile: user });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getMyProfile controller");
+  };
+};
+
+// a student setting their own reference photo - gives staff something to compare the
+// identity_check photo taken during an exam against
+export const setMyProfilePhoto = async (req: Request, res: Response) => {
+  try {
+    const url = await uploadProfilePhoto(req.user!.id, req.body?.image);
+    const { error } = await database.from('students').update({ profile_photo_url: url }).eq('user_id', req.user!.id);
+    if (error) throw new Error(error.message);
+    return res.status(200).json({ success: true, profile_photo_url: url });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "setMyProfilePhoto controller");
   };
 };
 
