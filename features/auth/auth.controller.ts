@@ -419,7 +419,8 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
     const { data: users, error: usersError } = await database
       .from('users')
       .select('id, first_name, last_name, email')
-      .in('id', rows.map((row) => row.user_id));
+      .in('id', rows.map((row) => row.user_id))
+      .is('deleted_at', null);
 
     if (usersError) throw new Error(usersError.message);
 
@@ -442,6 +443,64 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, students });
   } catch (error: unknown) {
     return handleControllerError(res, error, "listCreatedStudents controller");
+  };
+};
+
+// a professor opening one student's own page (the Students list links here instead of a modal)
+export const getStudentDetail = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+
+    const { data: user, error: userError } = await database
+      .from('users')
+      .select('id, first_name, last_name, email, created_at')
+      .eq('id', studentId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (userError) throw new Error(userError.message);
+    if (!user) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const { data: student, error: studentError } = await database
+      .from('students')
+      .select('student_code, phone, parent_phone, parent_relation, profile_photo_url')
+      .eq('user_id', studentId)
+      .maybeSingle();
+    if (studentError) throw new Error(studentError.message);
+
+    return res.status(200).json({ success: true, student: { ...user, ...student } });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getStudentDetail controller");
+  };
+};
+
+// a professor removing a student account they (or a colleague) created - soft delete, same
+// users.deleted_at/active_status/reason columns every account deletion in this system uses;
+// a deleted account can no longer log in (see the active_status check in login above)
+export const deleteStudent = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+
+    const { reason }: { reason?: s } = req.body;
+
+    const { data: student, error: studentError } = await database
+      .from('students')
+      .select('user_id')
+      .eq('user_id', studentId)
+      .maybeSingle();
+    if (studentError) throw new Error(studentError.message);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const { error } = await database
+      .from('users')
+      .update({ deleted_at: new Date().toISOString(), active_status: 'deleted', reason: reason?.trim() || null })
+      .eq('id', studentId);
+    if (error) throw new Error(error.message);
+
+    return res.status(200).json({ success: true, message: 'Student deleted' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "deleteStudent controller");
   };
 };
 

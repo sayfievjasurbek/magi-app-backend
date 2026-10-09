@@ -1,5 +1,5 @@
 // Auth domain: the endpoints of auth.route.ts and the schemas they use (helpers in docs/common.ts).
-import { authed, envelope, errors, id, json, messageOnly, nullable, ok, ref } from '../../docs/common.js';
+import { authed, dateTime, envelope, errors, id, json, messageOnly, nullable, ok, ref } from '../../docs/common.js';
 
 export const tags = [{ name: 'Auth', description: 'Sign up, verification, login, password reset' }];
 
@@ -169,6 +169,50 @@ export const paths = {
           })
         ),
         ...errors(403),
+      },
+    },
+  },
+  '/api/auth/students/{id}': {
+    get: {
+      tags: ['Auth'],
+      summary: "One student's full profile (professor only)",
+      description: 'The same fields as GET /api/auth/students, for a single student - the Students detail page in the admin panel.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      responses: {
+        '200': ok(
+          'Student',
+          envelope({
+            student: {
+              type: 'object',
+              properties: {
+                id,
+                first_name: { type: 'string', example: 'Sarah' },
+                last_name: nullable({ type: 'string', example: 'Chen' }),
+                email: { type: 'string', example: 'sarah@magi.com' },
+                created_at: dateTime,
+                student_code: nullable({ type: 'string', example: '04213' }),
+                phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_relation: nullable({ type: 'string', example: 'mother' }),
+                profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+              },
+            },
+          })
+        ),
+        ...errors(400, 403, 404),
+      },
+    },
+    delete: {
+      tags: ['Auth'],
+      summary: 'Delete a student account (professor only)',
+      description: 'Soft delete - the account can no longer log in, but its attempts and other records stay in place.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      requestBody: { content: json({ type: 'object', properties: { reason: { type: 'string', maxLength: 1000, example: 'Graduated' } } }) },
+      responses: {
+        '200': ok('Student deleted', messageOnly),
+        ...errors(400, 403, 404),
       },
     },
   },

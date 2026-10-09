@@ -1,5 +1,5 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorCredentials, changePassword, getMyProfile, getMyCurrentPassword, setMyProfilePhoto, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, deleteStudent, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorCredentials, changePassword, getMyProfile, getMyCurrentPassword, setMyProfilePhoto, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
 import {requireRole} from '../../middleware/role.middleware.js';
 
@@ -24,7 +24,9 @@ router.patch("/me/password", protectRoute, changePassword);
 //get
 router.get("/get-user", protectRoute, getUser);
 router.get("/students", protectRoute, requireRole('professor'), listCreatedStudents);
+router.get("/students/:id", protectRoute, requireRole('professor'), getStudentDetail);
 router.get("/students/:id/credentials", protectRoute, requireRole('professor'), getStudentCredentials);
+router.delete("/students/:id", protectRoute, requireRole('professor'), deleteStudent);
 router.get("/professors", protectRoute, requireRole('professor'), listCreatedProfessors);
 router.get("/professors/:id/credentials", protectRoute, requireRole('professor'), getProfessorCredentials);
 router.get("/me/profile", protectRoute, getMyProfile);
