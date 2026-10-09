@@ -285,6 +285,10 @@ export const signup = async ( req: Request, res: Response ) => {
   };
 };
 
+// +998 followed by 9 digits - the frontend normalizes spaces/dashes out before sending, but this
+// is the actual boundary, so it checks again rather than trusting that
+const isValidUzPhone = (value: string): boolean => /^\+998\d{9}$/.test(value);
+
 // students created this way have no real inbox of their own - "humoyun@magi.com" rather than
 // something they'd need to own - so a collision just means trying the next suffix
 const uniqueLogin = async (firstName: string): Promise<string> => {
@@ -328,6 +332,14 @@ export const createStudent = async (req: Request, res: Response) => {
     const trimmedPhone = phone?.trim() || null;
     const trimmedParentPhone = parentPhone?.trim() || null;
 
+    if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
+      success: false,
+      message: 'Phone must be in the format +998XXXXXXXXX',
+    });
+    if (trimmedParentPhone && !isValidUzPhone(trimmedParentPhone)) return res.status(400).json({
+      success: false,
+      message: 'Parent phone must be in the format +998XXXXXXXXX',
+    });
     if (trimmedPhone && trimmedParentPhone && trimmedPhone === trimmedParentPhone) return res.status(400).json({
       success: false,
       message: 'The student and parent phone numbers cannot be the same',
@@ -460,6 +472,12 @@ export const createProfessor = async (req: Request, res: Response) => {
 
     const trimmedFirstName = firstName.trim();
     const trimmedLastName = lastName ? lastName.trim() : null;
+    const trimmedPhone = phone?.trim() || null;
+
+    if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
+      success: false,
+      message: 'Phone must be in the format +998XXXXXXXXX',
+    });
 
     const email = await uniqueLogin(trimmedFirstName);
     const professorCode = await uniqueRoleCode('professors', 'professor_code');
@@ -487,7 +505,7 @@ export const createProfessor = async (req: Request, res: Response) => {
       professor_code: professorCode,
       recovery_secret: encryptSecret(generatedPassword),
       created_by: req.user!.id,
-      phone: phone?.trim() || null,
+      phone: trimmedPhone,
     });
     if (roleError) throw new Error(roleError.message);
 
