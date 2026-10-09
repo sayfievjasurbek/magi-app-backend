@@ -395,7 +395,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
   try {
     const { data: rows, error } = await database
       .from('students')
-      .select('user_id, student_code, phone, parent_phone, parent_relation')
+      .select('user_id, student_code, phone, parent_phone, parent_relation, profile_photo_url')
       .eq('created_by', req.user!.id)
       .order('user_id', { ascending: false });
 
@@ -414,7 +414,14 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
       .map((row) => {
         const user = userById.get(row.user_id);
         if (!user) return null;
-        return { ...user, student_code: row.student_code, phone: row.phone, parent_phone: row.parent_phone, parent_relation: row.parent_relation };
+        return {
+          ...user,
+          student_code: row.student_code,
+          phone: row.phone,
+          parent_phone: row.parent_phone,
+          parent_relation: row.parent_relation,
+          profile_photo_url: row.profile_photo_url,
+        };
       })
       .filter((s) => s !== null);
 

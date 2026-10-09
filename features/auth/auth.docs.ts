@@ -156,6 +156,7 @@ export const paths = {
                   phone: nullable({ type: 'string', example: '+998901234567' }),
                   parent_phone: nullable({ type: 'string', example: '+998901234567' }),
                   parent_relation: nullable({ type: 'string', example: 'mother' }),
+                  profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
                 },
               },
             },
