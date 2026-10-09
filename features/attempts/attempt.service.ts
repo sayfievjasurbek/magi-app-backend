@@ -248,18 +248,24 @@ const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
     }
   }
 
-  const status: AttemptStatus = attempt.status === 'flagged'
-    ? 'flagged'
-    : hasManual ? (auto ? 'auto_submitted' : 'submitted') : 'graded';
+  const naturalStatus: AttemptStatus = hasManual ? (auto ? 'auto_submitted' : 'submitted') : 'graded';
+  const submissionFields = { submitted_at: new Date().toISOString(), auto_submitted: auto, score: Math.min(awarded, exam.max_marks) };
 
+  // guarded on the attempt's *current* DB status, not the possibly-stale `attempt` passed in - a
+  // cheating/face-mismatch incident can flag the row in the window between when the caller first
+  // read it and this write, and that flag must survive the submit, not get silently overwritten
+  const settled = unwrap(await database
+    .from('assignments')
+    .update({ ...submissionFields, status: naturalStatus })
+    .eq('id', attempt.id)
+    .neq('status', 'flagged')
+    .select(ATTEMPT_COLUMNS)) as Attempt[] | null;
+  if (settled?.length) return settled[0];
+
+  // already flagged by the time we got here - keep that status, still record the submission itself
   return unwrap(await database
     .from('assignments')
-    .update({
-      submitted_at: new Date().toISOString(),
-      auto_submitted: auto,
-      status,
-      score: Math.min(awarded, exam.max_marks),
-    })
+    .update(submissionFields)
     .eq('id', attempt.id)
     .select(ATTEMPT_COLUMNS)
     .single()) as Attempt;

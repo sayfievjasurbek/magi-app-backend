@@ -26,6 +26,7 @@ const { from, rpc, calls, queue, queueError, reset } = vi.hoisted(() => {
       update: (payload: any) => ((call.op = 'update'), (call.payload = payload), query),
       delete: () => ((call.op = 'delete'), query),
       eq: (column: string, value: any) => (call.filters.push(['eq', column, value]), query),
+      neq: (column: string, value: any) => (call.filters.push(['neq', column, value]), query),
       in: (column: string, values: any) => (call.filters.push(['in', column, values]), query),
       is: (column: string, value: any) => (call.filters.push(['is', column, value]), query),
       order: (column: string, options?: any) => ((call.order = [column, options]), query),
@@ -336,7 +337,7 @@ describe('getAttempt as a student', () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
     queue('exam_question', [{ question_id: 7, marks: 30 }]);
     queue('questions', [{ id: 7, question_type: 'essay' }]);
-    queue('assignments', attemptRow({ started_at: '2026-09-21T08:30:00.000Z', status: 'auto_submitted', submitted_at: NOW.toISOString(), auto_submitted: true }));
+    queue('assignments', [attemptRow({ started_at: '2026-09-21T08:30:00.000Z', status: 'auto_submitted', submitted_at: NOW.toISOString(), auto_submitted: true })]);
 
     const attempt = await getAttempt(STUDENT, 9);
 
@@ -517,7 +518,7 @@ describe('syncAnswers', () => {
   it('auto submits an attempt that ran out of time and says so', async () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
     queue('exam_question', []);
-    queue('assignments', attemptRow({ status: 'graded', submitted_at: NOW.toISOString(), auto_submitted: true }));
+    queue('assignments', [attemptRow({ status: 'graded', submitted_at: NOW.toISOString(), auto_submitted: true })]);
 
     await expect(syncAnswers(STUDENT.id, 9, { answers: [{ questionId: 7, answer: 'x' }] })).rejects.toMatchObject({
       status: 409,
@@ -642,7 +643,7 @@ describe('submitAttempt', () => {
     ]);
     // question 7 needs both of its correct options, only one was chosen
     queue('question_assignment_option', [{ question_id: 7, option_id: 21 }, { question_id: 8, option_id: 31 }]);
-    queue('assignments', attemptRow({ status: 'graded', submitted_at: NOW.toISOString(), score: 20 }));
+    queue('assignments', [attemptRow({ status: 'graded', submitted_at: NOW.toISOString(), score: 20 })]);
 
     const { attempt, message } = await submitAttempt(STUDENT.id, 9);
 
@@ -657,7 +658,7 @@ describe('submitAttempt', () => {
     queueOwnAttempt();
     queue('exam_question', [{ question_id: 7, marks: 10 }]);
     queue('questions', [{ id: 7, question_type: 'essay' }]);
-    queue('assignments', attemptRow({ status: 'submitted', submitted_at: NOW.toISOString() }));
+    queue('assignments', [attemptRow({ status: 'submitted', submitted_at: NOW.toISOString() })]);
 
     await submitAttempt(STUDENT.id, 9);
 
@@ -671,7 +672,7 @@ describe('submitAttempt', () => {
     queue('questions', [{ id: 7, question_type: 'true_false' }]);
     queue('question_options', [{ id: 21, question_id: 7 }]);
     queue('question_assignment_option', [{ question_id: 7, option_id: 21 }]);
-    queue('assignments', attemptRow({ status: 'graded', score: 15 }));
+    queue('assignments', [attemptRow({ status: 'graded', score: 15 })]);
 
     await submitAttempt(STUDENT.id, 9);
 
@@ -681,7 +682,7 @@ describe('submitAttempt', () => {
   it('submits a late attempt automatically', async () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
     queue('exam_question', []);
-    queue('assignments', attemptRow({ status: 'graded', auto_submitted: true, submitted_at: NOW.toISOString() }));
+    queue('assignments', [attemptRow({ status: 'graded', auto_submitted: true, submitted_at: NOW.toISOString() })]);
 
     const { message } = await submitAttempt(STUDENT.id, 9);
 
@@ -692,11 +693,16 @@ describe('submitAttempt', () => {
   it('answers the student of a flagged attempt with submitted while the row stays flagged', async () => {
     queueOwnAttempt(attemptRow({ status: 'flagged' }));
     queue('exam_question', []);
+    // the guarded update (status.neq('flagged')) matches nothing - the row is already flagged
+    queue('assignments', []);
     queue('assignments', attemptRow({ status: 'flagged', submitted_at: NOW.toISOString() }));
 
     const { attempt } = await submitAttempt(STUDENT.id, 9);
 
-    expect(called('assignments', 'update')[0].payload).toMatchObject({ status: 'flagged' });
+    const updates = called('assignments', 'update');
+    // no questions at all means hasManual is false, so the natural (pre-flag-check) status is 'graded'
+    expect(updates[0].payload).toMatchObject({ status: 'graded' });
+    expect(updates[1].payload).not.toHaveProperty('status');
     expect(attempt.status).toBe('submitted');
   });
 
@@ -706,11 +712,31 @@ describe('submitAttempt', () => {
     queue('questions', [{ id: 7, question_type: 'true_false' }]);
     queue('question_options', [{ id: 21, question_id: 7 }]);
     queue('question_assignment_option', [{ question_id: 7, option_id: 21 }]);
+    // the guarded update (status.neq('flagged')) matches nothing - the row is already flagged
+    queue('assignments', []);
     queue('assignments', attemptRow({ status: 'flagged', submitted_at: NOW.toISOString(), score: 10 }));
 
     await submitAttempt(STUDENT.id, 9);
 
-    expect(called('assignments', 'update')[0].payload).toMatchObject({ status: 'flagged', score: 10 });
+    const updates = called('assignments', 'update');
+    expect(updates[1].payload).toMatchObject({ score: 10 });
+    expect(updates[1].payload).not.toHaveProperty('status');
+  });
+
+  it('a concurrent flag between reading the attempt and submitting it is not clobbered', async () => {
+    // the in-memory attempt looks in_progress (read before the race), but the row is actually
+    // flagged in the DB by the time finishAttempt's guarded update runs
+    queueOwnAttempt(attemptRow({ status: 'in_progress' }));
+    queue('exam_question', []);
+    queue('assignments', []);
+    queue('assignments', attemptRow({ status: 'flagged', submitted_at: NOW.toISOString() }));
+
+    const { attempt } = await submitAttempt(STUDENT.id, 9);
+
+    const updates = called('assignments', 'update');
+    expect(updates).toHaveLength(2);
+    expect(updates[1].payload).not.toHaveProperty('status');
+    expect(attempt.status).toBe('submitted');
   });
 });
 

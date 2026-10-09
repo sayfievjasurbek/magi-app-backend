@@ -214,8 +214,11 @@ export const signup = async ( req: Request, res: Response ) => {
       .from(roleTable)
       .insert({ user_id: newUser.id });
 
+    // the two writes are not one transaction: a user with no role can never log in
+    // (get_user_role finds nothing) and, for signup, permanently occupies their real email
     if (roleError) {
       console.log('Error assigning role to new user:', roleError);
+      await database.from('users').delete().eq('id', newUser.id);
       throw new Error(roleError.message);
     };
     
@@ -377,19 +380,28 @@ export const createStudent = async (req: Request, res: Response) => {
     if (newUserError) throw new Error(newUserError.message);
     if (!newUser) throw new Error('New user data is null after insertion');
 
-    const profilePhotoUrl = photoBytes ? await uploadProfilePhoto(newUser.id, photo) : null;
+    // the photo upload and the students-row insert are not one transaction with the user insert
+    // above: a user with no students row can never log in (get_user_role finds nothing), so
+    // either failing here rolls back the user too, same as createModule/createQuestion do
+    let profilePhotoUrl: string | null = null;
+    try {
+      profilePhotoUrl = photoBytes ? await uploadProfilePhoto(newUser.id, photo) : null;
 
-    const { error: roleError } = await database.from('students').insert({
-      user_id: newUser.id,
-      student_code: studentCode,
-      recovery_secret: encryptSecret(generatedPassword),
-      created_by: req.user!.id,
-      phone: trimmedPhone,
-      parent_phone: trimmedParentPhone,
-      parent_relation: parentRelation?.trim() || null,
-      profile_photo_url: profilePhotoUrl,
-    });
-    if (roleError) throw new Error(roleError.message);
+      const { error: roleError } = await database.from('students').insert({
+        user_id: newUser.id,
+        student_code: studentCode,
+        recovery_secret: encryptSecret(generatedPassword),
+        created_by: req.user!.id,
+        phone: trimmedPhone,
+        parent_phone: trimmedParentPhone,
+        parent_relation: parentRelation?.trim() || null,
+        profile_photo_url: profilePhotoUrl,
+      });
+      if (roleError) throw new Error(roleError.message);
+    } catch (err) {
+      await database.from('users').delete().eq('id', newUser.id);
+      throw err;
+    };
 
     return res.status(201).json({
       success: true,
@@ -515,6 +527,7 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
       .from('users')
       .select('email')
       .eq('id', studentId)
+      .is('deleted_at', null)
       .maybeSingle<{ email: string }>();
     if (userError) throw new Error(userError.message);
     if (!user) return res.status(404).json({ success: false, message: 'Student not found' });
@@ -588,7 +601,11 @@ export const createProfessor = async (req: Request, res: Response) => {
       created_by: req.user!.id,
       phone: trimmedPhone,
     });
-    if (roleError) throw new Error(roleError.message);
+    // a user with no professors row can never log in (get_user_role finds nothing)
+    if (roleError) {
+      await database.from('users').delete().eq('id', newUser.id);
+      throw new Error(roleError.message);
+    };
 
     return res.status(201).json({
       success: true,
@@ -616,7 +633,8 @@ export const listCreatedProfessors = async (req: Request, res: Response) => {
     const { data: users, error: usersError } = await database
       .from('users')
       .select('id, first_name, last_name, email')
-      .in('id', rows.map((row) => row.user_id));
+      .in('id', rows.map((row) => row.user_id))
+      .is('deleted_at', null);
 
     if (usersError) throw new Error(usersError.message);
 
@@ -646,6 +664,7 @@ export const getProfessorCredentials = async (req: Request, res: Response) => {
       .from('users')
       .select('email')
       .eq('id', professorId)
+      .is('deleted_at', null)
       .maybeSingle<{ email: string }>();
     if (userError) throw new Error(userError.message);
     if (!user) return res.status(404).json({ success: false, message: 'Professor not found' });
@@ -914,11 +933,13 @@ export const verifyAccount = async ( req: Request, res: Response ) => {
       .eq('token', hashedToken)
       .eq('token_type', 'verify_account_email');
     
-    // Send welcome email
-    const isSent = await sendWelcomeEmail(updatedUser.email);
-    if (!isSent) {
-      console.log("Welcome email not sent");
-      throw new Error("Welcome email not sent");
+    // Send welcome email - best-effort: the account is already verified and the token already
+    // revoked above, so a send failure here (sendWelcomeEmail throws, it never returns false)
+    // must not turn an already-successful verification into a 500 the client has to retry into
+    try {
+      await sendWelcomeEmail(updatedUser.email);
+    } catch (emailError) {
+      console.log("Welcome email not sent:", emailError);
     };
 
     return res.status(200).json({ success: true, message: "Account verified successfully" });
@@ -1204,11 +1225,13 @@ export const resetPassword = async ( req: Request, res: Response ) => {
       .eq('token', hashedToken)
       .eq('token_type', 'update_account_password'); 
     
-    // Send password reset success email
-    const isSent = await sendResetSuccessEmail(updatedUser.email);
-    if (!isSent) {
-      console.log("Password reset success email not sent");
-      throw new Error("Password reset success email not sent");
+    // Send password reset success email - best-effort: the password is already changed and the
+    // token already revoked above, so a send failure here (sendResetSuccessEmail throws, it
+    // never returns false) must not turn an already-successful reset into a 500 to retry into
+    try {
+      await sendResetSuccessEmail(updatedUser.email);
+    } catch (emailError) {
+      console.log("Password reset success email not sent:", emailError);
     };
 
     return res.status(200).json({ success: true, message: "Password has been reset successfully" });
