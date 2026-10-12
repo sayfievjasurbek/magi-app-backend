@@ -832,7 +832,7 @@ export const getMyProfile = async (req: Request, res: Response) => {
     if (req.user!.role === 'professor') {
       const { data: professor, error: professorError } = await database
         .from('professors')
-        .select('professor_code, phone')
+        .select('professor_code, phone, position')
         .eq('user_id', req.user!.id)
         .maybeSingle();
       if (professorError) throw new Error(professorError.message);

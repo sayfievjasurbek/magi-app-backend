@@ -370,7 +370,7 @@ export const paths = {
       summary: "The logged-in user's full profile",
       description:
         'For students, includes student_code, phone, parent_phone, parent_relation and profile_photo_url on top of the base user fields. ' +
-        'For professors, includes professor_code and phone instead.',
+        'For professors, includes professor_code, phone and position instead.',
       ...authed,
       responses: {
         '200': ok(
@@ -390,6 +390,7 @@ export const paths = {
                 parent_relation: nullable({ type: 'string', example: 'mother' }),
                 profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
                 professor_code: nullable({ type: 'string', example: '04213' }),
+                position: nullable({ type: 'string', example: 'Teacher' }),
               },
             },
           })
