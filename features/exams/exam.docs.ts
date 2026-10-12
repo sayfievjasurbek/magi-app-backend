@@ -4,6 +4,12 @@ import { authed, dateTime, envelope, errors, id, json, messageOnly, nullable, ok
 export const tags = [{ name: 'Exams', description: 'Exams, their schedule, modules, examiners, students, questions, monitored events and permitted urls' }];
 
 export const examStatus = { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'], example: 'ongoing' };
+export const examKind = {
+  type: 'string',
+  enum: ['exam', 'homework'],
+  description: 'Same machinery either way (questions, scheduling, grading, desktop-app submission) - purely a label/filter.',
+  example: 'exam',
+};
 
 export const schemas = {
   Exam: {
@@ -12,6 +18,7 @@ export const schemas = {
     properties: {
       id,
       name: { type: 'string', example: 'Databases, final' },
+      kind: examKind,
       shuffle_questions: { type: 'boolean', example: true },
       scheduled_start: dateTime,
       scheduled_end: dateTime,
@@ -29,6 +36,7 @@ export const schemas = {
     properties: {
       id,
       name: { type: 'string', example: 'Databases, final' },
+      kind: examKind,
       scheduled_start: dateTime,
       scheduled_end: dateTime,
       status: examStatus,
@@ -120,9 +128,12 @@ export const paths = {
       description:
         'A professor sees the exams they created plus the exams linked to a module they teach, an examiner the exams they are assigned to, ' +
         'a student the exams they are assigned to (in the reduced student shape). Ordered by scheduled start. ' +
-        'Pass `moduleId` to only get exams linked to that one module.',
+        'Pass `moduleId` to only get exams linked to that one module, or `kind` to only get `exam`s or only `homework`.',
       ...authed,
-      parameters: [{ name: 'moduleId', in: 'query', schema: { type: 'integer', example: 11 } }],
+      parameters: [
+        { name: 'moduleId', in: 'query', schema: { type: 'integer', example: 11 } },
+        { name: 'kind', in: 'query', schema: examKind },
+      ],
       responses: {
         '200': ok('The exams', envelope({ exams: { type: 'array', items: { oneOf: [ref('Exam'), ref('StudentExam')] } } })),
         ...errors(401),
@@ -140,6 +151,7 @@ export const paths = {
           required: ['name', 'scheduledStart', 'scheduledEnd'],
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final' },
+            kind: { ...examKind, default: 'exam' },
             scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart' },
             status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled', example: 'scheduled' },
@@ -180,6 +192,7 @@ export const paths = {
           type: 'object',
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final' },
+            kind: examKind,
             scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z' },
             maxMarks: { type: 'integer', minimum: 0, example: 100 },

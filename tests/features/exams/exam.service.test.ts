@@ -245,6 +245,18 @@ describe('createExam', () => {
       created_by: 7,
     });
   });
+
+  it("defaults kind to 'exam', accepts 'homework', refuses anything else", async () => {
+    queue.push(rows({ id: 1 }));
+    await createExam(7, body);
+    expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ kind: 'exam' });
+
+    queue.push(rows({ id: 2 }));
+    await createExam(7, { ...body, kind: 'homework' });
+    expect(argsOf('exams', 'insert')[1][0]).toMatchObject({ kind: 'homework' });
+
+    await expect(createExam(7, { ...body, kind: 'quiz' })).rejects.toMatchObject({ status: 400 });
+  });
 });
 
 describe('updateExam', () => {

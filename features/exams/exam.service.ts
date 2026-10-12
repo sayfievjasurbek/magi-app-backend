@@ -5,12 +5,16 @@ import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type TokenPayload } from '../../lib/types.js';
 import { notifyMany } from '../../lib/notifications.js';
 
-const EXAM_COLUMNS = 'id, name, shuffle_questions, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by, created_at, updated_at';
+const EXAM_COLUMNS = 'id, name, kind, shuffle_questions, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by, created_at, updated_at';
 // a student never sees who owns an exam, how it is shuffled or what it asks
-const STUDENT_EXAM_COLUMNS = 'id, name, scheduled_start, scheduled_end, status, max_marks, passing_marks';
+const STUDENT_EXAM_COLUMNS = 'id, name, kind, scheduled_start, scheduled_end, status, max_marks, passing_marks';
 
 const EXAM_STATUSES = ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] as const;
 type ExamStatus = (typeof EXAM_STATUSES)[number];
+
+// homework is the same machinery as an exam (questions, scheduling, grading, desktop-app
+// submission with the same proctoring) - kind is purely how it's labeled and filtered
+const EXAM_KINDS = ['exam', 'homework'] as const;
 
 // what a status may become; completed and cancelled are final
 const STATUS_FLOW: Record<ExamStatus, ExamStatus[]> = {
@@ -192,7 +196,11 @@ const displayStatus = (attempt: { status: string; submitted_at: string | null; a
   return attempt.auto_submitted ? 'auto_submitted' : 'submitted';
 };
 
-export const listExams = async (user: TokenPayload, moduleId?: number) => {
+export const listExams = async (user: TokenPayload, moduleId?: number, kind?: string) => {
+  if (kind !== undefined && !EXAM_KINDS.includes(kind as (typeof EXAM_KINDS)[number])) {
+    throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
+  };
+
   let ids = user.role === 'professor' ? await managedExamIds(user.id) : await assignedExamIds(user);
   if (moduleId) {
     const moduleExamIds = new Set(await examIdsForModule(moduleId));
@@ -200,9 +208,9 @@ export const listExams = async (user: TokenPayload, moduleId?: number) => {
   }
   if (!ids.length) return [];
 
-  const { data, error } = await activeOnly(
-    database.from('exams').select(user.role === 'student' ? STUDENT_EXAM_COLUMNS : EXAM_COLUMNS).in('id', ids)
-  ).order('scheduled_start');
+  let query = activeOnly(database.from('exams').select(user.role === 'student' ? STUDENT_EXAM_COLUMNS : EXAM_COLUMNS).in('id', ids));
+  if (kind) query = query.eq('kind', kind);
+  const { data, error } = await query.order('scheduled_start');
   throwOnError(error);
   // the select string is a runtime ternary (student vs staff columns), not a literal, so
   // supabase-js's column-level typing can't follow it - the row shape is known at this point either way
@@ -267,10 +275,14 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const status = body.status === undefined ? 'scheduled' : body.status;
   if (status !== 'scheduled' && status !== 'demo') throw new HttpError(400, 'status must be scheduled or demo');
 
+  const kind = body.kind === undefined ? 'exam' : body.kind;
+  if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
+
   const { data, error } = await database
     .from('exams')
     .insert({
       name,
+      kind,
       scheduled_start,
       scheduled_end,
       status,
@@ -290,6 +302,10 @@ export const updateExam = async (professorId: number, examId: number, body: any 
 
   const patch: Record<string, unknown> = {};
   if (body.name !== undefined) patch.name = requireName(body.name);
+  if (body.kind !== undefined) {
+    if (!EXAM_KINDS.includes(body.kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
+    patch.kind = body.kind;
+  };
   if (body.shuffleQuestions !== undefined) patch.shuffle_questions = Boolean(body.shuffleQuestions);
   if (body.scheduledStart !== undefined) patch.scheduled_start = requireDate(body.scheduledStart, 'scheduledStart');
   if (body.scheduledEnd !== undefined) patch.scheduled_end = requireDate(body.scheduledEnd, 'scheduledEnd');
