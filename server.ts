@@ -37,6 +37,14 @@ app.get("/health", (req, res) => res.json({ success: true }));
 app.get("/docs.json", (req, res) => res.json(openapi));
 app.use("/docs", apiReference({ content: openapi, theme: "purple", pageTitle: "MAGI API" }));
 
+// every response here is per-session data keyed by the jwt cookie, not the URL - without this a
+// shared browser cache (or a proxy) can serve one account's GET response to a different account
+// that later requests the exact same URL after signing in
+app.use("/api", (req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+
 app.use("/api/auth", authRoutes);
 app.use("/api/modules", moduleRoutes);
 app.use("/api/exams", examRoutes);
