@@ -453,4 +453,34 @@ export const paths = {
       },
     },
   },
+  '/api/auth/me/identity-check': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Check a photo against your own reference photo (student only)',
+      description:
+        'The desktop app calls this right before an exam starts, as an entry gate: if a reference photo is on file, the submitted photo must match it ' +
+        '(`matched: true`) or the app should refuse to start the exam. `hasReference: false` means the student never set one up - nothing to gate on, ' +
+        'so `matched` is reported true and the app should proceed.',
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['image'],
+          properties: { image: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,...', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' } },
+        }),
+      },
+      responses: {
+        '200': ok(
+          'Check result',
+          envelope({
+            hasReference: { type: 'boolean', example: true },
+            matched: { type: 'boolean', example: true },
+            outcome: { type: 'string', enum: ['matched', 'mismatched', 'no_face_in_photo', 'no_face_in_reference', 'no_reference'], example: 'matched' },
+          })
+        ),
+        ...errors(400, 403),
+      },
+    },
+  },
 };

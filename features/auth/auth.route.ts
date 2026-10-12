@@ -1,5 +1,5 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, getMyCurrentPassword, setMyProfilePhoto, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, getMyCurrentPassword, setMyProfilePhoto, checkMyIdentity, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
 import {requireRole} from '../../middleware/role.middleware.js';
 
@@ -18,6 +18,7 @@ router.post("/reset-password/:token", resetPassword);
 router.post("/create-student", protectRoute, requireRole('professor'), createStudent);
 router.post("/create-professor", protectRoute, requireRole('professor'), createProfessor);
 router.post("/me/photo", protectRoute, requireRole('student'), setMyProfilePhoto);
+router.post("/me/identity-check", protectRoute, requireRole('student'), checkMyIdentity);
 router.patch("/me/password", protectRoute, changePassword);
 
 

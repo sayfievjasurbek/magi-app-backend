@@ -6,7 +6,7 @@ import { sendWelcomeEmail, sendPasswordResetEmail, sendResetSuccessEmail, sendVe
 import { generateToken, handleControllerError } from '../../lib/utils.js';
 import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
 import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
-import { hasFace, isUsableImage } from '../../lib/faceMatch.js';
+import { compareFaces, hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
 import { notify } from '../../lib/notifications.js';
 
@@ -887,6 +887,33 @@ export const setMyProfilePhoto = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, profile_photo_url: url });
   } catch (error: unknown) {
     return handleControllerError(res, error, "setMyProfilePhoto controller");
+  };
+};
+
+// the desktop app's entry gate before an exam starts: a photo taken right then, checked against
+// the student's reference photo. No reference photo on file means nothing to gate on, so it's
+// reported as a pass (hasReference: false) rather than blocking a student who never set one up.
+export const checkMyIdentity = async (req: Request, res: Response) => {
+  try {
+    const { data: student, error } = await database
+      .from('students')
+      .select('profile_photo_url')
+      .eq('user_id', req.user!.id)
+      .maybeSingle<{ profile_photo_url: string | null }>();
+    if (error) throw new Error(error.message);
+
+    if (!student?.profile_photo_url) {
+      return res.status(200).json({ success: true, hasReference: false, matched: true, outcome: 'no_reference' });
+    };
+
+    const { bytes } = decodeImageData(req.body?.image);
+    const referenceResponse = await fetch(student.profile_photo_url);
+    const referenceBytes = Buffer.from(await referenceResponse.arrayBuffer());
+
+    const result = await compareFaces(bytes, referenceBytes);
+    return res.status(200).json({ success: true, hasReference: true, matched: result.outcome === 'matched', outcome: result.outcome });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "checkMyIdentity controller");
   };
 };
 
