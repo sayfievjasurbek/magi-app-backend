@@ -66,6 +66,7 @@ import {
   startAttempt,
   listMyAttempts,
   listExamAttempts,
+  listAttemptsSummary,
   getAttempt,
   syncAnswers,
   submitAttempt,
@@ -496,6 +497,47 @@ describe('listExamAttempts', () => {
     await listExamAttempts(PROFESSOR, { examId: 5 });
 
     expect(called('assignments')[0].limit).toBe(500);
+  });
+});
+
+describe('listAttemptsSummary', () => {
+  it('counts attempts per exam the professor manages, across both created and module-linked exams', async () => {
+    queue('exams', [{ id: 5 }]); // created_by
+    queue('module_professor', [{ module_id: 2 }]); // taught
+    queue('exam_module', [{ exam_id: 7 }]); // linked via a taught module
+    queue('exams', [{ id: 7 }]); // live check on the linked-but-not-created exam
+    queue('assignments', [
+      { exam_id: 5, status: 'graded' },
+      { exam_id: 5, status: 'submitted' },
+      { exam_id: 5, status: 'in_progress' },
+      { exam_id: 7, status: 'flagged' },
+    ]);
+
+    const summary = await listAttemptsSummary(PROFESSOR.id);
+
+    expect(summary).toEqual(
+      expect.arrayContaining([
+        { exam_id: 5, students: 3, awaiting: 1, graded: 1 },
+        { exam_id: 7, students: 1, awaiting: 1, graded: 0 },
+      ]),
+    );
+    expect(summary).toHaveLength(2);
+  });
+
+  it('answers empty, with no attempts query, when the professor manages no exams', async () => {
+    queue('exams', []);
+    queue('module_professor', []);
+
+    expect(await listAttemptsSummary(PROFESSOR.id)).toEqual([]);
+    expect(called('assignments')).toHaveLength(0);
+  });
+
+  it('counts an exam with zero attempts as zero, not missing', async () => {
+    queue('exams', [{ id: 5 }]);
+    queue('module_professor', []);
+    queue('assignments', []);
+
+    expect(await listAttemptsSummary(PROFESSOR.id)).toEqual([{ exam_id: 5, students: 0, awaiting: 0, graded: 0 }]);
   });
 });
 

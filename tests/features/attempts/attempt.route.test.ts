@@ -6,6 +6,7 @@ vi.mock('../../../middleware/auth.middleware.js', () => ({ protectRoute: vi.fn((
 vi.mock('../../../features/attempts/attempt.controller.js', () => ({
   startAttempt: vi.fn(),
   getMyAttempts: vi.fn(),
+  getAttemptsSummary: vi.fn(),
   getExamAttempts: vi.fn(),
   getAttempt: vi.fn(),
   syncAnswers: vi.fn(),
@@ -54,6 +55,7 @@ describe('attempt routes', () => {
   it('wires every endpoint to its controller', () => {
     expect(route('post', '/').handlers.at(-1)).toBe(controller.startAttempt);
     expect(route('get', '/my').handlers.at(-1)).toBe(controller.getMyAttempts);
+    expect(route('get', '/summary').handlers.at(-1)).toBe(controller.getAttemptsSummary);
     expect(route('get', '/').handlers.at(-1)).toBe(controller.getExamAttempts);
     expect(route('get', '/:id').handlers.at(-1)).toBe(controller.getAttempt);
     expect(route('put', '/:id/answers').handlers.at(-1)).toBe(controller.syncAnswers);
@@ -61,9 +63,10 @@ describe('attempt routes', () => {
     expect(route('put', '/:id/grade').handlers.at(-1)).toBe(controller.gradeAttempt);
   });
 
-  it('matches /my before /:id', () => {
+  it('matches /my and /summary before /:id', () => {
     const paths = routes.filter((candidate: any) => candidate.method === 'get').map((candidate: any) => candidate.path);
     expect(paths.indexOf('/my')).toBeLessThan(paths.indexOf('/:id'));
+    expect(paths.indexOf('/summary')).toBeLessThan(paths.indexOf('/:id'));
   });
 
   it('keeps the student endpoints for students', () => {
@@ -72,6 +75,12 @@ describe('attempt routes', () => {
       expect(guard(method, path, 'professor')).toEqual({ allowed: false, status: 403 });
       expect(guard(method, path, 'examiner')).toEqual({ allowed: false, status: 403 });
     }
+  });
+
+  it('lets only professors see the attempts summary', () => {
+    expect(guard('get', '/summary', 'professor').allowed).toBe(true);
+    expect(guard('get', '/summary', 'examiner')).toEqual({ allowed: false, status: 403 });
+    expect(guard('get', '/summary', 'student')).toEqual({ allowed: false, status: 403 });
   });
 
   it('lets professors and examiners list the attempts of an exam', () => {

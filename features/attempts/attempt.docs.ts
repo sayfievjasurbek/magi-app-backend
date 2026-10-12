@@ -186,6 +186,36 @@ export const paths = {
       responses: { '200': ok('Attempts of the exam', envelope({ attempts: { type: 'array', items: ref('StaffAttempt') } })), ...errors(400, 401, 403, 404) },
     },
   },
+  '/api/assignments/summary': {
+    get: {
+      tags: ['Attempts'],
+      summary: 'Attempt counts per exam (professor)',
+      description:
+        'Students/awaiting/graded counts for every exam the caller manages, in a fixed number of queries - built for the admin panel\'s Attempts ' +
+        'overview, which used to call GET /api/assignments once per exam to build this same table.',
+      ...authed,
+      responses: {
+        '200': ok(
+          'Counts per exam',
+          envelope({
+            summary: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  exam_id: id,
+                  students: { type: 'integer', example: 24, description: 'Attempts started' },
+                  awaiting: { type: 'integer', example: 3, description: 'Submitted or flagged, not graded yet' },
+                  graded: { type: 'integer', example: 21 },
+                },
+              },
+            },
+          })
+        ),
+        ...errors(401, 403),
+      },
+    },
+  },
   '/api/assignments/my': {
     get: {
       tags: ['Attempts'],

@@ -1,7 +1,7 @@
 import { database } from '../../lib/db.js';
 import { deadline, TIME_UNITS, type TimeUnit, toSeconds } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
-import { type Caller, findVisibleExam, sitsExam } from '../../lib/exam-access.js';
+import { type Caller, findVisibleExam, managedExamIds, sitsExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId } from '../../lib/utils.js';
 import { notify } from '../../lib/notifications.js';
 import { type Attempt, type AttemptStatus } from './attempt.entities.js';
@@ -386,6 +386,30 @@ export const listExamAttempts = async (caller: Caller, query: { examId?: unknown
   const studentById = new Map(students.map((student: { id: number }) => [student.id, student]));
 
   return attempts.map((attempt: Attempt) => staffSummary(attempt, exam, studentById.get(studentIdByAttempt.get(attempt.id) as number) ?? null));
+};
+
+// an attempt is "awaiting" once it's submitted but has no grade yet - mirrors AWAITING on the Attempts overview page
+const AWAITING_STATUSES = new Set(['submitted', 'auto_submitted', 'flagged']);
+
+// counts per exam for every exam the professor manages, in a fixed number of queries - the
+// admin panel's Attempts overview used to call listExamAttempts once per exam to build this,
+// which got slow once there were more than a handful (worse now that homework exams exist too)
+export const listAttemptsSummary = async (professorId: number): Promise<{ exam_id: number; students: number; awaiting: number; graded: number }[]> => {
+  const examIds = await managedExamIds(professorId);
+  if (!examIds.length) return [];
+
+  const rows = unwrap(await activeOnly(database.from('assignments').select('exam_id, status').in('exam_id', examIds))) ?? [];
+
+  const counts = new Map(examIds.map((id) => [id, { exam_id: id, students: 0, awaiting: 0, graded: 0 }]));
+  for (const row of rows as { exam_id: number; status: string }[]) {
+    const count = counts.get(row.exam_id);
+    if (!count) continue;
+    count.students += 1;
+    if (AWAITING_STATUSES.has(row.status)) count.awaiting += 1;
+    if (row.status === 'graded') count.graded += 1;
+  };
+
+  return [...counts.values()];
 };
 
 export const getAttempt = async (caller: Caller, attemptId: number | null) => {

@@ -20,6 +20,15 @@ export const getMyAttempts = async (req: Request, res: Response) => {
   };
 };
 
+export const getAttemptsSummary = async (req: Request, res: Response) => {
+  try {
+    const summary = await attempts.listAttemptsSummary(req.user!.id);
+    return res.status(200).json({ success: true, summary });
+  } catch (error) {
+    return handleControllerError(res, error, "attempt controller");
+  };
+};
+
 export const getExamAttempts = async (req: Request, res: Response) => {
   try {
     const attemptList = await attempts.listExamAttempts(req.user!, req.query);
