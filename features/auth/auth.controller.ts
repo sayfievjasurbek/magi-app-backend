@@ -6,7 +6,7 @@ import { sendWelcomeEmail, sendPasswordResetEmail, sendResetSuccessEmail, sendVe
 import { generateToken, handleControllerError } from '../../lib/utils.js';
 import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
 import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
-import { hasFace } from '../../lib/faceMatch.js';
+import { hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
 
 type s = string;
@@ -356,6 +356,7 @@ export const createStudent = async (req: Request, res: Response) => {
     let photoBytes: Buffer | null = null;
     if (photo) {
       photoBytes = decodeImageData(photo).bytes;
+      if (!(await isUsableImage(photoBytes))) throw new HttpError(400, 'invalid photo: too dark or too bright to use');
       if (!(await hasFace(photoBytes))) throw new HttpError(400, 'invalid photo: no face detected');
     }
 
@@ -513,6 +514,31 @@ export const deleteStudent = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, message: 'Student deleted' });
   } catch (error: unknown) {
     return handleControllerError(res, error, "deleteStudent controller");
+  };
+};
+
+// a professor clearing a student's reference photo - e.g. a bad capture that still passed the
+// upload checks (too dark but technically had a detectable face). Once cleared, the student can
+// set a new one themselves (setMyProfilePhoto only refuses when profile_photo_url is already set)
+export const resetStudentPhoto = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+
+    const { data: student, error: studentError } = await database
+      .from('students')
+      .select('user_id')
+      .eq('user_id', studentId)
+      .maybeSingle();
+    if (studentError) throw new Error(studentError.message);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const { error } = await database.from('students').update({ profile_photo_url: null }).eq('user_id', studentId);
+    if (error) throw new Error(error.message);
+
+    return res.status(200).json({ success: true, message: 'Reference photo cleared' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "resetStudentPhoto controller");
   };
 };
 
@@ -801,6 +827,7 @@ export const setMyProfilePhoto = async (req: Request, res: Response) => {
     if (existing?.profile_photo_url) throw new HttpError(409, 'A reference photo is already set and cannot be retaken.');
 
     const { bytes } = decodeImageData(req.body?.image);
+    if (!(await isUsableImage(bytes))) throw new HttpError(400, 'invalid photo: too dark or too bright to use');
     if (!(await hasFace(bytes))) throw new HttpError(400, 'invalid photo: no face detected');
 
     const url = await uploadProfilePhoto(req.user!.id, req.body?.image);

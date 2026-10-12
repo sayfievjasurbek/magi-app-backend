@@ -216,6 +216,18 @@ export const paths = {
       },
     },
   },
+  '/api/auth/students/{id}/photo': {
+    delete: {
+      tags: ['Auth'],
+      summary: "Clear a student's reference photo (professor only)",
+      description:
+        "For a photo that's unusable despite passing the upload checks (e.g. too dark to actually show a face clearly). " +
+        'Once cleared, the student can set a new one themselves - POST /api/auth/me/photo only refuses while one is already set.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      responses: { '200': ok('Photo cleared', messageOnly), ...errors(400, 403, 404) },
+    },
+  },
   '/api/auth/students/{id}/credentials': {
     get: {
       tags: ['Auth'],

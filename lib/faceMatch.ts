@@ -44,6 +44,25 @@ export const hasFace = async (imageBytes: Buffer): Promise<boolean> => {
   return (await descriptorFor(imageBytes)) !== null;
 };
 
+// a face-less or near-uniform frame (camera not warmed up yet, bad lighting) can still have just
+// enough noise for TinyFaceDetector to false-positive a "face" in it - a cheap brightness check
+// catches what hasFace alone missed, same idea as a flat-field check on a camera
+const MIN_MEAN_BRIGHTNESS = 15; // 0-255 scale
+const MAX_MEAN_BRIGHTNESS = 245;
+
+/** Whether the photo is usable at all - not (near) solid black or blown-out white. */
+export const isUsableImage = async (imageBytes: Buffer): Promise<boolean> => {
+  const tensor = tf.node.decodeImage(imageBytes, 3) as tf.Tensor3D;
+  try {
+    const meanTensor = tensor.mean();
+    const [mean] = await meanTensor.data();
+    meanTensor.dispose();
+    return mean >= MIN_MEAN_BRIGHTNESS && mean <= MAX_MEAN_BRIGHTNESS;
+  } finally {
+    tensor.dispose();
+  };
+};
+
 export type FaceMatchResult =
   | { outcome: 'matched' | 'mismatched'; distance: number }
   | { outcome: 'no_face_in_photo' | 'no_face_in_reference' };
