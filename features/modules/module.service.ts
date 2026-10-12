@@ -3,6 +3,7 @@ import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type Role } from '../../lib/types.js';
 import { notify } from '../../lib/notifications.js';
+import { seesAllModules } from '../../lib/position-access.js';
 
 type Person = { id: number; first_name: string; last_name: string | null; email: string };
 
@@ -22,17 +23,20 @@ const parseReason = (value: unknown): string | null => {
   return value.trim();
 };
 
-// module the professor manages, or null
+// module the professor manages, or null - someone who sees all modules (not a plain "professor"
+// position) manages every one of them directly, not just the ones they're linked to
 const findManagedModule = async (moduleId: number, professorId: number) => {
-  const { data: managed, error: managedError } = await database
-    .from('module_professor')
-    .select('module_id')
-    .eq('module_id', moduleId)
-    .eq('professor_id', professorId)
-    .maybeSingle();
+  if (!(await seesAllModules(professorId))) {
+    const { data: managed, error: managedError } = await database
+      .from('module_professor')
+      .select('module_id')
+      .eq('module_id', moduleId)
+      .eq('professor_id', professorId)
+      .maybeSingle();
 
-  if (managedError) throw new Error(managedError.message);
-  if (!managed) return null;
+    if (managedError) throw new Error(managedError.message);
+    if (!managed) return null;
+  };
 
   const { data, error } = await activeOnly(database.from('modules').select('*').eq('id', moduleId)).maybeSingle();
   if (error) throw new Error(error.message);
@@ -56,6 +60,12 @@ const managedModuleIds = async (professorId: number): Promise<number[]> => {
 
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => row.module_id);
+};
+
+const allModuleIds = async (): Promise<number[]> => {
+  const { data, error } = await activeOnly(database.from('modules').select('id'));
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => row.id);
 };
 
 const enrolledModuleIds = async (studentId: number): Promise<number[]> => {
@@ -169,7 +179,7 @@ export const createModule = async (professorId: number, body: Record<string, unk
 // professor: modules they manage with their student count, student: modules they are enrolled in
 export const listModules = async (userId: number, role: Role) => {
   if (role === 'professor') {
-    const moduleIds = await managedModuleIds(userId);
+    const moduleIds = (await seesAllModules(userId)) ? await allModuleIds() : await managedModuleIds(userId);
     if (!moduleIds.length) return [];
 
     const modules = await listModulesByIds(moduleIds);

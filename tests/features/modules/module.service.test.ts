@@ -28,8 +28,9 @@ const queue = (...items: { data: unknown; error: unknown }[]) => results.push(..
 const MODULE = { id: 7, name: 'Algorithms' };
 const SUE = { id: 5, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' };
 
-// the two calls findManagedModule makes for a module the professor manages
-const managed = () => queue(ok({ module_id: MODULE.id }), ok(MODULE));
+// the three calls findManagedModule makes for a plain "professor" position managing a module:
+// the position lookup (not an admin), then the module_professor link, then the module itself
+const managed = () => queue(ok({ position: 'professor' }), ok({ module_id: MODULE.id }), ok(MODULE));
 
 beforeEach(() => {
   results.length = 0;
@@ -70,6 +71,7 @@ describe('createModule', () => {
 describe('listModules', () => {
   it('gives a professor the managed modules with their student count', async () => {
     queue(
+      ok({ position: 'professor' }),
       ok([{ module_id: 1 }, { module_id: 2 }]),
       ok([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]),
       ok([{ module_id: 1, student_id: 10 }, { module_id: 1, student_id: 11 }]),
@@ -80,16 +82,34 @@ describe('listModules', () => {
       { id: 1, name: 'A', student_count: 2 },
       { id: 2, name: 'B', student_count: 0 },
     ]);
-    expect(from).toHaveBeenNthCalledWith(1, 'module_professor');
+    expect(from).toHaveBeenNthCalledWith(1, 'professors');
+    expect(from).toHaveBeenNthCalledWith(2, 'module_professor');
     expect(builder.eq).toHaveBeenCalledWith('professor_id', 9);
     expect(builder.is).toHaveBeenCalledWith('deleted_at', null);
   });
 
   it('asks for no modules when the professor manages none', async () => {
-    queue(ok([]));
+    queue(ok({ position: 'professor' }), ok([]));
 
     expect(await moduleService.listModules(9, 'professor')).toEqual([]);
-    expect(from).toHaveBeenCalledTimes(1);
+    expect(from).toHaveBeenCalledTimes(2);
+  });
+
+  it('gives an administrator every active module, not just the ones they manage', async () => {
+    queue(
+      ok({ position: 'Administrator' }),
+      ok([{ id: 1 }, { id: 7 }]),
+      ok([{ id: 1, name: 'A' }, { id: 7, name: 'G' }]),
+      ok([{ module_id: 7, student_id: 10 }]),
+      ok([{ id: 10 }])
+    );
+
+    expect(await moduleService.listModules(9, 'professor')).toEqual([
+      { id: 1, name: 'A', student_count: 0 },
+      { id: 7, name: 'G', student_count: 1 },
+    ]);
+    expect(from).toHaveBeenNthCalledWith(1, 'professors');
+    expect(from).toHaveBeenNthCalledWith(2, 'modules');
   });
 
   it('gives a student the modules they are enrolled in', async () => {
@@ -130,15 +150,21 @@ describe('getModule', () => {
   });
 
   it('answers 404 for a module the professor does not manage', async () => {
-    queue(ok(null));
+    queue(ok({ position: 'professor' }), ok(null));
 
     await expect(moduleService.getModule(3, 'professor', '7')).rejects.toMatchObject({ status: 404 });
   });
 
   it('answers 404 for a soft deleted module', async () => {
-    queue(ok({ module_id: 7 }), ok(null));
+    queue(ok({ position: 'professor' }), ok({ module_id: 7 }), ok(null));
 
     await expect(moduleService.getModule(3, 'professor', '7')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("gives an administrator any active module, not just ones they're linked to", async () => {
+    queue(ok({ position: 'Administrator' }), ok(MODULE), ok([]));
+
+    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 0 });
   });
 
   it('adds the student count for a professor', async () => {

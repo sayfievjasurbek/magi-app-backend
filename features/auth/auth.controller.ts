@@ -9,6 +9,7 @@ import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
 import { compareFaces, hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
 import { notify } from '../../lib/notifications.js';
+import { seesAllModules } from '../../lib/position-access.js';
 
 type s = string;
 type n = string;
@@ -429,30 +430,39 @@ export const createStudent = async (req: Request, res: Response) => {
 // roster separately to build this same list client-side (slow with more than a few modules)
 export const listCreatedStudents = async (req: Request, res: Response) => {
   try {
-    const studentIds = new Set<number>();
+    let studentIds: Set<number>;
 
-    const { data: managed, error: managedError } = await database
-      .from('module_professor')
-      .select('module_id')
-      .eq('professor_id', req.user!.id);
-    if (managedError) throw new Error(managedError.message);
-    const moduleIds = (managed ?? []).map((row) => row.module_id);
+    if (await seesAllModules(req.user!.id)) {
+      // not a plain "professor" position - manages the whole shared pool of students directly
+      const { data: everyone, error: everyoneError } = await database.from('students').select('user_id');
+      if (everyoneError) throw new Error(everyoneError.message);
+      studentIds = new Set((everyone ?? []).map((row) => row.user_id));
+    } else {
+      studentIds = new Set<number>();
 
-    if (moduleIds.length) {
-      const { data: roster, error: rosterError } = await database
-        .from('module_student')
-        .select('student_id')
-        .in('module_id', moduleIds);
-      if (rosterError) throw new Error(rosterError.message);
-      for (const row of roster ?? []) studentIds.add(row.student_id);
+      const { data: managed, error: managedError } = await database
+        .from('module_professor')
+        .select('module_id')
+        .eq('professor_id', req.user!.id);
+      if (managedError) throw new Error(managedError.message);
+      const moduleIds = (managed ?? []).map((row) => row.module_id);
+
+      if (moduleIds.length) {
+        const { data: roster, error: rosterError } = await database
+          .from('module_student')
+          .select('student_id')
+          .in('module_id', moduleIds);
+        if (rosterError) throw new Error(rosterError.message);
+        for (const row of roster ?? []) studentIds.add(row.student_id);
+      };
+
+      const { data: created, error: createdError } = await database
+        .from('students')
+        .select('user_id')
+        .eq('created_by', req.user!.id);
+      if (createdError) throw new Error(createdError.message);
+      for (const row of created ?? []) studentIds.add(row.user_id);
     };
-
-    const { data: created, error: createdError } = await database
-      .from('students')
-      .select('user_id')
-      .eq('created_by', req.user!.id);
-    if (createdError) throw new Error(createdError.message);
-    for (const row of created ?? []) studentIds.add(row.user_id);
 
     if (!studentIds.size) return res.status(200).json({ success: true, students: [] });
 
@@ -686,33 +696,42 @@ export const createProfessor = async (req: Request, res: Response) => {
 // module's roster separately to build this same list client-side (slow with more than a few modules)
 export const listCreatedProfessors = async (req: Request, res: Response) => {
   try {
-    const professorIds = new Set<number>();
+    let professorIds: Set<number>;
 
-    const { data: managed, error: managedError } = await database
-      .from('module_professor')
-      .select('module_id')
-      .eq('professor_id', req.user!.id);
-    if (managedError) throw new Error(managedError.message);
-    const moduleIds = (managed ?? []).map((row) => row.module_id);
+    if (await seesAllModules(req.user!.id)) {
+      // not a plain "professor" position - manages the whole shared pool of employees directly
+      const { data: everyone, error: everyoneError } = await database.from('professors').select('user_id');
+      if (everyoneError) throw new Error(everyoneError.message);
+      professorIds = new Set((everyone ?? []).map((row) => row.user_id));
+    } else {
+      professorIds = new Set<number>();
 
-    if (moduleIds.length) {
-      const { data: roster, error: rosterError } = await database
+      const { data: managed, error: managedError } = await database
         .from('module_professor')
-        .select('professor_id')
-        .in('module_id', moduleIds);
-      if (rosterError) throw new Error(rosterError.message);
-      for (const row of roster ?? []) professorIds.add(row.professor_id);
+        .select('module_id')
+        .eq('professor_id', req.user!.id);
+      if (managedError) throw new Error(managedError.message);
+      const moduleIds = (managed ?? []).map((row) => row.module_id);
+
+      if (moduleIds.length) {
+        const { data: roster, error: rosterError } = await database
+          .from('module_professor')
+          .select('professor_id')
+          .in('module_id', moduleIds);
+        if (rosterError) throw new Error(rosterError.message);
+        for (const row of roster ?? []) professorIds.add(row.professor_id);
+      };
+
+      const { data: created, error: createdError } = await database
+        .from('professors')
+        .select('user_id')
+        .eq('created_by', req.user!.id);
+      if (createdError) throw new Error(createdError.message);
+      for (const row of created ?? []) professorIds.add(row.user_id);
     };
 
-    const { data: created, error: createdError } = await database
-      .from('professors')
-      .select('user_id')
-      .eq('created_by', req.user!.id);
-    if (createdError) throw new Error(createdError.message);
-    for (const row of created ?? []) professorIds.add(row.user_id);
-
-    // this professor managing a module (so in the set via module_professor above) doesn't
-    // belong in their own "other employees" list
+    // this professor managing a module (so in the set via module_professor above, or always in
+    // the "everyone" case) doesn't belong in their own "other employees" list
     professorIds.delete(req.user!.id);
 
     if (!professorIds.size) return res.status(200).json({ success: true, professors: [] });
