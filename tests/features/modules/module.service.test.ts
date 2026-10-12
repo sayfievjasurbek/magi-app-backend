@@ -101,6 +101,28 @@ describe('listModules', () => {
   });
 });
 
+describe('getProfessorModules', () => {
+  it('gives the groups a professor is attached to', async () => {
+    queue(ok([{ module_id: 1 }, { module_id: 2 }]), ok([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]));
+
+    expect(await moduleService.getProfessorModules('9')).toEqual([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]);
+    expect(from).toHaveBeenNthCalledWith(1, 'module_professor');
+    expect(builder.eq).toHaveBeenCalledWith('professor_id', 9);
+  });
+
+  it('skips the lookup for an unparseable id', async () => {
+    expect(await moduleService.getProfessorModules('nope')).toEqual([]);
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('answers empty when the professor manages no groups', async () => {
+    queue(ok([]));
+
+    expect(await moduleService.getProfessorModules('9')).toEqual([]);
+    expect(from).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('getModule', () => {
   it('answers 404 for an id that is not an id', async () => {
     await expect(moduleService.getModule(3, 'professor', 'abc')).rejects.toMatchObject({ status: 404 });

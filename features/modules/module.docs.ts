@@ -97,6 +97,16 @@ export const paths = {
       responses: { '200': ok('Modules', envelope({ modules: { type: 'array', items: ref('Module') } })), ...errors(401, 403) },
     },
   },
+  '/api/modules/professors/{professorId}': {
+    get: {
+      tags: ['Modules'],
+      summary: 'Modules one professor is attached to (professor)',
+      description: 'Not scoped to modules the caller manages - any professor can look this up, same as GET /api/modules/students/{studentId}.',
+      ...authed,
+      parameters: [pathParam('professorId', 'User id of the professor')],
+      responses: { '200': ok('Modules', envelope({ modules: { type: 'array', items: ref('Module') } })), ...errors(401, 403) },
+    },
+  },
   '/api/modules/{id}/roster': {
     get: {
       tags: ['Modules'],

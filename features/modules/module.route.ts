@@ -1,5 +1,5 @@
 import express from 'express';
-import { createModule, listModules, getModule, getModuleRating, getStudentModules, getRoster, updateModule, deleteModule, addProfessor, removeProfessor, addStudent, removeStudent } from './module.controller.js';
+import { createModule, listModules, getModule, getModuleRating, getStudentModules, getProfessorModules, getRoster, updateModule, deleteModule, addProfessor, removeProfessor, addStudent, removeStudent } from './module.controller.js';
 import { protectRoute } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
 
@@ -17,6 +17,7 @@ router.post("/:id/students", requireRole('professor'), addStudent);
 //get
 router.get("/", requireRole('professor', 'student'), listModules);
 router.get("/students/:studentId", requireRole('professor'), getStudentModules);
+router.get("/professors/:professorId", requireRole('professor'), getProfessorModules);
 router.get("/:id", requireRole('professor', 'student'), getModule);
 router.get("/:id/roster", requireRole('professor'), getRoster);
 router.get("/:id/rating", requireRole('professor', 'student'), getModuleRating);

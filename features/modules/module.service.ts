@@ -196,6 +196,17 @@ export const getStudentModules = async (studentIdParam: string) => {
   return listModulesByIds(moduleIds);
 };
 
+// same, for the Professors detail page - which groups a given professor is attached to
+export const getProfessorModules = async (professorIdParam: string) => {
+  const professorId = parseId(professorIdParam);
+  if (!professorId) return [];
+
+  const moduleIds = await managedModuleIds(professorId);
+  if (!moduleIds.length) return [];
+
+  return listModulesByIds(moduleIds);
+};
+
 export const getModule = async (userId: number, role: Role, moduleIdParam: string) => {
   if (role === 'professor') {
     const managed = await requireManagedModule(moduleIdParam, userId);
