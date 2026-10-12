@@ -37,20 +37,25 @@ export const login = async ( req: Request, res: Response ) => {
       .from('users')
       .select('id, first_name, last_name, email, password, is_verified, active_status, deleted_at')
       .eq('email', trimmedEmail)
-      .single<{
+      .maybeSingle<{
         id: number,
         first_name: string,
-        last_name: string | null, 
-        email: string, 
-        password: string, 
+        last_name: string | null,
+        email: string,
+        password: string,
         is_verified: boolean,
-        active_status: string,   
+        active_status: string,
         deleted_at: string | null,
         reason: string | null
       }>();
 
-    // Handle potential errors during the database query
-    if (userError || !user){
+    // A real failure here (a DB hiccup, or more than one row for the same email) is not the same
+    // thing as "that email has no account" - the former must not be reported as a wrong password
+    if (userError) {
+      console.log('Error looking up user during login:', userError.message);
+      throw new Error(userError.message);
+    };
+    if (!user) {
       return res.status(400).json({
         success: false,
         message: 'Invalid email or password'
