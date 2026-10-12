@@ -925,6 +925,19 @@ export const getMyProfile = async (req: Request, res: Response) => {
 
 // a student setting their own reference photo - gives staff something to compare the
 // identity_check photo taken during an exam against
+// whether the student's current reference photo would itself still pass setMyProfilePhoto's own
+// checks - lets a student replace a bad one themselves (e.g. set before these checks existed, or
+// a since-expired/broken storage url) instead of being stuck until a professor resets it for them
+const currentPhotoStillUsable = async (url: string): Promise<boolean> => {
+  try {
+    const response = await fetch(url);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    return (await isUsableImage(bytes)) && (await hasFace(bytes));
+  } catch {
+    return true; // couldn't be checked (network hiccup) - treat as fine rather than inviting an overwrite
+  };
+};
+
 export const setMyProfilePhoto = async (req: Request, res: Response) => {
   try {
     const { data: existing, error: fetchError } = await database
@@ -933,7 +946,9 @@ export const setMyProfilePhoto = async (req: Request, res: Response) => {
       .eq('user_id', req.user!.id)
       .single();
     if (fetchError) throw new Error(fetchError.message);
-    if (existing?.profile_photo_url) throw new HttpError(409, 'A reference photo is already set and cannot be retaken.');
+    if (existing?.profile_photo_url && (await currentPhotoStillUsable(existing.profile_photo_url))) {
+      throw new HttpError(409, 'A reference photo is already set and cannot be retaken.');
+    };
 
     const { bytes } = decodeImageData(req.body?.image);
     if (!(await isUsableImage(bytes))) throw new HttpError(400, 'invalid photo: too dark or too bright to use');

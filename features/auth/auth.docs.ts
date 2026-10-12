@@ -442,7 +442,8 @@ export const paths = {
       summary: 'Set your own reference photo (student only)',
       description:
         "Gives staff something to compare an exam's identity_check photo against. Stored in the same Supabase Storage bucket as other proctoring media. " +
-        'One-time: rejected with 409 once a photo is already set. Rejected with 400 if no face is detected in it, or if it is over 3MB.',
+        'One-time while the existing photo is still usable: rejected with 409 in that case. If the existing photo would itself now fail these same ' +
+        "checks (e.g. it predates them), it can be replaced. Rejected with 400 if no face is detected in it, or if it is over 3MB.",
       ...authed,
       requestBody: {
         required: true,
