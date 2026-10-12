@@ -32,6 +32,16 @@ export const getModule = async (req: Request, res: Response) => {
   };
 };
 
+//every member's total score across the module's own exams, highest first (professor, student)
+export const getModuleRating = async (req: Request, res: Response) => {
+  try {
+    const rating = await moduleService.getModuleRating(req.user!.id, req.user!.role, req.params.id as string);
+    return res.status(200).json({ success: true, rating });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getModuleRating controller");
+  };
+};
+
 //modules one student belongs to (professor only) - the Students detail page in the admin panel
 export const getStudentModules = async (req: Request, res: Response) => {
   try {

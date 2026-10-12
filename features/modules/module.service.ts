@@ -210,6 +210,74 @@ export const getModule = async (userId: number, role: Role, moduleIdParam: strin
   return data;
 };
 
+// every member's total score across this module's own graded exams, highest first - a
+// professor sees any module they manage, a student only one they are enrolled in
+export const getModuleRating = async (userId: number, role: Role, moduleIdParam: string) => {
+  let moduleId: number;
+  if (role === 'professor') {
+    moduleId = (await requireManagedModule(moduleIdParam, userId)).id;
+  } else {
+    const parsed = parseId(moduleIdParam);
+    if (!parsed) throw moduleNotFound();
+    const { data: enrolled, error: enrolledError } = await database
+      .from('module_student')
+      .select('module_id')
+      .eq('module_id', parsed)
+      .eq('student_id', userId)
+      .maybeSingle();
+    if (enrolledError) throw new Error(enrolledError.message);
+    if (!enrolled) throw moduleNotFound();
+    moduleId = parsed;
+  };
+
+  const { data: members, error: membersError } = await database.from('module_student').select('student_id').eq('module_id', moduleId);
+  if (membersError) throw new Error(membersError.message);
+  const memberIds = (members ?? []).map((row) => row.student_id);
+  if (!memberIds.length) return [];
+
+  const { data: examLinks, error: examLinksError } = await database.from('exam_module').select('exam_id').eq('module_id', moduleId);
+  if (examLinksError) throw new Error(examLinksError.message);
+  const examIds = (examLinks ?? []).map((row) => row.exam_id);
+
+  const totals = new Map<number, number>(memberIds.map((id) => [id, 0]));
+  if (examIds.length) {
+    const { data: links, error: linksError } = await database
+      .from('student_assignment')
+      .select('student_id, assignment_id')
+      .in('student_id', memberIds)
+      .in('exam_id', examIds);
+    if (linksError) throw new Error(linksError.message);
+
+    const assignmentIds = (links ?? []).map((row) => row.assignment_id);
+    if (assignmentIds.length) {
+      const { data: graded, error: gradedError } = await database
+        .from('assignments')
+        .select('id, score')
+        .in('id', assignmentIds)
+        .eq('status', 'graded');
+      if (gradedError) throw new Error(gradedError.message);
+
+      const scoreByAssignment = new Map((graded ?? []).map((row) => [row.id, row.score as number]));
+      for (const link of links ?? []) {
+        const score = scoreByAssignment.get(link.assignment_id);
+        if (score === undefined) continue;
+        totals.set(link.student_id, (totals.get(link.student_id) ?? 0) + score);
+      };
+    };
+  };
+
+  const { data: users, error: usersError } = await activeOnly(
+    database.from('users').select('id, first_name, last_name, email').in('id', memberIds)
+  );
+  if (usersError) throw new Error(usersError.message);
+  const userById = new Map((users ?? []).map((u) => [u.id, u]));
+
+  return memberIds
+    .map((id) => ({ student: userById.get(id), total_score: totals.get(id) ?? 0 }))
+    .filter((row): row is { student: NonNullable<typeof row.student>; total_score: number } => !!row.student)
+    .sort((a, b) => b.total_score - a.total_score);
+};
+
 // professors and students of the module
 export const getRoster = async (professorId: number, moduleIdParam: string) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);

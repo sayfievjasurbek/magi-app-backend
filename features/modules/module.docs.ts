@@ -106,6 +106,29 @@ export const paths = {
       responses: { '200': ok('Roster', envelope({ professors: { type: 'array', items: ref('Person') }, students: { type: 'array', items: ref('Person') } })), ...errors(401, 403, 404) },
     },
   },
+  '/api/modules/{id}/rating': {
+    get: {
+      tags: ['Modules'],
+      summary: 'Leaderboard of the module (professor, student)',
+      description:
+        "Every member's total score summed across this module's own graded exams, highest first. " +
+        'A student only sees a module they are enrolled in, same visibility as GET /api/modules/{id}.',
+      ...authed,
+      parameters: [moduleParam],
+      responses: {
+        '200': ok(
+          'Rating',
+          envelope({
+            rating: {
+              type: 'array',
+              items: { type: 'object', properties: { student: ref('Person'), total_score: { type: 'integer', example: 145 } } },
+            },
+          })
+        ),
+        ...errors(401, 403, 404),
+      },
+    },
+  },
   '/api/modules/{id}/professors': {
     post: {
       tags: ['Modules'],
