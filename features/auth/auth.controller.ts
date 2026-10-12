@@ -583,7 +583,7 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
 // mirrors createStudent above, for a professor creating another professor directly
 export const createProfessor = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, phone }: { firstName: s, lastName: s | null, phone?: s } = req.body;
+    const { firstName, lastName, phone, position }: { firstName: s, lastName: s | null, phone?: s, position?: s } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -593,6 +593,7 @@ export const createProfessor = async (req: Request, res: Response) => {
     const trimmedFirstName = firstName.trim();
     const trimmedLastName = lastName ? lastName.trim() : null;
     const trimmedPhone = phone?.trim() || null;
+    const trimmedPosition = position?.trim() || null;
 
     if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
       success: false,
@@ -626,6 +627,7 @@ export const createProfessor = async (req: Request, res: Response) => {
       recovery_secret: encryptSecret(generatedPassword),
       created_by: req.user!.id,
       phone: trimmedPhone,
+      position: trimmedPosition,
     });
     // a user with no professors row can never log in (get_user_role finds nothing)
     if (roleError) {
@@ -638,6 +640,7 @@ export const createProfessor = async (req: Request, res: Response) => {
       professor: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
       professor_code: professorCode,
       password: generatedPassword,
+      position: trimmedPosition,
     });
   } catch (error: unknown) {
     return handleControllerError(res, error, "createProfessor controller");
@@ -649,7 +652,7 @@ export const listCreatedProfessors = async (req: Request, res: Response) => {
   try {
     const { data: rows, error } = await database
       .from('professors')
-      .select('user_id, professor_code, phone')
+      .select('user_id, professor_code, phone, position')
       .eq('created_by', req.user!.id)
       .order('user_id', { ascending: false });
 
@@ -669,7 +672,7 @@ export const listCreatedProfessors = async (req: Request, res: Response) => {
       .map((row) => {
         const user = userById.get(row.user_id);
         if (!user) return null;
-        return { ...user, professor_code: row.professor_code, phone: row.phone };
+        return { ...user, professor_code: row.professor_code, phone: row.phone, position: row.position };
       })
       .filter((p) => p !== null);
 
@@ -696,7 +699,7 @@ export const getProfessorDetail = async (req: Request, res: Response) => {
 
     const { data: professor, error: professorError } = await database
       .from('professors')
-      .select('professor_code, phone')
+      .select('professor_code, phone, position')
       .eq('user_id', professorId)
       .maybeSingle();
     if (professorError) throw new Error(professorError.message);

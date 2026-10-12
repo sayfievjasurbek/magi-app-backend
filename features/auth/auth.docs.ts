@@ -263,6 +263,7 @@ export const paths = {
             firstName: { type: 'string', example: 'James' },
             lastName: { type: 'string', example: 'Okafor' },
             phone: { type: 'string', example: '+998901234567' },
+            position: { type: 'string', description: 'Job title shown in the admin panel - display only, not an auth role.', example: 'Teacher' },
           },
         }),
       },
@@ -273,6 +274,7 @@ export const paths = {
             professor: { type: 'object', properties: { id, first_name: { type: 'string', example: 'James' }, last_name: nullable({ type: 'string', example: 'Okafor' }), email: { type: 'string', example: 'james@magi.com' } } },
             professor_code: { type: 'string', example: '04213' },
             password: { type: 'string', example: 'xK9mPq2a' },
+            position: nullable({ type: 'string', example: 'Teacher' }),
           })
         ),
         ...errors(400, 403, 409),
@@ -299,6 +301,7 @@ export const paths = {
                   email: { type: 'string', example: 'james@magi.com' },
                   professor_code: nullable({ type: 'string', example: '04213' }),
                   phone: nullable({ type: 'string', example: '+998901234567' }),
+                  position: nullable({ type: 'string', example: 'Teacher' }),
                 },
               },
             },
@@ -329,6 +332,7 @@ export const paths = {
                 created_at: dateTime,
                 professor_code: nullable({ type: 'string', example: '04213' }),
                 phone: nullable({ type: 'string', example: '+998901234567' }),
+                position: nullable({ type: 'string', example: 'Teacher' }),
               },
             },
           })
