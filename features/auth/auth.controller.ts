@@ -679,6 +679,34 @@ export const listCreatedProfessors = async (req: Request, res: Response) => {
   };
 };
 
+// a professor opening one professor's own page (the Professors list links here instead of a modal)
+export const getProfessorDetail = async (req: Request, res: Response) => {
+  try {
+    const professorId = Number(req.params.id);
+    if (!Number.isInteger(professorId)) return res.status(400).json({ success: false, message: 'Invalid professor id' });
+
+    const { data: user, error: userError } = await database
+      .from('users')
+      .select('id, first_name, last_name, email, created_at')
+      .eq('id', professorId)
+      .is('deleted_at', null)
+      .maybeSingle();
+    if (userError) throw new Error(userError.message);
+    if (!user) return res.status(404).json({ success: false, message: 'Professor not found' });
+
+    const { data: professor, error: professorError } = await database
+      .from('professors')
+      .select('professor_code, phone')
+      .eq('user_id', professorId)
+      .maybeSingle();
+    if (professorError) throw new Error(professorError.message);
+
+    return res.status(200).json({ success: true, professor: { ...user, ...professor } });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "getProfessorDetail controller");
+  };
+};
+
 // a professor looking up another professor's credentials because they forgot them - only works
 // for accounts created through createProfessor above
 export const getProfessorCredentials = async (req: Request, res: Response) => {

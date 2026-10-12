@@ -308,6 +308,35 @@ export const paths = {
       },
     },
   },
+  '/api/auth/professors/{id}': {
+    get: {
+      tags: ['Auth'],
+      summary: "One professor's full profile (professor only)",
+      description: 'The same fields as GET /api/auth/professors, for a single professor - the Professors detail page in the admin panel.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      responses: {
+        '200': ok(
+          'Professor',
+          envelope({
+            professor: {
+              type: 'object',
+              properties: {
+                id,
+                first_name: { type: 'string', example: 'James' },
+                last_name: nullable({ type: 'string', example: 'Okafor' }),
+                email: { type: 'string', example: 'james@magi.com' },
+                created_at: dateTime,
+                professor_code: nullable({ type: 'string', example: '04213' }),
+                phone: nullable({ type: 'string', example: '+998901234567' }),
+              },
+            },
+          })
+        ),
+        ...errors(400, 403, 404),
+      },
+    },
+  },
   '/api/auth/professors/{id}/credentials': {
     get: {
       tags: ['Auth'],
