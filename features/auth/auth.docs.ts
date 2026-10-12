@@ -142,8 +142,10 @@ export const paths = {
   '/api/auth/students': {
     get: {
       tags: ['Auth'],
-      summary: "List the students this professor created directly",
-      description: 'Shows up here even before being linked to a module - the module roster endpoints only list enrolled students.',
+      summary: "List every student this professor can manage",
+      description:
+        'Every student this professor created directly (shows up here even before being linked to a module) plus every student in a module ' +
+        'they manage - the admin panel used to build this same list client-side with one roster call per module, which got slow with more than a few.',
       ...authed,
       responses: {
         '200': ok(
@@ -284,7 +286,10 @@ export const paths = {
   '/api/auth/professors': {
     get: {
       tags: ['Auth'],
-      summary: "List the professors this professor created directly",
+      summary: "List every professor this professor can manage",
+      description:
+        'Every professor this professor created directly plus every co-professor on a module they manage (never themself) - the admin panel used ' +
+        'to build this same list client-side with one roster call per module, which got slow with more than a few.',
       ...authed,
       responses: {
         '200': ok(

@@ -419,27 +419,53 @@ export const createStudent = async (req: Request, res: Response) => {
 
 // every student this professor created directly, newest first - shows up here even before being
 // linked to a module, which listing module rosters alone would miss
+// every student this professor created directly, plus every student in a module they manage -
+// one fixed set of queries instead of the admin panel previously fetching each managed module's
+// roster separately to build this same list client-side (slow with more than a few modules)
 export const listCreatedStudents = async (req: Request, res: Response) => {
   try {
+    const studentIds = new Set<number>();
+
+    const { data: managed, error: managedError } = await database
+      .from('module_professor')
+      .select('module_id')
+      .eq('professor_id', req.user!.id);
+    if (managedError) throw new Error(managedError.message);
+    const moduleIds = (managed ?? []).map((row) => row.module_id);
+
+    if (moduleIds.length) {
+      const { data: roster, error: rosterError } = await database
+        .from('module_student')
+        .select('student_id')
+        .in('module_id', moduleIds);
+      if (rosterError) throw new Error(rosterError.message);
+      for (const row of roster ?? []) studentIds.add(row.student_id);
+    };
+
+    const { data: created, error: createdError } = await database
+      .from('students')
+      .select('user_id')
+      .eq('created_by', req.user!.id);
+    if (createdError) throw new Error(createdError.message);
+    for (const row of created ?? []) studentIds.add(row.user_id);
+
+    if (!studentIds.size) return res.status(200).json({ success: true, students: [] });
+
     const { data: rows, error } = await database
       .from('students')
       .select('user_id, student_code, phone, parent_phone, parent_relation, profile_photo_url')
-      .eq('created_by', req.user!.id)
-      .order('user_id', { ascending: false });
-
+      .in('user_id', [...studentIds]);
     if (error) throw new Error(error.message);
-    if (!rows?.length) return res.status(200).json({ success: true, students: [] });
 
     const { data: users, error: usersError } = await database
       .from('users')
       .select('id, first_name, last_name, email')
-      .in('id', rows.map((row) => row.user_id))
+      .in('id', [...studentIds])
       .is('deleted_at', null);
-
     if (usersError) throw new Error(usersError.message);
 
     const userById = new Map((users ?? []).map((u) => [u.id, u]));
-    const students = rows
+    const students = (rows ?? [])
       .map((row) => {
         const user = userById.get(row.user_id);
         if (!user) return null;
@@ -452,7 +478,8 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
           profile_photo_url: row.profile_photo_url,
         };
       })
-      .filter((s) => s !== null);
+      .filter((s) => s !== null)
+      .sort((a, b) => b!.id - a!.id);
 
     return res.status(200).json({ success: true, students });
   } catch (error: unknown) {
@@ -649,33 +676,64 @@ export const createProfessor = async (req: Request, res: Response) => {
 };
 
 // every professor this professor created directly, newest first
+// every professor this professor created directly, plus every co-professor on a module they
+// manage - one fixed set of queries instead of the admin panel previously fetching each managed
+// module's roster separately to build this same list client-side (slow with more than a few modules)
 export const listCreatedProfessors = async (req: Request, res: Response) => {
   try {
+    const professorIds = new Set<number>();
+
+    const { data: managed, error: managedError } = await database
+      .from('module_professor')
+      .select('module_id')
+      .eq('professor_id', req.user!.id);
+    if (managedError) throw new Error(managedError.message);
+    const moduleIds = (managed ?? []).map((row) => row.module_id);
+
+    if (moduleIds.length) {
+      const { data: roster, error: rosterError } = await database
+        .from('module_professor')
+        .select('professor_id')
+        .in('module_id', moduleIds);
+      if (rosterError) throw new Error(rosterError.message);
+      for (const row of roster ?? []) professorIds.add(row.professor_id);
+    };
+
+    const { data: created, error: createdError } = await database
+      .from('professors')
+      .select('user_id')
+      .eq('created_by', req.user!.id);
+    if (createdError) throw new Error(createdError.message);
+    for (const row of created ?? []) professorIds.add(row.user_id);
+
+    // this professor managing a module (so in the set via module_professor above) doesn't
+    // belong in their own "other employees" list
+    professorIds.delete(req.user!.id);
+
+    if (!professorIds.size) return res.status(200).json({ success: true, professors: [] });
+
     const { data: rows, error } = await database
       .from('professors')
       .select('user_id, professor_code, phone, position')
-      .eq('created_by', req.user!.id)
-      .order('user_id', { ascending: false });
-
+      .in('user_id', [...professorIds]);
     if (error) throw new Error(error.message);
-    if (!rows?.length) return res.status(200).json({ success: true, professors: [] });
 
     const { data: users, error: usersError } = await database
       .from('users')
       .select('id, first_name, last_name, email')
-      .in('id', rows.map((row) => row.user_id))
+      .in('id', [...professorIds])
       .is('deleted_at', null);
-
     if (usersError) throw new Error(usersError.message);
 
     const userById = new Map((users ?? []).map((u) => [u.id, u]));
-    const professors = rows
+    const professors = (rows ?? [])
       .map((row) => {
         const user = userById.get(row.user_id);
         if (!user) return null;
         return { ...user, professor_code: row.professor_code, phone: row.phone, position: row.position };
       })
-      .filter((p) => p !== null);
+      .filter((p) => p !== null)
+      .sort((a, b) => b!.id - a!.id);
 
     return res.status(200).json({ success: true, professors });
   } catch (error: unknown) {
