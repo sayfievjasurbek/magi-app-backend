@@ -12,7 +12,8 @@ export type CheatingType =
   | 'phone_seen'
   | 'camera_away'
   | 'link_blocked'
-  | 'app_closed';
+  | 'app_closed'
+  | 'extra_person';
 
 export type Cheating = {
   id: number;
