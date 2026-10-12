@@ -9,7 +9,7 @@ const { from, builder, results } = vi.hoisted(() => {
     maybeSingle: vi.fn(() => Promise.resolve(take())),
     then: (resolve: (value: unknown) => unknown) => Promise.resolve(take()).then(resolve),
   };
-  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'is', 'in', 'order']) {
+  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'neq', 'is', 'in', 'ilike', 'order', 'limit']) {
     builder[method] = vi.fn(() => builder);
   };
   const from = vi.fn(() => builder);
@@ -49,20 +49,28 @@ describe('createModule', () => {
   });
 
   it('inserts the module and makes the creator its professor', async () => {
-    queue(ok(MODULE), ok(null));
+    queue(ok([]), ok(MODULE), ok(null));
 
     expect(await moduleService.createModule(3, { name: '  Algorithms  ' })).toEqual(MODULE);
     expect(from).toHaveBeenNthCalledWith(1, 'modules');
+    expect(from).toHaveBeenNthCalledWith(2, 'modules');
     expect(builder.insert).toHaveBeenNthCalledWith(1, { name: 'Algorithms' });
-    expect(from).toHaveBeenNthCalledWith(2, 'module_professor');
+    expect(from).toHaveBeenNthCalledWith(3, 'module_professor');
     expect(builder.insert).toHaveBeenNthCalledWith(2, { module_id: 7, professor_id: 3 });
   });
 
+  it('rejects a name that already belongs to another active class', async () => {
+    queue(ok([{ id: 11 }]));
+
+    await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toMatchObject({ status: 409 });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
   it('removes the module again when the professor link fails', async () => {
-    queue(ok(MODULE), fail({ message: 'link failed' }), ok(null));
+    queue(ok([]), ok(MODULE), fail({ message: 'link failed' }), ok(null));
 
     await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toThrow('link failed');
-    expect(from).toHaveBeenNthCalledWith(3, 'modules');
+    expect(from).toHaveBeenNthCalledWith(4, 'modules');
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('id', 7);
   });
@@ -238,10 +246,26 @@ describe('updateModule', () => {
 
   it('renames the module', async () => {
     managed();
-    queue(ok({ ...MODULE, name: 'Data Structures' }));
+    queue(ok([]), ok({ ...MODULE, name: 'Data Structures' }));
 
     expect(await moduleService.updateModule(3, '7', { name: 'Data Structures' })).toEqual({ ...MODULE, name: 'Data Structures' });
     expect(builder.update).toHaveBeenCalledWith({ name: 'Data Structures' });
+  });
+
+  it('rejects a new name that already belongs to another active class', async () => {
+    managed();
+    queue(ok([{ id: 11 }]));
+
+    await expect(moduleService.updateModule(3, '7', { name: 'Taken' })).rejects.toMatchObject({ status: 409 });
+    expect(builder.update).not.toHaveBeenCalled();
+  });
+
+  it('excludes its own row, so keeping the same name (or just changing its case) is fine', async () => {
+    managed();
+    queue(ok([]), ok({ ...MODULE, name: 'algorithms' }));
+
+    await moduleService.updateModule(3, '7', { name: 'algorithms' });
+    expect(builder.neq).toHaveBeenCalledWith('id', 7);
   });
 });
 

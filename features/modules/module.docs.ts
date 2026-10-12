@@ -39,13 +39,13 @@ export const paths = {
     post: {
       tags: ['Modules'],
       summary: 'Create a module (professor)',
-      description: 'The professor who creates the module becomes its first module_professor.',
+      description: 'The professor who creates the module becomes its first module_professor. The name must be unique (case-insensitive) among active classes - a 409 otherwise.',
       ...authed,
       requestBody: {
         required: true,
         content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 100, example: 'Algorithms' } } }),
       },
-      responses: { '201': ok('Module created', envelope({ module: ref('Module') })), ...errors(400, 401, 403) },
+      responses: { '201': ok('Module created', envelope({ module: ref('Module') })), ...errors(400, 401, 403, 409) },
     },
     get: {
       tags: ['Modules'],
@@ -70,13 +70,14 @@ export const paths = {
     patch: {
       tags: ['Modules'],
       summary: 'Rename a module (professor)',
+      description: 'The new name must be unique (case-insensitive) among active classes - a 409 otherwise. Keeping the current name (just a different case) is fine.',
       ...authed,
       parameters: [moduleParam],
       requestBody: {
         required: true,
         content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', maxLength: 100, example: 'Algorithms II' } } }),
       },
-      responses: { '200': ok('Module updated', envelope({ module: ref('Module') })), ...errors(400, 401, 403, 404) },
+      responses: { '200': ok('Module updated', envelope({ module: ref('Module') })), ...errors(400, 401, 403, 404, 409) },
     },
     delete: {
       tags: ['Modules'],

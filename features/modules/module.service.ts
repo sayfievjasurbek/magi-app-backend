@@ -23,6 +23,16 @@ const parseReason = (value: unknown): string | null => {
   return value.trim();
 };
 
+// class names read as duplicates to an admin even if the casing differs ("Class2" vs "class2"),
+// so this is a case-insensitive exact match - excludeId lets a rename keep its own current name
+const requireUniqueName = async (name: string, excludeId?: number) => {
+  let query = activeOnly(database.from('modules').select('id').ilike('name', name));
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query.limit(1);
+  if (error) throw new Error(error.message);
+  if (data?.length) throw new HttpError(409, `A class named "${name}" already exists`);
+};
+
 // module the professor manages, or null - someone who sees all modules (not a plain "professor"
 // position) manages every one of them directly, not just the ones they're linked to
 const findManagedModule = async (moduleId: number, professorId: number) => {
@@ -154,6 +164,7 @@ const findMember = async (body: Record<string, unknown>, idField: string, roleTa
 
 export const createModule = async (professorId: number, body: Record<string, unknown>) => {
   const name = parseName(body.name);
+  await requireUniqueName(name);
 
   const { data: newModule, error } = await database
     .from('modules')
@@ -346,6 +357,7 @@ export const getRoster = async (professorId: number, moduleIdParam: string) => {
 export const updateModule = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
   const name = parseName(body.name);
+  await requireUniqueName(name, managed.id);
 
   const { data: updated, error } = await database
     .from('modules')
