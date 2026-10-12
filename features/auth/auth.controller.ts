@@ -8,6 +8,7 @@ import { encryptSecret, decryptSecret } from '../../lib/recovery.js';
 import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
 import { hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
+import { notify } from '../../lib/notifications.js';
 
 type s = string;
 type n = string;
@@ -781,6 +782,25 @@ export const changePassword = async (req: Request, res: Response) => {
     // only accounts createStudent/createProfessor made have one, this is a no-op otherwise
     await database.from('students').update({ recovery_secret: null }).eq('user_id', req.user!.id);
     await database.from('professors').update({ recovery_secret: null }).eq('user_id', req.user!.id);
+
+    // let the professor who created this student's account know their recorded password no
+    // longer works - best-effort, and a no-op for self-signup students (no created_by)
+    if (req.user!.role === 'student') {
+      const { data: student } = await database
+        .from('students')
+        .select('created_by')
+        .eq('user_id', req.user!.id)
+        .maybeSingle<{ created_by: number | null }>();
+      if (student?.created_by) {
+        await notify(
+          student.created_by,
+          'password_changed',
+          'Student changed their password',
+          `${req.user!.first_name} ${req.user!.last_name ?? ''}`.trim() + ' changed their own password.',
+          req.user!.id
+        );
+      };
+    };
 
     return res.status(200).json({ success: true, message: 'Password changed' });
   } catch (error: unknown) {

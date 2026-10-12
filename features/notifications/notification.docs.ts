@@ -1,14 +1,14 @@
 // Notifications domain: the endpoints of notification.route.ts and the schemas they use (helpers in docs/common.ts).
 import { authed, dateTime, envelope, errors, id, messageOnly, nullable, ok, ref } from '../../docs/common.js';
 
-export const tags = [{ name: 'Notifications', description: "Things sent to the current user from the professor/admin side" }];
+export const tags = [{ name: 'Notifications', description: "Things sent to the current user - mostly from the professor/admin side, but also a student's own password change notifying their professor" }];
 
 export const schemas = {
   Notification: {
     type: 'object',
     properties: {
       id,
-      type: { type: 'string', enum: ['exam_assigned', 'module_enrolled', 'exam_graded'], example: 'exam_assigned' },
+      type: { type: 'string', enum: ['exam_assigned', 'module_enrolled', 'exam_graded', 'password_changed'], example: 'exam_assigned' },
       title: { type: 'string', example: 'New exam assigned' },
       body: nullable({ type: 'string', example: 'Algorithms Midterm, in Algorithms' }),
       related_id: nullable(id),
