@@ -72,7 +72,8 @@ describe('listModules', () => {
     queue(
       ok([{ module_id: 1 }, { module_id: 2 }]),
       ok([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]),
-      ok([{ module_id: 1 }, { module_id: 1 }])
+      ok([{ module_id: 1, student_id: 10 }, { module_id: 1, student_id: 11 }]),
+      ok([{ id: 10 }, { id: 11 }])
     );
 
     expect(await moduleService.listModules(9, 'professor')).toEqual([
@@ -120,7 +121,10 @@ describe('getModule', () => {
 
   it('adds the student count for a professor', async () => {
     managed();
-    queue(ok([{ module_id: 7 }, { module_id: 7 }, { module_id: 7 }]));
+    queue(
+      ok([{ module_id: 7, student_id: 1 }, { module_id: 7, student_id: 2 }, { module_id: 7, student_id: 3 }]),
+      ok([{ id: 1 }, { id: 2 }, { id: 3 }])
+    );
 
     expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 3 });
   });
@@ -349,5 +353,66 @@ describe('removeProfessor', () => {
 
     await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({ status: 409 });
     expect(builder.delete).not.toHaveBeenCalled();
+  });
+});
+
+describe('getModuleRating', () => {
+  it('answers 404 for an id that is not an id', async () => {
+    await expect(moduleService.getModuleRating(4, 'student', 'abc')).rejects.toMatchObject({ status: 404 });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for a module the student is not enrolled in', async () => {
+    queue(ok(null));
+    await expect(moduleService.getModuleRating(4, 'student', '7')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('answers 404 for a soft deleted module even though the enrollment row is still there', async () => {
+    queue(ok({ module_id: 7 }), ok(null));
+    await expect(moduleService.getModuleRating(4, 'student', '7')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('answers 404 for a module the professor does not manage', async () => {
+    queue(ok(null));
+    await expect(moduleService.getModuleRating(3, 'professor', '7')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('returns an empty leaderboard for a module with no members', async () => {
+    managed();
+    queue(ok([]));
+
+    expect(await moduleService.getModuleRating(3, 'professor', '7')).toEqual([]);
+  });
+
+  it("sums each member's graded score across the module's own exams, highest first", async () => {
+    managed();
+    queue(
+      ok([{ student_id: 10 }, { student_id: 11 }]),
+      ok([{ exam_id: 1 }]),
+      ok([{ student_id: 10, assignment_id: 100 }, { student_id: 11, assignment_id: 101 }]),
+      ok([{ id: 100, score: 60 }, { id: 101, score: 85 }]),
+      ok([
+        { id: 10, first_name: 'A', last_name: null, email: 'a@magi.edu' },
+        { id: 11, first_name: 'B', last_name: null, email: 'b@magi.edu' },
+      ])
+    );
+
+    expect(await moduleService.getModuleRating(3, 'professor', '7')).toEqual([
+      { student: { id: 11, first_name: 'B', last_name: null, email: 'b@magi.edu' }, total_score: 85 },
+      { student: { id: 10, first_name: 'A', last_name: null, email: 'a@magi.edu' }, total_score: 60 },
+    ]);
+  });
+
+  it('excludes a member whose own account was soft-deleted', async () => {
+    managed();
+    queue(
+      ok([{ student_id: 10 }, { student_id: 11 }]),
+      ok([]),
+      ok([{ id: 10, first_name: 'A', last_name: null, email: 'a@magi.edu' }])
+    );
+
+    expect(await moduleService.getModuleRating(3, 'professor', '7')).toEqual([
+      { student: { id: 10, first_name: 'A', last_name: null, email: 'a@magi.edu' }, total_score: 0 },
+    ]);
   });
 });

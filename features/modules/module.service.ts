@@ -76,16 +76,29 @@ const listModulesByIds = async (moduleIds: number[]) => {
   return data ?? [];
 };
 
+// a soft-deleted student keeps their module_student row (deleteStudent never cleans it up), so a
+// raw count would disagree with the roster/rating, which both filter to active users
 const countStudents = async (moduleIds: number[]): Promise<Record<number, number>> => {
   const { data, error } = await database
     .from('module_student')
-    .select('module_id')
+    .select('module_id, student_id')
     .in('module_id', moduleIds);
 
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+
+  const studentIds = [...new Set(rows.map((row) => row.student_id))];
+  const { data: activeUsers, error: activeError } = studentIds.length
+    ? await activeOnly(database.from('users').select('id').in('id', studentIds))
+    : { data: [] as { id: number }[], error: null };
+  if (activeError) throw new Error(activeError.message);
+  const activeIds = new Set((activeUsers ?? []).map((u) => u.id));
 
   const counts: Record<number, number> = {};
-  for (const row of data ?? []) counts[row.module_id] = (counts[row.module_id] ?? 0) + 1;
+  for (const row of rows) {
+    if (!activeIds.has(row.student_id)) continue;
+    counts[row.module_id] = (counts[row.module_id] ?? 0) + 1;
+  };
   return counts;
 };
 
@@ -227,6 +240,13 @@ export const getModuleRating = async (userId: number, role: Role, moduleIdParam:
       .maybeSingle();
     if (enrolledError) throw new Error(enrolledError.message);
     if (!enrolled) throw moduleNotFound();
+
+    // the enrollment row outlives a soft-deleted module (deleteModule doesn't clean it up), so
+    // this still has to confirm the module itself is live - same as getModule's student branch
+    const { data: liveModule, error: liveModuleError } = await activeOnly(database.from('modules').select('id').eq('id', parsed)).maybeSingle();
+    if (liveModuleError) throw new Error(liveModuleError.message);
+    if (!liveModule) throw moduleNotFound();
+
     moduleId = parsed;
   };
 
