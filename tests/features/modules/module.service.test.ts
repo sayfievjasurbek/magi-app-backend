@@ -173,19 +173,25 @@ describe('getModule', () => {
   });
 
   it("gives an administrator any active module, not just ones they're linked to", async () => {
-    queue(ok({ position: 'Administrator' }), ok(MODULE), ok([]));
+    queue(ok({ position: 'Administrator' }), ok(MODULE), ok([]), ok([]));
 
-    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 0 });
+    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 0, professors: [] });
   });
 
-  it('adds the student count for a professor', async () => {
+  it('adds the student count and mentors for a professor', async () => {
     managed();
     queue(
       ok([{ module_id: 7, student_id: 1 }, { module_id: 7, student_id: 2 }, { module_id: 7, student_id: 3 }]),
-      ok([{ id: 1 }, { id: 2 }, { id: 3 }])
+      ok([{ id: 1 }, { id: 2 }, { id: 3 }]),
+      ok([{ module_id: 7, professor_id: 3 }]),
+      ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }])
     );
 
-    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 3 });
+    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({
+      ...MODULE,
+      student_count: 3,
+      professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
+    });
   });
 
   it('answers 404 for a student who is not enrolled', async () => {
@@ -195,15 +201,15 @@ describe('getModule', () => {
     expect(from).toHaveBeenCalledWith('module_student');
   });
 
-  it('gives an enrolled student the module', async () => {
-    queue(ok({ module_id: 7 }), ok(MODULE));
+  it('gives an enrolled student the module with its mentors', async () => {
+    queue(ok({ module_id: 7 }), ok(MODULE), ok([]), ok([{ module_id: 7, professor_id: SUE.id }]), ok([SUE]));
 
-    expect(await moduleService.getModule(5, 'student', '7')).toEqual(MODULE);
+    expect(await moduleService.getModule(5, 'student', '7')).toEqual({ ...MODULE, student_count: 0, professors: [SUE] });
   });
 });
 
 describe('getRoster', () => {
-  it('lists the professors and the students of the module', async () => {
+  it('lists the professors and the students of the module for a professor', async () => {
     managed();
     queue(
       ok([{ professor_id: 3 }]),
@@ -212,7 +218,7 @@ describe('getRoster', () => {
       ok([SUE])
     );
 
-    expect(await moduleService.getRoster(3, '7')).toEqual({
+    expect(await moduleService.getRoster(3, 'professor', '7')).toEqual({
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
       students: [SUE],
     });
@@ -221,15 +227,37 @@ describe('getRoster', () => {
   it('answers 404 for a module the professor does not manage', async () => {
     queue(ok(null));
 
-    await expect(moduleService.getRoster(3, '7')).rejects.toMatchObject({ status: 404 });
+    await expect(moduleService.getRoster(3, 'professor', '7')).rejects.toMatchObject({ status: 404 });
   });
 
   it('asks for no users when the module is empty', async () => {
     managed();
     queue(ok([]), ok([]));
 
-    expect(await moduleService.getRoster(3, '7')).toEqual({ professors: [], students: [] });
+    expect(await moduleService.getRoster(3, 'professor', '7')).toEqual({ professors: [], students: [] });
     expect(from).not.toHaveBeenCalledWith('users');
+  });
+
+  it('gives an enrolled student the roster of their own class', async () => {
+    queue(
+      ok({ module_id: 7 }),
+      ok(MODULE),
+      ok([{ professor_id: 3 }]),
+      ok([{ student_id: 5 }]),
+      ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
+      ok([SUE])
+    );
+
+    expect(await moduleService.getRoster(5, 'student', '7')).toEqual({
+      professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
+      students: [SUE],
+    });
+  });
+
+  it('answers 404 for a student who is not enrolled', async () => {
+    queue(ok(null));
+
+    await expect(moduleService.getRoster(5, 'student', '7')).rejects.toMatchObject({ status: 404 });
   });
 });
 

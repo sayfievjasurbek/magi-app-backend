@@ -65,7 +65,7 @@ describe('module routes', () => {
       'GET /students/:studentId': ['professor'],
       'GET /professors/:professorId': ['professor'],
       'GET /:id': ['professor', 'student'],
-      'GET /:id/roster': ['professor'],
+      'GET /:id/roster': ['professor', 'student'],
       'GET /:id/rating': ['professor', 'student'],
       'PATCH /:id': ['professor'],
       'DELETE /:id': ['professor'],

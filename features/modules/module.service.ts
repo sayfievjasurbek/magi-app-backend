@@ -62,6 +62,27 @@ const requireManagedModule = async (moduleIdParam: string, professorId: number) 
   return managed;
 };
 
+// the module a student is enrolled in, or 404 - also covers a module soft deleted after they
+// enrolled (deleteModule doesn't clean up module_student rows)
+const requireEnrolledModule = async (moduleIdParam: string, studentId: number) => {
+  const moduleId = parseId(moduleIdParam);
+  if (!moduleId) throw moduleNotFound();
+
+  const { data: enrolled, error: enrolledError } = await database
+    .from('module_student')
+    .select('module_id')
+    .eq('module_id', moduleId)
+    .eq('student_id', studentId)
+    .maybeSingle();
+  if (enrolledError) throw new Error(enrolledError.message);
+  if (!enrolled) throw moduleNotFound();
+
+  const { data, error } = await activeOnly(database.from('modules').select('*').eq('id', moduleId)).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw moduleNotFound();
+  return data;
+};
+
 const managedModuleIds = async (professorId: number): Promise<number[]> => {
   const { data, error } = await database
     .from('module_professor')
@@ -251,59 +272,22 @@ export const getProfessorModules = async (professorIdParam: string) => {
   return listModulesByIds(moduleIds);
 };
 
+// a professor sees any module they manage (or every one, if their position isn't scoped), a
+// student only one they're enrolled in - both get the same shape back: the module with its
+// student count and its mentors, for the class detail page
 export const getModule = async (userId: number, role: Role, moduleIdParam: string) => {
-  if (role === 'professor') {
-    const managed = await requireManagedModule(moduleIdParam, userId);
-    const counts = await countStudents([managed.id]);
-    return { ...managed, student_count: counts[managed.id] ?? 0 };
-  };
+  const managed = role === 'professor' ? await requireManagedModule(moduleIdParam, userId) : await requireEnrolledModule(moduleIdParam, userId);
 
-  const moduleId = parseId(moduleIdParam);
-  if (!moduleId) throw moduleNotFound();
-
-  const { data: enrolled, error: enrolledError } = await database
-    .from('module_student')
-    .select('module_id')
-    .eq('module_id', moduleId)
-    .eq('student_id', userId)
-    .maybeSingle();
-
-  if (enrolledError) throw new Error(enrolledError.message);
-  if (!enrolled) throw moduleNotFound();
-
-  const { data, error } = await activeOnly(database.from('modules').select('*').eq('id', moduleId)).maybeSingle();
-  if (error) throw new Error(error.message);
-  if (!data) throw moduleNotFound();
-
-  return data;
+  const counts = await countStudents([managed.id]);
+  const professors = await professorsByModule([managed.id]);
+  return { ...managed, student_count: counts[managed.id] ?? 0, professors: professors[managed.id] ?? [] };
 };
 
 // every member's total score across this module's own graded exams, highest first - a
 // professor sees any module they manage, a student only one they are enrolled in
 export const getModuleRating = async (userId: number, role: Role, moduleIdParam: string) => {
-  let moduleId: number;
-  if (role === 'professor') {
-    moduleId = (await requireManagedModule(moduleIdParam, userId)).id;
-  } else {
-    const parsed = parseId(moduleIdParam);
-    if (!parsed) throw moduleNotFound();
-    const { data: enrolled, error: enrolledError } = await database
-      .from('module_student')
-      .select('module_id')
-      .eq('module_id', parsed)
-      .eq('student_id', userId)
-      .maybeSingle();
-    if (enrolledError) throw new Error(enrolledError.message);
-    if (!enrolled) throw moduleNotFound();
-
-    // the enrollment row outlives a soft-deleted module (deleteModule doesn't clean it up), so
-    // this still has to confirm the module itself is live - same as getModule's student branch
-    const { data: liveModule, error: liveModuleError } = await activeOnly(database.from('modules').select('id').eq('id', parsed)).maybeSingle();
-    if (liveModuleError) throw new Error(liveModuleError.message);
-    if (!liveModule) throw moduleNotFound();
-
-    moduleId = parsed;
-  };
+  const moduleId =
+    role === 'professor' ? (await requireManagedModule(moduleIdParam, userId)).id : (await requireEnrolledModule(moduleIdParam, userId)).id;
 
   const { data: members, error: membersError } = await database.from('module_student').select('student_id').eq('module_id', moduleId);
   if (membersError) throw new Error(membersError.message);
@@ -353,9 +337,10 @@ export const getModuleRating = async (userId: number, role: Role, moduleIdParam:
     .sort((a, b) => b.total_score - a.total_score);
 };
 
-// professors and students of the module
-export const getRoster = async (professorId: number, moduleIdParam: string) => {
-  const managed = await requireManagedModule(moduleIdParam, professorId);
+// professors and students of the module - a professor sees any module they manage, a student
+// their own classmates and mentors for a class they're enrolled in
+export const getRoster = async (userId: number, role: Role, moduleIdParam: string) => {
+  const managed = role === 'professor' ? await requireManagedModule(moduleIdParam, userId) : await requireEnrolledModule(moduleIdParam, userId);
 
   const { data: professorRows, error: professorsError } = await database
     .from('module_professor')

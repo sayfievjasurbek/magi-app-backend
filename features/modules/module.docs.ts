@@ -71,7 +71,7 @@ export const paths = {
     get: {
       tags: ['Modules'],
       summary: 'Get a module (professor, student)',
-      description: 'A professor sees the module with its `student_count`, a student the module itself. A module the caller neither manages nor is enrolled in answers 404.',
+      description: 'Both get the module with its `student_count` and `professors`. A module the caller neither manages nor is enrolled in answers 404.',
       ...authed,
       parameters: [moduleParam],
       responses: { '200': ok('Module', envelope({ module: ref('ManagedModule') })), ...errors(401, 403, 404) },
@@ -120,7 +120,8 @@ export const paths = {
   '/api/modules/{id}/roster': {
     get: {
       tags: ['Modules'],
-      summary: 'Professors and students of a module (professor)',
+      summary: 'Professors and students of a module (professor, student)',
+      description: 'A professor sees the roster of any module they manage, a student the roster of a class they are enrolled in.',
       ...authed,
       parameters: [moduleParam],
       responses: { '200': ok('Roster', envelope({ professors: { type: 'array', items: ref('Person') }, students: { type: 'array', items: ref('Person') } })), ...errors(401, 403, 404) },

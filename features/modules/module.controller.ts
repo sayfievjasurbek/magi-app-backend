@@ -65,7 +65,7 @@ export const getProfessorModules = async (req: Request, res: Response) => {
 //professors and students of the module
 export const getRoster = async (req: Request, res: Response) => {
   try {
-    const roster = await moduleService.getRoster(req.user!.id, req.params.id as string);
+    const roster = await moduleService.getRoster(req.user!.id, req.user!.role, req.params.id as string);
     return res.status(200).json({ success: true, ...roster });
   } catch (error: unknown) {
     return handleControllerError(res, error, "getRoster controller");

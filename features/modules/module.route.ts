@@ -19,7 +19,7 @@ router.get("/", requireRole('professor', 'student'), listModules);
 router.get("/students/:studentId", requireRole('professor'), getStudentModules);
 router.get("/professors/:professorId", requireRole('professor'), getProfessorModules);
 router.get("/:id", requireRole('professor', 'student'), getModule);
-router.get("/:id/roster", requireRole('professor'), getRoster);
+router.get("/:id/roster", requireRole('professor', 'student'), getRoster);
 router.get("/:id/rating", requireRole('professor', 'student'), getModuleRating);
 
 //patch
