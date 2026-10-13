@@ -17,8 +17,17 @@ export const schemas = {
   },
   ManagedModule: {
     type: 'object',
-    description: 'A module the professor manages, with the number of students enrolled in it',
-    allOf: [ref('Module'), { type: 'object', properties: { student_count: { type: 'integer', example: 24 } } }],
+    description: 'A module the professor manages, with its student count and its professors',
+    allOf: [
+      ref('Module'),
+      {
+        type: 'object',
+        properties: {
+          student_count: { type: 'integer', example: 24 },
+          professors: { type: 'array', items: ref('Person') },
+        },
+      },
+    ],
   },
   ModuleMemberInput: {
     type: 'object',
@@ -50,7 +59,7 @@ export const paths = {
     get: {
       tags: ['Modules'],
       summary: 'List modules (professor, student)',
-      description: 'A professor gets the modules they manage with their `student_count`, a student the modules they are enrolled in. Examiners have no access to modules.',
+      description: 'A professor gets the modules they manage with their `student_count` and `professors`, a student the modules they are enrolled in. Examiners have no access to modules.',
       ...authed,
       responses: {
         '200': ok('Modules', envelope({ modules: { type: 'array', items: ref('ManagedModule') } })),

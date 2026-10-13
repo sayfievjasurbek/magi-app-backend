@@ -77,18 +77,20 @@ describe('createModule', () => {
 });
 
 describe('listModules', () => {
-  it('gives a professor the managed modules with their student count', async () => {
+  it('gives a professor the managed modules with their student count and professors', async () => {
     queue(
       ok({ position: 'professor' }),
       ok([{ module_id: 1 }, { module_id: 2 }]),
       ok([{ id: 1, name: 'A' }, { id: 2, name: 'B' }]),
       ok([{ module_id: 1, student_id: 10 }, { module_id: 1, student_id: 11 }]),
-      ok([{ id: 10 }, { id: 11 }])
+      ok([{ id: 10 }, { id: 11 }]),
+      ok([{ module_id: 1, professor_id: SUE.id }]),
+      ok([SUE])
     );
 
     expect(await moduleService.listModules(9, 'professor')).toEqual([
-      { id: 1, name: 'A', student_count: 2 },
-      { id: 2, name: 'B', student_count: 0 },
+      { id: 1, name: 'A', student_count: 2, professors: [SUE] },
+      { id: 2, name: 'B', student_count: 0, professors: [] },
     ]);
     expect(from).toHaveBeenNthCalledWith(1, 'professors');
     expect(from).toHaveBeenNthCalledWith(2, 'module_professor');
@@ -109,12 +111,13 @@ describe('listModules', () => {
       ok([{ id: 1 }, { id: 7 }]),
       ok([{ id: 1, name: 'A' }, { id: 7, name: 'G' }]),
       ok([{ module_id: 7, student_id: 10 }]),
-      ok([{ id: 10 }])
+      ok([{ id: 10 }]),
+      ok([])
     );
 
     expect(await moduleService.listModules(9, 'professor')).toEqual([
-      { id: 1, name: 'A', student_count: 0 },
-      { id: 7, name: 'G', student_count: 1 },
+      { id: 1, name: 'A', student_count: 0, professors: [] },
+      { id: 7, name: 'G', student_count: 1, professors: [] },
     ]);
     expect(from).toHaveBeenNthCalledWith(1, 'professors');
     expect(from).toHaveBeenNthCalledWith(2, 'modules');

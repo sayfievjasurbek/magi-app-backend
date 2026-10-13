@@ -122,6 +122,28 @@ const countStudents = async (moduleIds: number[]): Promise<Record<number, number
   return counts;
 };
 
+// every professor on each module, for the Classes list (shows the first one plus a "+N more"
+// count rather than nobody at all - a class can have several, same as a student can be in several)
+const professorsByModule = async (moduleIds: number[]): Promise<Record<number, Person[]>> => {
+  const { data, error } = await database
+    .from('module_professor')
+    .select('module_id, professor_id')
+    .in('module_id', moduleIds);
+  if (error) throw new Error(error.message);
+  const rows = data ?? [];
+
+  const people = await listPeople([...new Set(rows.map((row) => row.professor_id))]);
+  const personById = new Map(people.map((p) => [p.id, p]));
+
+  const byModule: Record<number, Person[]> = {};
+  for (const row of rows) {
+    const person = personById.get(row.professor_id);
+    if (!person) continue;
+    (byModule[row.module_id] ??= []).push(person);
+  };
+  return byModule;
+};
+
 const listPeople = async (userIds: number[]): Promise<Person[]> => {
   if (!userIds.length) return [];
 
@@ -195,7 +217,8 @@ export const listModules = async (userId: number, role: Role) => {
 
     const modules = await listModulesByIds(moduleIds);
     const counts = await countStudents(moduleIds);
-    return modules.map((row) => ({ ...row, student_count: counts[row.id] ?? 0 }));
+    const professors = await professorsByModule(moduleIds);
+    return modules.map((row) => ({ ...row, student_count: counts[row.id] ?? 0, professors: professors[row.id] ?? [] }));
   };
 
   const moduleIds = await enrolledModuleIds(userId);
