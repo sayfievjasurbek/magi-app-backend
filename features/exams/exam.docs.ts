@@ -152,7 +152,7 @@ export const paths = {
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final' },
             kind: { ...examKind, default: 'exam' },
-            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart' },
             status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled', example: 'scheduled' },
             maxMarks: { type: 'integer', minimum: 0, default: 100, example: 100 },
@@ -193,7 +193,7 @@ export const paths = {
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final' },
             kind: examKind,
-            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z' },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z' },
             maxMarks: { type: 'integer', minimum: 0, example: 100 },
             passingMarks: { type: 'integer', minimum: 0, example: 40 },
