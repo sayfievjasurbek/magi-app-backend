@@ -143,6 +143,31 @@ const countStudents = async (moduleIds: number[]): Promise<Record<number, number
   return counts;
 };
 
+// the class detail page's "average age" stat - null students (nobody enrolled, or none of them
+// have an age on file) read as "unknown" rather than a misleading 0
+const averageAgeForModule = async (moduleId: number): Promise<number | null> => {
+  const { data: rows, error } = await database.from('module_student').select('student_id').eq('module_id', moduleId);
+  if (error) throw new Error(error.message);
+  const studentIds = (rows ?? []).map((row) => row.student_id);
+  if (!studentIds.length) return null;
+
+  const { data: ages, error: agesError } = await database.from('students').select('age').in('user_id', studentIds);
+  if (agesError) throw new Error(agesError.message);
+  const known = (ages ?? []).map((row) => row.age).filter((age): age is number => age !== null && age !== undefined);
+  if (!known.length) return null;
+
+  return Math.round((known.reduce((sum, age) => sum + age, 0) / known.length) * 10) / 10;
+};
+
+// one bounded query to attach each roster student's age, instead of folding it into listPeople
+// (which also resolves professors, who don't have an age column at all)
+const studentAgesById = async (studentIds: number[]): Promise<Map<number, number | null>> => {
+  if (!studentIds.length) return new Map();
+  const { data, error } = await database.from('students').select('user_id, age').in('user_id', studentIds);
+  if (error) throw new Error(error.message);
+  return new Map((data ?? []).map((row) => [row.user_id, row.age]));
+};
+
 // every professor on each module, for the Classes list (shows the first one plus a "+N more"
 // count rather than nobody at all - a class can have several, same as a student can be in several)
 const professorsByModule = async (moduleIds: number[]): Promise<Record<number, Person[]>> => {
@@ -280,7 +305,8 @@ export const getModule = async (userId: number, role: Role, moduleIdParam: strin
 
   const counts = await countStudents([managed.id]);
   const professors = await professorsByModule([managed.id]);
-  return { ...managed, student_count: counts[managed.id] ?? 0, professors: professors[managed.id] ?? [] };
+  const averageAge = await averageAgeForModule(managed.id);
+  return { ...managed, student_count: counts[managed.id] ?? 0, professors: professors[managed.id] ?? [], average_age: averageAge };
 };
 
 // every member's total score across this module's own graded exams, highest first - a
@@ -356,9 +382,13 @@ export const getRoster = async (userId: number, role: Role, moduleIdParam: strin
 
   if (studentsError) throw new Error(studentsError.message);
 
+  const professors = await listPeople((professorRows ?? []).map((row) => row.professor_id));
+  const students = await listPeople((studentRows ?? []).map((row) => row.student_id));
+  const ages = await studentAgesById(students.map((s) => s.id));
+
   return {
-    professors: await listPeople((professorRows ?? []).map((row) => row.professor_id)),
-    students: await listPeople((studentRows ?? []).map((row) => row.student_id)),
+    professors,
+    students: students.map((s) => ({ ...s, age: ages.get(s.id) ?? null })),
   };
 };
 

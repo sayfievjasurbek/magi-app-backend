@@ -29,6 +29,16 @@ export const schemas = {
       },
     ],
   },
+  RosterStudent: {
+    type: 'object',
+    description: 'A roster student, with their age if one is on file',
+    allOf: [ref('Person'), { type: 'object', properties: { age: nullable({ type: 'integer', example: 17 }) } }],
+  },
+  ModuleDetail: {
+    type: 'object',
+    description: "A single module's own page: the same fields as ManagedModule plus the enrolled students' average age",
+    allOf: [ref('ManagedModule'), { type: 'object', properties: { average_age: nullable({ type: 'number', example: 17.5 }) } }],
+  },
   ModuleMemberInput: {
     type: 'object',
     description: 'The member is named by email or by id; the id field is `professorId` or `studentId` depending on the list.',
@@ -71,10 +81,10 @@ export const paths = {
     get: {
       tags: ['Modules'],
       summary: 'Get a module (professor, student)',
-      description: 'Both get the module with its `student_count` and `professors`. A module the caller neither manages nor is enrolled in answers 404.',
+      description: 'Both get the module with its `student_count`, `professors` and `average_age`. A module the caller neither manages nor is enrolled in answers 404.',
       ...authed,
       parameters: [moduleParam],
-      responses: { '200': ok('Module', envelope({ module: ref('ManagedModule') })), ...errors(401, 403, 404) },
+      responses: { '200': ok('Module', envelope({ module: ref('ModuleDetail') })), ...errors(401, 403, 404) },
     },
     patch: {
       tags: ['Modules'],
@@ -124,7 +134,7 @@ export const paths = {
       description: 'A professor sees the roster of any module they manage, a student the roster of a class they are enrolled in.',
       ...authed,
       parameters: [moduleParam],
-      responses: { '200': ok('Roster', envelope({ professors: { type: 'array', items: ref('Person') }, students: { type: 'array', items: ref('Person') } })), ...errors(401, 403, 404) },
+      responses: { '200': ok('Roster', envelope({ professors: { type: 'array', items: ref('Person') }, students: { type: 'array', items: ref('RosterStudent') } })), ...errors(401, 403, 404) },
     },
   },
   '/api/modules/{id}/rating': {

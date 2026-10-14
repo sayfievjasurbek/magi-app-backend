@@ -332,8 +332,8 @@ const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student
 // the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, phone, parentPhone, parentRelation, photo }:
-      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s, photo?: unknown } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, photo }:
+      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s, age?: number, photo?: unknown } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -356,6 +356,10 @@ export const createStudent = async (req: Request, res: Response) => {
     if (trimmedPhone && trimmedParentPhone && trimmedPhone === trimmedParentPhone) return res.status(400).json({
       success: false,
       message: 'The student and parent phone numbers cannot be the same',
+    });
+    if (age !== undefined && (!Number.isInteger(age) || age < 1 || age > 100)) return res.status(400).json({
+      success: false,
+      message: 'age must be an integer between 1 and 100',
     });
 
     // optional - a professor can hand the student a reference photo up front instead of leaving
@@ -403,6 +407,7 @@ export const createStudent = async (req: Request, res: Response) => {
         phone: trimmedPhone,
         parent_phone: trimmedParentPhone,
         parent_relation: parentRelation?.trim() || null,
+        age: age ?? null,
         profile_photo_url: profilePhotoUrl,
       });
       if (roleError) throw new Error(roleError.message);
@@ -468,7 +473,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
 
     const { data: rows, error } = await database
       .from('students')
-      .select('user_id, student_code, phone, parent_phone, parent_relation, profile_photo_url')
+      .select('user_id, student_code, phone, parent_phone, parent_relation, age, profile_photo_url')
       .in('user_id', [...studentIds]);
     if (error) throw new Error(error.message);
 
@@ -490,6 +495,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
           phone: row.phone,
           parent_phone: row.parent_phone,
           parent_relation: row.parent_relation,
+          age: row.age,
           profile_photo_url: row.profile_photo_url,
         };
       })
@@ -519,7 +525,7 @@ export const getStudentDetail = async (req: Request, res: Response) => {
 
     const { data: student, error: studentError } = await database
       .from('students')
-      .select('student_code, phone, parent_phone, parent_relation, profile_photo_url')
+      .select('student_code, phone, parent_phone, parent_relation, age, profile_photo_url')
       .eq('user_id', studentId)
       .maybeSingle();
     if (studentError) throw new Error(studentError.message);

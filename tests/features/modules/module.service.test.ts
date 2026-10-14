@@ -173,24 +173,27 @@ describe('getModule', () => {
   });
 
   it("gives an administrator any active module, not just ones they're linked to", async () => {
-    queue(ok({ position: 'Administrator' }), ok(MODULE), ok([]), ok([]));
+    queue(ok({ position: 'Administrator' }), ok(MODULE), ok([]), ok([]), ok([]));
 
-    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 0, professors: [] });
+    expect(await moduleService.getModule(3, 'professor', '7')).toEqual({ ...MODULE, student_count: 0, professors: [], average_age: null });
   });
 
-  it('adds the student count and mentors for a professor', async () => {
+  it('adds the student count, mentors and average age for a professor', async () => {
     managed();
     queue(
       ok([{ module_id: 7, student_id: 1 }, { module_id: 7, student_id: 2 }, { module_id: 7, student_id: 3 }]),
       ok([{ id: 1 }, { id: 2 }, { id: 3 }]),
       ok([{ module_id: 7, professor_id: 3 }]),
-      ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }])
+      ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
+      ok([{ student_id: 1 }, { student_id: 2 }, { student_id: 3 }]),
+      ok([{ age: 16 }, { age: 18 }])
     );
 
     expect(await moduleService.getModule(3, 'professor', '7')).toEqual({
       ...MODULE,
       student_count: 3,
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
+      average_age: 17,
     });
   });
 
@@ -202,25 +205,31 @@ describe('getModule', () => {
   });
 
   it('gives an enrolled student the module with its mentors', async () => {
-    queue(ok({ module_id: 7 }), ok(MODULE), ok([]), ok([{ module_id: 7, professor_id: SUE.id }]), ok([SUE]));
+    queue(ok({ module_id: 7 }), ok(MODULE), ok([]), ok([{ module_id: 7, professor_id: SUE.id }]), ok([SUE]), ok([]));
 
-    expect(await moduleService.getModule(5, 'student', '7')).toEqual({ ...MODULE, student_count: 0, professors: [SUE] });
+    expect(await moduleService.getModule(5, 'student', '7')).toEqual({
+      ...MODULE,
+      student_count: 0,
+      professors: [SUE],
+      average_age: null,
+    });
   });
 });
 
 describe('getRoster', () => {
-  it('lists the professors and the students of the module for a professor', async () => {
+  it('lists the professors and the students of the module, with each student\'s age', async () => {
     managed();
     queue(
       ok([{ professor_id: 3 }]),
       ok([{ student_id: 5 }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
-      ok([SUE])
+      ok([SUE]),
+      ok([{ user_id: SUE.id, age: 16 }])
     );
 
     expect(await moduleService.getRoster(3, 'professor', '7')).toEqual({
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
-      students: [SUE],
+      students: [{ ...SUE, age: 16 }],
     });
   });
 
@@ -245,12 +254,13 @@ describe('getRoster', () => {
       ok([{ professor_id: 3 }]),
       ok([{ student_id: 5 }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
-      ok([SUE])
+      ok([SUE]),
+      ok([])
     );
 
     expect(await moduleService.getRoster(5, 'student', '7')).toEqual({
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
-      students: [SUE],
+      students: [{ ...SUE, age: null }],
     });
   });
 
