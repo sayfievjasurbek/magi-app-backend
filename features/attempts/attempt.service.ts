@@ -399,13 +399,21 @@ export const listAttemptsSummary = async (professorId: number): Promise<{ exam_i
   const examIds = await managedExamIds(professorId);
   if (!examIds.length) return [];
 
-  const rows = unwrap(await activeOnly(database.from('assignments').select('exam_id, status').in('exam_id', examIds))) ?? [];
-
   const counts = new Map(examIds.map((id) => [id, { exam_id: id, students: 0, awaiting: 0, graded: 0 }]));
+
+  // "students" is who the exam was actually assigned to (exam_student), not who has started it -
+  // that count is frozen per exam at assignment time, so an exam from before students joined the
+  // class doesn't silently grow when the roster does later
+  const assigned = unwrap(await database.from('exam_student').select('exam_id').in('exam_id', examIds)) ?? [];
+  for (const row of assigned as { exam_id: number }[]) {
+    const count = counts.get(row.exam_id);
+    if (count) count.students += 1;
+  };
+
+  const rows = unwrap(await activeOnly(database.from('assignments').select('exam_id, status').in('exam_id', examIds))) ?? [];
   for (const row of rows as { exam_id: number; status: string }[]) {
     const count = counts.get(row.exam_id);
     if (!count) continue;
-    count.students += 1;
     if (AWAITING_STATUSES.has(row.status)) count.awaiting += 1;
     if (row.status === 'graded') count.graded += 1;
   };

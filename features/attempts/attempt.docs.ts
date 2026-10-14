@@ -221,7 +221,7 @@ export const paths = {
                 type: 'object',
                 properties: {
                   exam_id: id,
-                  students: { type: 'integer', example: 24, description: 'Attempts started' },
+                  students: { type: 'integer', example: 24, description: 'Students the exam is assigned to' },
                   awaiting: { type: 'integer', example: 3, description: 'Submitted or flagged, not graded yet' },
                   graded: { type: 'integer', example: 21 },
                 },

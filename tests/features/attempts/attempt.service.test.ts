@@ -511,6 +511,12 @@ describe('listAttemptsSummary', () => {
     queue('module_professor', [{ module_id: 2 }]); // taught
     queue('exam_module', [{ exam_id: 7 }]); // linked via a taught module
     queue('exams', [{ id: 7 }]); // live check on the linked-but-not-created exam
+    // students is who the exam was assigned to, not who has started it - 5 assigned to exam 5
+    // but only 3 have an assignments row at all, proving the count doesn't come from there
+    queue('exam_student', [
+      { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 },
+      { exam_id: 7 },
+    ]);
     queue('assignments', [
       { exam_id: 5, status: 'graded' },
       { exam_id: 5, status: 'submitted' },
@@ -522,7 +528,7 @@ describe('listAttemptsSummary', () => {
 
     expect(summary).toEqual(
       expect.arrayContaining([
-        { exam_id: 5, students: 3, awaiting: 1, graded: 1 },
+        { exam_id: 5, students: 5, awaiting: 1, graded: 1 },
         { exam_id: 7, students: 1, awaiting: 1, graded: 0 },
       ]),
     );
@@ -540,6 +546,7 @@ describe('listAttemptsSummary', () => {
   it('counts an exam with zero attempts as zero, not missing', async () => {
     queue('exams', [{ id: 5 }]);
     queue('module_professor', []);
+    queue('exam_student', []);
     queue('assignments', []);
 
     expect(await listAttemptsSummary(PROFESSOR.id)).toEqual([{ exam_id: 5, students: 0, awaiting: 0, graded: 0 }]);
