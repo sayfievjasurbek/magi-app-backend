@@ -16,7 +16,6 @@
     "e2e": "tsx e2e/smoke.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.133.0",
     "@scalar/express-api-reference": "^0.10.21",
     "@supabase/supabase-js": "^2.106.2",
     "@tensorflow/tfjs-node": "^4.22.0",
@@ -29,6 +28,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mailtrap": "^4.6.0",
+    "openai": "^7.33.0",
     "tsx": "^4.23.15",
     "ws": "^8.21.0"
   },
