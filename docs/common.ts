@@ -26,7 +26,7 @@ export const pathParam = (name: string, description: string) => ({
 
 export const authed = { security: [{ cookieAuth: [] }] };
 export const errors = (...statuses: number[]) => {
-  const names: Record<number, string> = { 400: 'BadRequest', 401: 'Unauthorized', 403: 'Forbidden', 404: 'NotFound', 409: 'Conflict' };
+  const names: Record<number, string> = { 400: 'BadRequest', 401: 'Unauthorized', 403: 'Forbidden', 404: 'NotFound', 409: 'Conflict', 503: 'ServiceUnavailable' };
   return Object.fromEntries(statuses.map((status) => [String(status), errorResponse(names[status] as string)]));
 };
 

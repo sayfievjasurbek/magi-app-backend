@@ -9,6 +9,7 @@ export type Question = {
   title: string;
   question_type: QuestionType;
   question: string;
+  model_answer: string | null;
   expected_duration: number;
   expected_duration_unit: TimeUnit;
   created_by: number | null;

@@ -73,3 +73,12 @@ export const gradeAttempt = async (req: Request, res: Response) => {
     return handleControllerError(res, error, "attempt controller");
   };
 };
+
+export const aiReviewAttempt = async (req: Request, res: Response) => {
+  try {
+    const review = await attempts.aiReviewAttempt(req.user!.id, parseId(req.params.id), req.body?.force === true);
+    return res.status(200).json({ success: true, review });
+  } catch (error) {
+    return handleControllerError(res, error, "attempt controller");
+  };
+};

@@ -13,6 +13,7 @@ type QuestionFields = {
   question_type?: string;
   expected_duration?: number;
   expected_duration_unit?: string;
+  model_answer?: string | null;
 };
 
 type OptionInput = { option_text: string; is_correct: boolean };
@@ -60,6 +61,15 @@ const parseQuestionFields = (body: Record<string, unknown>): QuestionFields => {
       throw new HttpError(400, `expectedDurationUnit must be one of: ${TIME_UNITS.join(', ')}`);
     };
     fields.expected_duration_unit = body.expectedDurationUnit;
+  };
+
+  // optional - lets the AI reviewer compare a short_answer/essay answer against something
+  // concrete instead of judging it on the question text alone; null clears it
+  if (body.modelAnswer !== undefined) {
+    if (body.modelAnswer !== null && (typeof body.modelAnswer !== 'string' || !body.modelAnswer.trim())) {
+      throw new HttpError(400, 'modelAnswer must be a non-empty string or null');
+    };
+    fields.model_answer = body.modelAnswer === null ? null : (body.modelAnswer as string).trim();
   };
 
   return fields;

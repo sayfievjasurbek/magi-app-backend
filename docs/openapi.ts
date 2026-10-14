@@ -7,9 +7,10 @@ import * as attemptDocs from '../features/attempts/attempt.docs.js';
 import * as monitoringDocs from '../features/monitoring/monitoring.docs.js';
 import * as cheatingDocs from '../features/cheatings/cheating.docs.js';
 import * as notificationDocs from '../features/notifications/notification.docs.js';
+import * as aiDocs from '../features/ai/ai.docs.js';
 
 // every domain owns its <domain>.docs.ts, so adding endpoints never touches this one
-const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs, notificationDocs];
+const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs, notificationDocs, aiDocs];
 
 // two domains claiming the same name would otherwise silently keep the last one: a schema shared by
 // several domains belongs in common.ts, an endpoint belongs to exactly one domain
@@ -62,6 +63,7 @@ export const openapi = {
       Forbidden: ok('The role of the current user is not allowed here', ref('Error')),
       NotFound: ok('Not found (or not visible to the current user)', ref('Error')),
       Conflict: ok('Already exists', ref('Error')),
+      ServiceUnavailable: ok('The feature is not configured on the server', ref('Error')),
     },
     schemas: mergeSchemas([sharedSchemas, ...domains.map((domain) => domain.schemas)]),
   },

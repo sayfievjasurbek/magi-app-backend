@@ -24,6 +24,7 @@ const { from, rpc, calls, queue, queueError, reset } = vi.hoisted(() => {
       select: (columns: string) => ((call.columns = columns), query),
       insert: (payload: any) => ((call.op = 'insert'), (call.payload = payload), query),
       update: (payload: any) => ((call.op = 'update'), (call.payload = payload), query),
+      upsert: (payload: any) => ((call.op = 'upsert'), (call.payload = payload), query),
       delete: () => ((call.op = 'delete'), query),
       eq: (column: string, value: any) => (call.filters.push(['eq', column, value]), query),
       neq: (column: string, value: any) => (call.filters.push(['neq', column, value]), query),
@@ -62,6 +63,9 @@ const { from, rpc, calls, queue, queueError, reset } = vi.hoisted(() => {
 
 vi.mock('../../../lib/db.js', () => ({ database: { from, rpc } }));
 
+const { aiConfigured, reviewAnswers } = vi.hoisted(() => ({ aiConfigured: vi.fn(), reviewAnswers: vi.fn() }));
+vi.mock('../../../lib/ai.js', () => ({ aiConfigured, reviewAnswers }));
+
 import {
   startAttempt,
   listMyAttempts,
@@ -71,6 +75,7 @@ import {
   syncAnswers,
   submitAttempt,
   gradeAttempt,
+  aiReviewAttempt,
 } from '../../../features/attempts/attempt.service.js';
 
 const NOW = new Date('2026-09-21T10:00:00.000Z');
@@ -869,5 +874,133 @@ describe('gradeAttempt', () => {
 
     expect(called('assignments', 'update')[0].payload).not.toHaveProperty('feedback');
     expect(attempt).toMatchObject({ status: 'graded', score: 50, passed: true });
+  });
+});
+
+describe('aiReviewAttempt', () => {
+  const SUBMITTED = attemptRow({ status: 'submitted', submitted_at: '2026-09-21T09:50:00.000Z' });
+
+  const queueManualQuestions = () => {
+    queue('question_assignment', [{
+      question_id: 7,
+      position: 1,
+      answer: 'My essay answer here.',
+      typing_duration: 120,
+      typing_duration_unit: 'seconds',
+      text_typed: 400,
+      text_edited: 10,
+      text_pasted: 50,
+      last_synced_at: null,
+      started_at: null,
+      answered_at: null,
+      marks_awarded: null,
+    }]);
+    queue('questions', [{ id: 7, title: 'Essay Q', question: 'Explain X', question_type: 'essay', expected_duration: 90, expected_duration_unit: 'seconds' }]);
+    queue('question_options', []);
+    queue('question_assignment_option', []);
+    queue('exam_question', [{ question_id: 7, marks: 30 }]);
+  };
+
+  beforeEach(() => {
+    aiConfigured.mockReturnValue(true);
+  });
+
+  it('answers 503 when AI is not configured', async () => {
+    aiConfigured.mockReturnValue(false);
+
+    await expect(aiReviewAttempt(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 503 });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('404s an attempt of an exam the professor does not manage', async () => {
+    queue('assignments', SUBMITTED);
+    queue('exams', EXAM);
+    queue('exam_module', [{ module_id: 2 }]);
+    queue('module_professor', []);
+
+    await expect(aiReviewAttempt(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('409s an attempt that is still running', async () => {
+    queueStaffAttempt(attemptRow());
+
+    await expect(aiReviewAttempt(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 409, message: 'This attempt has not been submitted yet' });
+  });
+
+  it('400s when there are no answered short-answer/essay questions to review', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queue('question_assignment', []);
+
+    await expect(aiReviewAttempt(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 400 });
+    expect(reviewAnswers).not.toHaveBeenCalled();
+  });
+
+  it('returns a cached review without calling the AI again', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', { cheating_likelihood: 'low', cheating_reasoning: 'Looks genuine.' });
+    queue('question_ai_review', [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.' }]);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(review).toEqual({
+      cheating_likelihood: 'low',
+      cheating_reasoning: 'Looks genuine.',
+      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.' }],
+    });
+    expect(reviewAnswers).not.toHaveBeenCalled();
+  });
+
+  it('computes, stores and returns a fresh review when nothing is cached', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answer: 'The ideal answer.' }]);
+    reviewAnswers.mockResolvedValue({
+      cheating_likelihood: 'medium',
+      cheating_reasoning: 'Fast, high paste ratio.',
+      per_question: [{ question_id: 7, percent_correct: 70, reasoning: 'Mostly right.' }],
+    });
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+    queue('question_ai_review', null);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(reviewAnswers).toHaveBeenCalledWith([{
+      question_id: 7,
+      question: 'Explain X',
+      model_answer: 'The ideal answer.',
+      answer: 'My essay answer here.',
+      max_marks: 30,
+      typing_duration: 120,
+      text_typed: 400,
+      text_pasted: 50,
+      text_edited: 10,
+    }]);
+    expect(called('assignment_ai_review', 'upsert')[0].payload).toMatchObject({
+      assignment_id: 9,
+      cheating_likelihood: 'medium',
+      cheating_reasoning: 'Fast, high paste ratio.',
+    });
+    expect(called('question_ai_review', 'delete')).toHaveLength(1);
+    expect(called('question_ai_review', 'insert')[0].payload).toEqual([
+      { assignment_id: 9, question_id: 7, percent_correct: 70, reasoning: 'Mostly right.' },
+    ]);
+    expect(review.cheating_likelihood).toBe('medium');
+  });
+
+  it('skips the cache and re-asks the AI when forced', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answer: null }]);
+    reviewAnswers.mockResolvedValue({ cheating_likelihood: 'high', cheating_reasoning: 'Pasted almost everything at once.', per_question: [] });
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9, true);
+
+    expect(called('assignment_ai_review', 'select')).toHaveLength(0);
+    expect(review.cheating_likelihood).toBe('high');
   });
 });

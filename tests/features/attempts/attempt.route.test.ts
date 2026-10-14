@@ -12,6 +12,7 @@ vi.mock('../../../features/attempts/attempt.controller.js', () => ({
   syncAnswers: vi.fn(),
   submitAttempt: vi.fn(),
   gradeAttempt: vi.fn(),
+  aiReviewAttempt: vi.fn(),
 }));
 
 import router from '../../../features/attempts/attempt.route.js';
@@ -61,6 +62,7 @@ describe('attempt routes', () => {
     expect(route('put', '/:id/answers').handlers.at(-1)).toBe(controller.syncAnswers);
     expect(route('post', '/:id/submit').handlers.at(-1)).toBe(controller.submitAttempt);
     expect(route('put', '/:id/grade').handlers.at(-1)).toBe(controller.gradeAttempt);
+    expect(route('post', '/:id/ai-review').handlers.at(-1)).toBe(controller.aiReviewAttempt);
   });
 
   it('matches /my and /summary before /:id', () => {
@@ -99,5 +101,11 @@ describe('attempt routes', () => {
     for (const role of ['student', 'professor', 'examiner']) {
       expect(guard('get', '/:id', role).allowed).toBe(true);
     }
+  });
+
+  it('lets only professors ask for an AI review', () => {
+    expect(guard('post', '/:id/ai-review', 'professor').allowed).toBe(true);
+    expect(guard('post', '/:id/ai-review', 'examiner')).toEqual({ allowed: false, status: 403 });
+    expect(guard('post', '/:id/ai-review', 'student')).toEqual({ allowed: false, status: 403 });
   });
 });

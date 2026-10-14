@@ -150,6 +150,23 @@ export const schemas = {
       marks: { type: 'integer', minimum: 0, example: 8, description: 'Never more than exam_question.marks of that question' },
     },
   },
+  AiQuestionReview: {
+    type: 'object',
+    properties: {
+      question_id: id,
+      percent_correct: { type: 'integer', example: 80, description: "AI's estimate of how much of the ideal answer this covers" },
+      reasoning: { type: 'string', example: 'Covers the definition and one example, missing the edge case.' },
+    },
+  },
+  AiReview: {
+    type: 'object',
+    description: 'A suggestion only - never writes to marks_awarded or the attempt score, which stay entirely the professor\'s own call via PUT .../grade.',
+    properties: {
+      cheating_likelihood: { type: 'string', enum: ['low', 'medium', 'high'], example: 'low' },
+      cheating_reasoning: { type: 'string', example: 'Written in the student\'s own voice, typed steadily with no large pastes.' },
+      per_question: { type: 'array', items: ref('AiQuestionReview') },
+    },
+  },
 };
 
 const attemptId = pathParam('id', 'Attempt id (assignments.id)');
@@ -296,6 +313,21 @@ export const paths = {
         }),
       },
       responses: { '200': ok('Attempt graded', envelope({ attempt: ref('StaffAttempt') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/assignments/{id}/ai-review': {
+    post: {
+      tags: ['Attempts'],
+      summary: 'AI-assisted review of a submitted attempt (professor)',
+      description:
+        'Asks Claude to estimate how correct each short answer/essay answer is against the question (and the question\'s model_answer, if one is set), and how ' +
+        'likely the answers were AI-written, using both the writing itself and the typing/paste metrics already captured. Cached after the first call; pass `force` to redo it ' +
+        '(e.g. the model answer changed since). A 503 when ANTHROPIC_API_KEY is not set on the server - check GET /api/ai/status first. A 400 when there is nothing to review ' +
+        '(no answered short answer/essay question in the exam).',
+      ...authed,
+      parameters: [attemptId],
+      requestBody: { content: json({ type: 'object', properties: { force: { type: 'boolean', example: false } } }) },
+      responses: { '200': ok('Review', envelope({ review: ref('AiReview') })), ...errors(400, 401, 403, 404, 409, 503) },
     },
   },
 };

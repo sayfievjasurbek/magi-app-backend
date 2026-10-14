@@ -4,6 +4,7 @@ import { HttpError } from '../../lib/errors.js';
 import { type Caller, findVisibleExam, managedExamIds, sitsExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId } from '../../lib/utils.js';
 import { notify } from '../../lib/notifications.js';
+import { aiConfigured, reviewAnswers, type AiReview } from '../../lib/ai.js';
 import { type Attempt, type AttemptStatus } from './attempt.entities.js';
 
 // the exam columns an attempt is judged by; the exams table itself belongs to features/exams
@@ -646,4 +647,91 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
 
   if (studentId) void notify(studentId, 'exam_graded', 'Exam graded', `${exam.name}: ${graded.score}/${exam.max_marks}`, exam.id);
   return staffSummary(graded, exam, await loadStudent(studentId));
+};
+
+const loadCachedAiReview = async (assignmentId: number): Promise<AiReview | null> => {
+  const overall = unwrap(await database
+    .from('assignment_ai_review')
+    .select('cheating_likelihood, cheating_reasoning')
+    .eq('assignment_id', assignmentId)
+    .maybeSingle()) as Pick<AiReview, 'cheating_likelihood' | 'cheating_reasoning'> | null;
+  if (!overall) return null;
+
+  const perQuestion = unwrap(await database
+    .from('question_ai_review')
+    .select('question_id, percent_correct, reasoning')
+    .eq('assignment_id', assignmentId)) ?? [];
+
+  return { ...overall, per_question: perQuestion as AiReview['per_question'] };
+};
+
+const storeAiReview = async (assignmentId: number, review: AiReview) => {
+  const { error: overallError } = await database
+    .from('assignment_ai_review')
+    .upsert({
+      assignment_id: assignmentId,
+      cheating_likelihood: review.cheating_likelihood,
+      cheating_reasoning: review.cheating_reasoning,
+      updated_at: new Date().toISOString(),
+    });
+  if (overallError) throw new Error(overallError.message);
+
+  const { error: deleteError } = await database.from('question_ai_review').delete().eq('assignment_id', assignmentId);
+  if (deleteError) throw new Error(deleteError.message);
+
+  if (review.per_question.length) {
+    const { error: insertError } = await database.from('question_ai_review').insert(
+      review.per_question.map((q) => ({
+        assignment_id: assignmentId,
+        question_id: q.question_id,
+        percent_correct: q.percent_correct,
+        reasoning: q.reasoning,
+      }))
+    );
+    if (insertError) throw new Error(insertError.message);
+  };
+};
+
+// a suggestion only - never touches assignments/question_assignment, which is still entirely the
+// professor's own call via gradeAttempt above. Cached after the first run; pass force to re-ask
+// (e.g. the professor edited the question's model answer since)
+export const aiReviewAttempt = async (professorId: number, attemptId: number | null, force = false): Promise<AiReview> => {
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+  if (!aiConfigured()) throw new HttpError(503, 'AI review is not configured');
+
+  const { attempt, exam } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+  if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
+
+  if (!force) {
+    const cached = await loadCachedAiReview(current.id);
+    if (cached) return cached;
+  };
+
+  const questions = await attemptQuestions(current, true);
+  const manual = (questions as any[]).filter((q) => MANUAL_TYPES.includes(q.question_type) && q.answer.trim() !== '');
+  if (!manual.length) throw new HttpError(400, 'No answered short-answer or essay questions to review');
+
+  // model_answer isn't part of the staff grading view above (that reads exam_question/questions
+  // for the grading-relevant columns only) - one extra read for the one extra column this needs
+  const modelAnswers = unwrap(await activeOnly(database
+    .from('questions')
+    .select('id, model_answer')
+    .in('id', manual.map((q) => q.question_id)))) as { id: number; model_answer: string | null }[] ?? [];
+  const modelAnswerById = new Map(modelAnswers.map((q) => [q.id, q.model_answer]));
+
+  const review = await reviewAnswers(manual.map((q) => ({
+    question_id: q.question_id,
+    question: q.question,
+    model_answer: modelAnswerById.get(q.question_id) ?? null,
+    answer: q.answer,
+    max_marks: q.marks,
+    typing_duration: q.typing_duration,
+    text_typed: q.text_typed,
+    text_pasted: q.text_pasted,
+    text_edited: q.text_edited,
+  })));
+
+  await storeAiReview(current.id, review);
+  return review;
 };
