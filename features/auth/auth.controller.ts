@@ -953,6 +953,46 @@ export const getMyProfile = async (req: Request, res: Response) => {
   };
 };
 
+// the logged-in user editing their own name/phone - email and role aren't editable here (email
+// changes would need their own re-verification flow, and role is never self-service)
+export const updateMyProfile = async (req: Request, res: Response) => {
+  try {
+    const { firstName, lastName, phone }: { firstName?: s, lastName?: s | null, phone?: s | null } = req.body;
+
+    const userPatch: Record<string, unknown> = {};
+    if (firstName !== undefined) {
+      const trimmed = firstName.trim();
+      if (!trimmed) return res.status(400).json({ success: false, message: 'firstName cannot be empty' });
+      userPatch.first_name = trimmed;
+    };
+    if (lastName !== undefined) userPatch.last_name = lastName?.trim() || null;
+
+    let trimmedPhone: string | null | undefined;
+    if (phone !== undefined) {
+      trimmedPhone = phone?.trim() || null;
+      if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
+        success: false,
+        message: 'Phone must be in the format +998XXXXXXXXX',
+      });
+    };
+
+    if (Object.keys(userPatch).length) {
+      const { error } = await database.from('users').update(userPatch).eq('id', req.user!.id);
+      if (error) throw new Error(error.message);
+    };
+
+    if (trimmedPhone !== undefined && (req.user!.role === 'student' || req.user!.role === 'professor')) {
+      const table = req.user!.role === 'student' ? 'students' : 'professors';
+      const { error } = await database.from(table).update({ phone: trimmedPhone }).eq('user_id', req.user!.id);
+      if (error) throw new Error(error.message);
+    };
+
+    return getMyProfile(req, res);
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "updateMyProfile controller");
+  };
+};
+
 // a student setting their own reference photo - gives staff something to compare the
 // identity_check photo taken during an exam against
 // whether the student's current reference photo would itself still pass setMyProfilePhoto's own

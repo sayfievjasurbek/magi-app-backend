@@ -406,6 +406,26 @@ export const paths = {
         ...errors(401),
       },
     },
+    patch: {
+      tags: ['Auth'],
+      summary: 'Edit your own name/phone',
+      description:
+        'Email and role are not editable here - changing email would need its own re-verification flow, and role is never self-service. ' +
+        'phone only applies to students and professors; ignored for other roles. Returns the updated profile, same shape as GET.',
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          properties: {
+            firstName: { type: 'string', example: 'Sarah' },
+            lastName: nullable({ type: 'string', example: 'Chen' }),
+            phone: nullable({ type: 'string', example: '+998901234567' }),
+          },
+        }),
+      },
+      responses: { '200': ok('Updated profile, same shape as GET /me/profile', envelope({ profile: { type: 'object' } })), ...errors(400, 401) },
+    },
   },
   '/api/auth/me/password': {
     get: {
