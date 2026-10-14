@@ -720,6 +720,59 @@ describe('submitAttempt', () => {
     expect(called('question_assignment', 'update')).toHaveLength(0);
   });
 
+  it('kicks off an AI review in the background once an essay/short-answer exam is submitted', async () => {
+    aiConfigured.mockReturnValue(true);
+    reviewAnswers.mockResolvedValue({
+      cheating_likelihood: 'low',
+      cheating_reasoning: 'Consistent typing pace, no large pastes.',
+      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Covers the key points.' }],
+    });
+
+    queueOwnAttempt();
+    queue('exam_question', [{ question_id: 7, marks: 10 }]); // finishAttempt's manual-type check
+    queue('questions', [{ id: 7, question_type: 'essay' }]);
+    queue('assignments', [attemptRow({ status: 'submitted', submitted_at: NOW.toISOString() })]);
+
+    // runAiReview's own queries, fired after submitAttempt has already resolved
+    queue('question_assignment', [{ question_id: 7, position: 1, answer: 'My essay answer', marks_awarded: 0 }]);
+    queue('questions', [{ id: 7, title: 'Essay Q', question: 'Explain X', question_type: 'essay', expected_duration: 5, expected_duration_unit: 'minutes' }]);
+    queue('question_options', []);
+    queue('question_assignment_option', []);
+    queue('exam_question', [{ question_id: 7, marks: 10 }]);
+    queue('questions', [{ id: 7, model_answer: 'Model answer text' }]);
+
+    await submitAttempt(STUDENT.id, 9);
+    // the review runs on a floating promise, not awaited by submitAttempt itself - drain the
+    // microtask queue it's chained on instead of a real/fake timer
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+
+    expect(reviewAnswers).toHaveBeenCalledWith([
+      expect.objectContaining({ question_id: 7, answer: 'My essay answer', model_answer: 'Model answer text' }),
+    ]);
+    expect(called('assignment_ai_review', 'upsert')).toHaveLength(1);
+  });
+
+  it('never lets a failed AI review affect the submission already returned to the student', async () => {
+    aiConfigured.mockReturnValue(true);
+    reviewAnswers.mockRejectedValue(new Error('OpenAI is down'));
+
+    queueOwnAttempt();
+    queue('exam_question', [{ question_id: 7, marks: 10 }]);
+    queue('questions', [{ id: 7, question_type: 'essay' }]);
+    queue('assignments', [attemptRow({ status: 'submitted', submitted_at: NOW.toISOString() })]);
+    queue('question_assignment', [{ question_id: 7, position: 1, answer: 'My essay answer', marks_awarded: 0 }]);
+    queue('questions', [{ id: 7, title: 'Essay Q', question: 'Explain X', question_type: 'essay', expected_duration: 5, expected_duration_unit: 'minutes' }]);
+    queue('question_options', []);
+    queue('question_assignment_option', []);
+    queue('exam_question', [{ question_id: 7, marks: 10 }]);
+    queue('questions', [{ id: 7, model_answer: 'Model answer text' }]);
+
+    const { message } = await submitAttempt(STUDENT.id, 9);
+    for (let i = 0; i < 50; i++) await Promise.resolve();
+
+    expect(message).toBe('Your answers have been submitted');
+  });
+
   it('never awards more than the exam allows', async () => {
     queueOwnAttempt(attemptRow(), { ...EXAM, max_marks: 15 });
     queue('exam_question', [{ question_id: 7, marks: 20 }]);

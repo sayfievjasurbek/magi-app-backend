@@ -587,6 +587,15 @@ export const submitAttempt = async (studentId: number, attemptId: number | null)
   const auto = Date.now() >= deadline(attempt, exam);
   const submitted = await finishAttempt(attempt, exam, auto);
 
+  // best-effort - the professor's "Run AI review" button is still there for a manual re-ask, but
+  // the review is ready without anyone having to click it. Never let this slow down or fail the
+  // student's own submission: no manual-type questions and no API key are both routine, not errors
+  if (aiConfigured()) {
+    void runAiReview(submitted, exam, false).catch((err) => {
+      console.error(`ai review of attempt ${submitted.id} after submit failed:`, err instanceof Error ? err.message : err);
+    });
+  };
+
   return {
     attempt: studentSummary(submitted, exam),
     message: auto ? 'Time was up: this attempt has been submitted automatically' : 'Your answers have been submitted',
@@ -722,17 +731,11 @@ const storeAiReview = async (assignmentId: number, review: AiReview) => {
   };
 };
 
-// a suggestion only - never touches assignments/question_assignment, which is still entirely the
-// professor's own call via gradeAttempt above. Cached after the first run; pass force to re-ask
-// (e.g. the professor edited the question's model answer since)
-export const aiReviewAttempt = async (professorId: number, attemptId: number | null, force = false): Promise<AiReview> => {
-  if (!attemptId) throw new HttpError(404, 'Attempt not found');
-  if (!aiConfigured()) throw new HttpError(503, 'AI review is not configured');
-
-  const { attempt, exam } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
-  const current = await ensureCurrent(attempt, exam);
-  if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
-
+// shared by the professor-triggered endpoint below and the automatic run right after submit -
+// never touches assignments/question_assignment, which is still entirely the professor's own
+// call via gradeAttempt above. Cached after the first run; pass force to re-ask (e.g. the
+// professor edited the question's model answer since)
+const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promise<AiReview> => {
   if (!force) {
     const cached = await loadCachedAiReview(current.id);
     if (cached) return cached;
@@ -764,4 +767,15 @@ export const aiReviewAttempt = async (professorId: number, attemptId: number | n
 
   await storeAiReview(current.id, review);
   return review;
+};
+
+export const aiReviewAttempt = async (professorId: number, attemptId: number | null, force = false): Promise<AiReview> => {
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+  if (!aiConfigured()) throw new HttpError(503, 'AI review is not configured');
+
+  const { attempt, exam } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+  if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
+
+  return runAiReview(current, exam, force);
 };
