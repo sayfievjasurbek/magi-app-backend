@@ -585,16 +585,38 @@ export const submitAttempt = async (studentId: number, attemptId: number | null)
   };
 };
 
-export const gradeAttempt = async (professorId: number, attemptId: number | null, body: { marks?: unknown; feedback?: unknown }) => {
+export const gradeAttempt = async (professorId: number, attemptId: number | null, body: { marks?: unknown; score?: unknown; feedback?: unknown }) => {
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
   const current = await ensureCurrent(attempt, exam);
   if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
 
+  if (body.feedback !== undefined && body.feedback !== null && typeof body.feedback !== 'string') throw new HttpError(400, 'feedback must be a string');
+
+  // one overall grade for the whole attempt instead of marking each manually-graded question on
+  // its own - skips question_assignment entirely and sets the total directly
+  if (body.score !== undefined) {
+    if (!Number.isSafeInteger(body.score) || (body.score as number) < 0) throw new HttpError(400, 'score must be a whole number of zero or more');
+    if ((body.score as number) > exam.max_marks) throw new HttpError(400, `score cannot exceed ${exam.max_marks}`);
+
+    const graded = unwrap(await database
+      .from('assignments')
+      .update({
+        score: body.score,
+        status: 'graded',
+        ...(body.feedback !== undefined ? { feedback: body.feedback } : {}),
+      })
+      .eq('id', current.id)
+      .select(ATTEMPT_COLUMNS)
+      .single()) as Attempt;
+
+    if (studentId) void notify(studentId, 'exam_graded', 'Exam graded', `${exam.name}: ${graded.score}/${exam.max_marks}`, exam.id);
+    return staffSummary(graded, exam, await loadStudent(studentId));
+  };
+
   const marks = body.marks;
   if (marks !== undefined && !Array.isArray(marks)) throw new HttpError(400, 'marks must be an array');
-  if (body.feedback !== undefined && body.feedback !== null && typeof body.feedback !== 'string') throw new HttpError(400, 'feedback must be a string');
 
   const examQuestions = unwrap(await database.from('exam_question').select('question_id, marks').eq('exam_id', current.exam_id)) ?? [];
   const questions = examQuestions.length

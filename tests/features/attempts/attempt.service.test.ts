@@ -875,6 +875,35 @@ describe('gradeAttempt', () => {
     expect(called('assignments', 'update')[0].payload).not.toHaveProperty('feedback');
     expect(attempt).toMatchObject({ status: 'graded', score: 50, passed: true });
   });
+
+  it('sets one overall score directly, without touching question_assignment at all', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignments', attemptRow({ status: 'graded', submitted_at: SUBMITTED.submitted_at, score: 72, feedback: 'Solid work' }));
+    queue('users', { id: 3, first_name: 'Sam', last_name: 'Lee', email: 'sam@magi.edu' });
+
+    const attempt = await gradeAttempt(PROFESSOR.id, 9, { score: 72, feedback: 'Solid work' });
+
+    expect(from).not.toHaveBeenCalledWith('question_assignment');
+    expect(from).not.toHaveBeenCalledWith('exam_question');
+    expect(called('assignments', 'update')[0].payload).toEqual({ score: 72, status: 'graded', feedback: 'Solid work' });
+    expect(attempt).toMatchObject({ status: 'graded', score: 72, passed: true, feedback: 'Solid work' });
+  });
+
+  it('refuses a score that is not a whole non-negative number, or above max_marks', async () => {
+    queueStaffAttempt(SUBMITTED);
+    await expect(gradeAttempt(PROFESSOR.id, 9, { score: -1 })).rejects.toMatchObject({ status: 400 });
+
+    reset();
+    queueStaffAttempt(SUBMITTED);
+    await expect(gradeAttempt(PROFESSOR.id, 9, { score: 1.5 })).rejects.toMatchObject({ status: 400 });
+
+    reset();
+    queueStaffAttempt(SUBMITTED);
+    await expect(gradeAttempt(PROFESSOR.id, 9, { score: EXAM.max_marks + 1 })).rejects.toMatchObject({
+      status: 400,
+      message: `score cannot exceed ${EXAM.max_marks}`,
+    });
+  });
 });
 
 describe('aiReviewAttempt', () => {

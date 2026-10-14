@@ -83,12 +83,17 @@ const REVIEW_SCHEMA = {
   },
 } as const;
 
+// the answer arrives as rich-text HTML from the desktop app's editor - plain text is both
+// cheaper (fewer tokens) and clearer for the model to judge than markup noise
+const stripHtml = (html: string) =>
+  html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+
 const answerBlock = (a: ManualAnswer) =>
   `<question id="${a.question_id}" max_marks="${a.max_marks}">\n` +
   `${a.question}\n` +
   (a.model_answer ? `Model answer: ${a.model_answer}\n` : '') +
   `Typing: ${a.text_typed} chars typed, ${a.text_pasted} chars pasted, ${a.text_edited} chars edited/deleted, ${a.typing_duration}s spent typing\n` +
-  `<answer>\n${a.answer}\n</answer>\n</question>`;
+  `<answer>\n${stripHtml(a.answer)}\n</answer>\n</question>`;
 
 export const reviewAnswers = async (answers: ManualAnswer[]): Promise<AiReview> => {
   const openai = getClient();

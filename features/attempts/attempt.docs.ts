@@ -298,8 +298,9 @@ export const paths = {
       tags: ['Attempts'],
       summary: 'Grade an attempt (professor)',
       description:
-        'Marks the short answer and essay questions of a submitted attempt; the objective questions keep the marks given at submit. ' +
-        'The total is the sum of every awarded mark, never above `exams.max_marks`, and the status becomes `graded`. Regrading is allowed, marks that are left out stay as they are.',
+        'Either `score` or `marks`, not both. `score` sets the whole attempt\'s total directly - one overall grade instead of marking each ' +
+        'manually-graded question. `marks` marks the short answer and essay questions one at a time instead; the objective questions keep the marks given ' +
+        'at submit, and the total is the sum of every awarded mark, never above `exams.max_marks`. Either way the status becomes `graded` and regrading is allowed.',
       ...authed,
       parameters: [attemptId],
       requestBody: {
@@ -307,6 +308,7 @@ export const paths = {
         content: json({
           type: 'object',
           properties: {
+            score: { type: 'integer', minimum: 0, example: 72, description: 'Sets the attempt\'s total directly, capped at exams.max_marks' },
             marks: { type: 'array', items: ref('QuestionMark') },
             feedback: { type: 'string', example: 'Good answers, watch the normalisation detail.', description: 'Note for the student, shown once the attempt is graded' },
           },
