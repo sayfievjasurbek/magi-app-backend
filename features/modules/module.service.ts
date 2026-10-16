@@ -242,14 +242,19 @@ export const createModule = async (professorId: number, body: Record<string, unk
 
   if (error) throw new Error(error.message);
 
-  const { error: linkError } = await database
-    .from('module_professor')
-    .insert({ module_id: newModule.id, professor_id: professorId });
+  // only an account that actually teaches (position "professor") is linked as a mentor here - an
+  // administrator/director creating a group already manages every module via seesAllModules, and
+  // isn't one of its mentors just for having set it up
+  if (!(await seesAllModules(professorId))) {
+    const { error: linkError } = await database
+      .from('module_professor')
+      .insert({ module_id: newModule.id, professor_id: professorId });
 
-  // the two writes are not one transaction: a module nobody manages is worse than no module
-  if (linkError) {
-    await database.from('modules').delete().eq('id', newModule.id);
-    throw new Error(linkError.message);
+    // the two writes are not one transaction: a module nobody manages is worse than no module
+    if (linkError) {
+      await database.from('modules').delete().eq('id', newModule.id);
+      throw new Error(linkError.message);
+    };
   };
 
   return newModule;

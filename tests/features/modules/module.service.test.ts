@@ -49,14 +49,24 @@ describe('createModule', () => {
   });
 
   it('inserts the module and makes the creator its professor', async () => {
-    queue(ok([]), ok(MODULE), ok(null));
+    queue(ok([]), ok(MODULE), ok({ position: 'professor' }), ok(null));
 
     expect(await moduleService.createModule(3, { name: '  Algorithms  ' })).toEqual(MODULE);
     expect(from).toHaveBeenNthCalledWith(1, 'modules');
     expect(from).toHaveBeenNthCalledWith(2, 'modules');
     expect(builder.insert).toHaveBeenNthCalledWith(1, { name: 'Algorithms' });
-    expect(from).toHaveBeenNthCalledWith(3, 'module_professor');
+    expect(from).toHaveBeenNthCalledWith(3, 'professors');
+    expect(from).toHaveBeenNthCalledWith(4, 'module_professor');
     expect(builder.insert).toHaveBeenNthCalledWith(2, { module_id: 7, professor_id: 3 });
+  });
+
+  it('does not link an administrator/director as a mentor of the group they created', async () => {
+    queue(ok([]), ok(MODULE), ok({ position: 'director' }));
+
+    expect(await moduleService.createModule(3, { name: 'Algorithms' })).toEqual(MODULE);
+    expect(from).toHaveBeenCalledTimes(3);
+    expect(builder.insert).toHaveBeenCalledTimes(1);
+    expect(builder.insert).not.toHaveBeenCalledWith(expect.objectContaining({ professor_id: 3 }));
   });
 
   it('rejects a name that already belongs to another active class', async () => {
@@ -67,10 +77,10 @@ describe('createModule', () => {
   });
 
   it('removes the module again when the professor link fails', async () => {
-    queue(ok([]), ok(MODULE), fail({ message: 'link failed' }), ok(null));
+    queue(ok([]), ok(MODULE), ok({ position: 'professor' }), fail({ message: 'link failed' }), ok(null));
 
     await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toThrow('link failed');
-    expect(from).toHaveBeenNthCalledWith(4, 'modules');
+    expect(from).toHaveBeenNthCalledWith(5, 'modules');
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('id', 7);
   });
