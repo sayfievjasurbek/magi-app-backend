@@ -150,7 +150,7 @@ export const paths = {
           type: 'object',
           required: ['name', 'scheduledStart', 'scheduledEnd'],
           properties: {
-            name: { type: 'string', maxLength: 100, example: 'Databases, final' },
+            name: { type: 'string', maxLength: 100, example: 'Databases, final', description: 'Must be unique (case-insensitive) among exams' },
             kind: { ...examKind, default: 'exam' },
             scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart and at most 3 hours later' },
@@ -161,7 +161,7 @@ export const paths = {
           },
         }),
       },
-      responses: { ...created('The exam', envelope({ exam: ref('Exam') })), ...errors(400, 401, 403) },
+      responses: { ...created('The exam', envelope({ exam: ref('Exam') })), ...errors(400, 401, 403, 409) },
     },
   },
   '/api/exams/{examId}': {
@@ -191,7 +191,7 @@ export const paths = {
         content: json({
           type: 'object',
           properties: {
-            name: { type: 'string', maxLength: 100, example: 'Databases, final' },
+            name: { type: 'string', maxLength: 100, example: 'Databases, final', description: 'Must be unique (case-insensitive) among exams' },
             kind: examKind,
             scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'At most 3 hours after scheduledStart' },

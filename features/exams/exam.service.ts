@@ -48,6 +48,16 @@ const requireName = (value: unknown): string => {
   return name;
 };
 
+// an exam name read as a duplicate even if the casing differs ("Writing Test 2" vs "writing
+// test 2") - excludeId lets a rename keep its own current name
+const requireUniqueExamName = async (name: string, excludeId?: number) => {
+  let query = activeOnly(database.from('exams').select('id').ilike('name', name));
+  if (excludeId) query = query.neq('id', excludeId);
+  const { data, error } = await query.limit(1);
+  if (error) throw new Error(error.message);
+  if (data?.length) throw new HttpError(409, `An exam named "${name}" already exists`);
+};
+
 const requireDate = (value: unknown, field: string): string => {
   const time = typeof value === 'string' ? Date.parse(value) : NaN;
   if (Number.isNaN(time)) throw new HttpError(400, `${field} must be a date`);
@@ -272,6 +282,7 @@ export const getExam = async (user: TokenPayload, examId: number) => {
 // express 5 leaves req.body undefined when nothing is sent, hence the default on every body
 export const createExam = async (professorId: number, body: any = {}) => {
   const name = requireName(body.name);
+  await requireUniqueExamName(name);
   const scheduled_start = requireDate(body.scheduledStart, 'scheduledStart');
   const scheduled_end = requireDate(body.scheduledEnd, 'scheduledEnd');
   if (scheduled_end <= scheduled_start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
@@ -314,7 +325,10 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   const exam = await loadManagedExam(professorId, examId);
 
   const patch: Record<string, unknown> = {};
-  if (body.name !== undefined) patch.name = requireName(body.name);
+  if (body.name !== undefined) {
+    patch.name = requireName(body.name);
+    await requireUniqueExamName(patch.name as string, examId);
+  };
   if (body.kind !== undefined) {
     if (!EXAM_KINDS.includes(body.kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
     patch.kind = body.kind;
