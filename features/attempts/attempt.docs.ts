@@ -16,6 +16,10 @@ const answerFields = {
   text_typed: { type: 'integer', example: 412, description: 'Characters typed by hand' },
   text_edited: { type: 'integer', example: 37 },
   text_pasted: { type: 'integer', example: 58, description: 'Characters pasted into the answer' },
+  paste_events: { type: 'integer', example: 1, description: 'Number of paste/drop operations, regardless of how many characters each carried' },
+  text_deleted: { type: 'integer', example: 14, description: 'Characters removed with backspace/delete' },
+  freeze_count: { type: 'integer', example: 3, description: 'Pauses longer than the client\'s freeze threshold between keystrokes' },
+  longest_freeze: { type: 'integer', example: 22, description: 'Longest such pause, in seconds' },
   started_at: nullable(dateTime),
   answered_at: nullable(dateTime),
   last_synced_at: nullable(dateTime),
@@ -105,6 +109,11 @@ export const schemas = {
         properties: {
           questions: { type: 'array', items: ref('StudentAttemptQuestion') },
           permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+          cheating_incidents: {
+            type: 'array',
+            items: ref('Cheating'),
+            description: 'Only present once a professor has disclosed this attempt\'s incidents via PUT .../cheating-disclosure; absent otherwise',
+          },
         },
       },
     ],
@@ -116,14 +125,38 @@ export const schemas = {
       score: { type: 'integer', example: 78 },
       passed: nullable({ type: 'boolean', example: true, description: 'null while the attempt is not graded' }),
       feedback: nullable({ type: 'string', example: 'Good answers, watch the normalisation detail.' }),
+      cheating_disclosed: { type: 'boolean', example: false, description: 'Whether this attempt\'s cheating incidents have been shown to the student' },
       student: nullable(ref('Person')),
     },
   },
   StaffAttemptDetail: {
     allOf: [
       ref('StaffAttempt'),
-      { type: 'object', properties: { questions: { type: 'array', items: ref('StaffAttemptQuestion') } } },
+      {
+        type: 'object',
+        properties: {
+          questions: { type: 'array', items: ref('StaffAttemptQuestion') },
+          writing_profile: ref('WritingProfile'),
+        },
+      },
     ],
+  },
+  WritingProfile: {
+    type: 'object',
+    description: 'A human-authorship summary computed from this attempt\'s own typing counters, aggregated across all of its questions.',
+    properties: {
+      characters_typed: { type: 'integer', example: 412 },
+      characters_pasted: { type: 'integer', example: 58 },
+      paste_events: { type: 'integer', example: 1 },
+      corrections: { type: 'integer', example: 37, description: 'Edit operations across the attempt (deletes, replacements, mid-text inserts)' },
+      freeze_count: { type: 'integer', example: 3 },
+      longest_freeze: { type: 'integer', example: 22, description: 'Seconds' },
+      volume_score: nullable({ type: 'integer', example: 88, description: 'typed / (typed + pasted), 0-100' }),
+      rhythm_score: nullable({ type: 'integer', example: 92, description: 'Penalized by freeze count and length, 0-100' }),
+      edit_score: nullable({ type: 'integer', example: 76, description: 'Correction rate relative to characters typed, 0-100' }),
+      process_strength: nullable({ type: 'integer', example: 38, description: 'Overall confidence-weighted score, 0-100; low on short sessions regardless of the sub-scores' }),
+      ai_probability: nullable({ type: 'integer', example: 15, description: 'From the AI review\'s cheating_likelihood (low/medium/high mapped to 15/50/85); null until an AI review has run' }),
+    },
   },
   AnswerSync: {
     type: 'object',
@@ -138,6 +171,10 @@ export const schemas = {
       textTyped: { type: 'integer', minimum: 0, example: 412 },
       textEdited: { type: 'integer', minimum: 0, example: 37 },
       textPasted: { type: 'integer', minimum: 0, example: 58 },
+      pasteEvents: { type: 'integer', minimum: 0, example: 1, description: 'Number of paste/drop operations' },
+      textDeleted: { type: 'integer', minimum: 0, example: 14 },
+      freezeCount: { type: 'integer', minimum: 0, example: 3, description: 'Pauses longer than the client\'s freeze threshold between keystrokes' },
+      longestFreeze: { type: 'integer', minimum: 0, example: 22, description: 'Longest such pause, in seconds' },
       startedAt: dateTime,
       answeredAt: dateTime,
     },
@@ -335,6 +372,23 @@ export const paths = {
       parameters: [attemptId],
       requestBody: { content: json({ type: 'object', properties: { force: { type: 'boolean', example: false } } }) },
       responses: { '200': ok('Review', envelope({ review: ref('AiReview') })), ...errors(400, 401, 403, 404, 409, 503) },
+    },
+  },
+  '/api/assignments/{id}/cheating-disclosure': {
+    put: {
+      tags: ['Attempts'],
+      summary: 'Show or hide this attempt\'s cheating incidents from the student (professor)',
+      description:
+        'A student is never told an attempt was flagged, or shown the incidents behind it, unless a professor explicitly discloses them here - the one ' +
+        'opt-in exception to "flagged is staff business". Meant for a failed attempt where the professor wants the student to see exactly what was recorded ' +
+        'against them, instead of just a failing grade. Once disclosed, GET /api/assignments/{id} (as the student) includes `cheating_incidents`.',
+      ...authed,
+      parameters: [attemptId],
+      requestBody: {
+        required: true,
+        content: json({ type: 'object', required: ['disclosed'], properties: { disclosed: { type: 'boolean', example: true } } }),
+      },
+      responses: { '200': ok('Updated', envelope({ attempt: ref('StaffAttempt') })), ...errors(400, 401, 403, 404) },
     },
   },
 };

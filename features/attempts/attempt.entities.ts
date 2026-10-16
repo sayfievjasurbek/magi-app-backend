@@ -16,6 +16,7 @@ export type Assignment = {
   status: AttemptStatus;
   score: number;
   feedback: string | null;
+  cheating_disclosed: boolean;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

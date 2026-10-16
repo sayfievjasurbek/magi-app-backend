@@ -1,7 +1,7 @@
 import express from 'express';
 import { protectRoute } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
-import { aiReviewAttempt, getAttempt, getAttemptsSummary, getExamAttempts, getMyAttempts, gradeAttempt, startAttempt, submitAttempt, syncAnswers } from './attempt.controller.js';
+import { aiReviewAttempt, getAttempt, getAttemptsSummary, getExamAttempts, getMyAttempts, gradeAttempt, setCheatingDisclosure, startAttempt, submitAttempt, syncAnswers } from './attempt.controller.js';
 
 
 const router = express.Router();
@@ -20,6 +20,7 @@ router.get('/summary', requireRole('professor'), getAttemptsSummary);
 router.get('/', requireRole('professor', 'examiner'), getExamAttempts);
 router.put('/:id/grade', requireRole('professor'), gradeAttempt);
 router.post('/:id/ai-review', requireRole('professor'), aiReviewAttempt);
+router.put('/:id/cheating-disclosure', requireRole('professor'), setCheatingDisclosure);
 
 // both sides read one attempt, the service decides how much of it the caller sees
 router.get('/:id', requireRole('student', 'professor', 'examiner'), getAttempt);

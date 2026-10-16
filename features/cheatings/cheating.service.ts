@@ -147,12 +147,7 @@ export const createIncident = async (attemptIdParam: string, user: Caller, name:
   return incident;
 };
 
-export const listIncidents = async (attemptIdParam: string, user: Caller): Promise<Cheating[]> => {
-  const attemptId = parseId(attemptIdParam);
-  if (!attemptId) throw new HttpError(404, 'Attempt not found');
-
-  await findStaffAttempt(attemptId, user, 'Attempt not found');
-
+const fetchIncidents = async (attemptId: number): Promise<Cheating[]> => {
   const ids = await incidentIds(attemptId, INCIDENT_LIMIT);
   if (!ids.length) return [];
 
@@ -163,6 +158,19 @@ export const listIncidents = async (attemptIdParam: string, user: Caller): Promi
   if (error) throw new Error(error.message);
   return (data ?? []) as Cheating[];
 };
+
+export const listIncidents = async (attemptIdParam: string, user: Caller): Promise<Cheating[]> => {
+  const attemptId = parseId(attemptIdParam);
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+
+  await findStaffAttempt(attemptId, user, 'Attempt not found');
+
+  return fetchIncidents(attemptId);
+};
+
+// No access check here - the caller (attempts domain) has already decided this attempt's
+// incidents may be shown, e.g. because a professor explicitly disclosed them to the student.
+export const incidentsForAttempt = (attemptId: number): Promise<Cheating[]> => fetchIncidents(attemptId);
 
 export const getIncident = async (cheatingIdParam: string, user: Caller) => {
   const cheatingId = parseId(cheatingIdParam);

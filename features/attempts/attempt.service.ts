@@ -5,6 +5,8 @@ import { type Caller, findVisibleExam, managedExamIds, sitsExam } from '../../li
 import { activeOnly, parseId } from '../../lib/utils.js';
 import { notify } from '../../lib/notifications.js';
 import { aiConfigured, reviewAnswers, type AiReview } from '../../lib/ai.js';
+import { aiProbabilityOf, computeWritingProfile } from '../../lib/writingProfile.js';
+import { incidentsForAttempt } from '../cheatings/cheating.service.js';
 import { type Attempt, type AttemptStatus } from './attempt.entities.js';
 
 // the exam columns an attempt is judged by; the exams table itself belongs to features/exams
@@ -19,10 +21,10 @@ type Exam = {
   created_by: number | null;
 };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback';
+const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback, cheating_disclosed';
 // created_by is never answered with, it is what says whether a professor manages the exam
 const EXAM_COLUMNS = 'id, name, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by';
-const ANSWER_COLUMNS = 'question_id, position, answer, typing_duration, typing_duration_unit, text_typed, text_edited, text_pasted, last_synced_at, started_at, answered_at, marks_awarded';
+const ANSWER_COLUMNS = 'question_id, position, answer, typing_duration, typing_duration_unit, text_typed, text_edited, text_pasted, paste_events, text_deleted, freeze_count, longest_freeze, last_synced_at, started_at, answered_at, marks_awarded';
 
 const ATTEMPT_STATUSES: AttemptStatus[] = ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'];
 // a student may only sit an exam that is open in the schedule sense
@@ -126,6 +128,7 @@ const staffSummary = (attempt: Attempt, exam: Exam, student: unknown) => ({
   score: attempt.score,
   passed: attempt.status === 'graded' ? attempt.score >= exam.passing_marks : null,
   feedback: attempt.feedback,
+  cheating_disclosed: attempt.cheating_disclosed,
   student,
 });
 
@@ -185,6 +188,10 @@ const attemptQuestions = async (attempt: Attempt, forStaff: boolean) => {
       text_typed: row.text_typed,
       text_edited: row.text_edited,
       text_pasted: row.text_pasted,
+      paste_events: row.paste_events,
+      text_deleted: row.text_deleted,
+      freeze_count: row.freeze_count,
+      longest_freeze: row.longest_freeze,
       started_at: row.started_at,
       answered_at: row.answered_at,
       last_synced_at: row.last_synced_at,
@@ -432,17 +439,34 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
       ...studentSummary(current, exam),
       questions: await attemptQuestions(current, false),
       permitted_urls: await attemptPermittedUrls(current.id),
+      // disclosed only when a professor explicitly chose to show this student what was
+      // recorded against them - never by default, see setCheatingDisclosure below
+      ...(current.cheating_disclosed ? { cheating_incidents: await incidentsForAttempt(current.id) } : {}),
     };
   }
 
   const { attempt, exam, studentId } = await loadStaffAttempt(caller, attemptId);
   const current = await ensureCurrent(attempt, exam);
   const questions = await attemptQuestions(current, true);
+  const cachedReview = await loadCachedAiReview(current.id);
 
   return {
     ...staffSummary(current, exam, await loadStudent(studentId)),
     questions,
     completion: completionOf(questions),
+    writing_profile: {
+      ...computeWritingProfile(questions.map((q: any) => ({
+        text_typed: q.text_typed,
+        text_edited: q.text_edited,
+        text_pasted: q.text_pasted,
+        paste_events: q.paste_events,
+        text_deleted: q.text_deleted,
+        freeze_count: q.freeze_count,
+        longest_freeze: q.longest_freeze,
+        typing_duration_seconds: toSeconds(q.typing_duration, q.typing_duration_unit),
+      }))),
+      ai_probability: aiProbabilityOf(cachedReview?.cheating_likelihood),
+    },
   };
 };
 
@@ -467,6 +491,10 @@ type AnswerInput = {
   textTyped?: unknown;
   textEdited?: unknown;
   textPasted?: unknown;
+  pasteEvents?: unknown;
+  textDeleted?: unknown;
+  freezeCount?: unknown;
+  longestFreeze?: unknown;
   startedAt?: unknown;
   answeredAt?: unknown;
 };
@@ -519,6 +547,10 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
     if (entry.textTyped !== undefined) patch.text_typed = counter(entry.textTyped, 'textTyped');
     if (entry.textEdited !== undefined) patch.text_edited = counter(entry.textEdited, 'textEdited');
     if (entry.textPasted !== undefined) patch.text_pasted = counter(entry.textPasted, 'textPasted');
+    if (entry.pasteEvents !== undefined) patch.paste_events = counter(entry.pasteEvents, 'pasteEvents');
+    if (entry.textDeleted !== undefined) patch.text_deleted = counter(entry.textDeleted, 'textDeleted');
+    if (entry.freezeCount !== undefined) patch.freeze_count = counter(entry.freezeCount, 'freezeCount');
+    if (entry.longestFreeze !== undefined) patch.longest_freeze = counter(entry.longestFreeze, 'longestFreeze');
     if (entry.startedAt !== undefined) patch.started_at = timestamp(entry.startedAt, 'startedAt');
 
     let optionIds: number[] | null = null;
@@ -688,6 +720,26 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
   return staffSummary(graded, exam, await loadStudent(studentId));
 };
 
+// A student is never told an attempt was flagged, let alone shown the incidents behind it -
+// that is staff business by default (see studentStatus above). This is the one deliberate
+// opt-in: a professor who fails a student for cheating can choose to show exactly what was
+// recorded, instead of leaving them guessing why they failed.
+export const setCheatingDisclosure = async (professorId: number, attemptId: number | null, disclosed: boolean) => {
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+
+  const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+
+  const updated = unwrap(await database
+    .from('assignments')
+    .update({ cheating_disclosed: disclosed })
+    .eq('id', current.id)
+    .select(ATTEMPT_COLUMNS)
+    .single()) as Attempt;
+
+  return staffSummary(updated, exam, await loadStudent(studentId));
+};
+
 const loadCachedAiReview = async (assignmentId: number): Promise<AiReview | null> => {
   const overall = unwrap(await database
     .from('assignment_ai_review')
@@ -763,7 +815,11 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
     typing_duration: q.typing_duration,
     text_typed: q.text_typed,
     text_pasted: q.text_pasted,
+    paste_events: q.paste_events,
     text_edited: q.text_edited,
+    text_deleted: q.text_deleted,
+    freeze_count: q.freeze_count,
+    longest_freeze: q.longest_freeze,
   })));
 
   await storeAiReview(current.id, review);
