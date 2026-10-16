@@ -382,7 +382,7 @@ export const getRoster = async (userId: number, role: Role, moduleIdParam: strin
 
   const { data: studentRows, error: studentsError } = await database
     .from('module_student')
-    .select('student_id')
+    .select('student_id, created_at')
     .eq('module_id', managed.id);
 
   if (studentsError) throw new Error(studentsError.message);
@@ -390,10 +390,11 @@ export const getRoster = async (userId: number, role: Role, moduleIdParam: strin
   const professors = await listPeople((professorRows ?? []).map((row) => row.professor_id));
   const students = await listPeople((studentRows ?? []).map((row) => row.student_id));
   const ages = await studentAgesById(students.map((s) => s.id));
+  const enrolledAtById = new Map((studentRows ?? []).map((row) => [row.student_id, row.created_at]));
 
   return {
     professors,
-    students: students.map((s) => ({ ...s, age: ages.get(s.id) ?? null })),
+    students: students.map((s) => ({ ...s, age: ages.get(s.id) ?? null, enrolled_at: enrolledAtById.get(s.id) ?? null })),
   };
 };
 

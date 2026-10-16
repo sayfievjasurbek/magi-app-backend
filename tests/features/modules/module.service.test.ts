@@ -227,11 +227,11 @@ describe('getModule', () => {
 });
 
 describe('getRoster', () => {
-  it('lists the professors and the students of the module, with each student\'s age', async () => {
+  it('lists the professors and the students of the module, with each student\'s age and join date', async () => {
     managed();
     queue(
       ok([{ professor_id: 3 }]),
-      ok([{ student_id: 5 }]),
+      ok([{ student_id: 5, created_at: '2026-09-01T00:00:00.000Z' }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
       ok([SUE]),
       ok([{ user_id: SUE.id, age: 16 }])
@@ -239,7 +239,7 @@ describe('getRoster', () => {
 
     expect(await moduleService.getRoster(3, 'professor', '7')).toEqual({
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
-      students: [{ ...SUE, age: 16 }],
+      students: [{ ...SUE, age: 16, enrolled_at: '2026-09-01T00:00:00.000Z' }],
     });
   });
 
@@ -262,7 +262,7 @@ describe('getRoster', () => {
       ok({ module_id: 7 }),
       ok(MODULE),
       ok([{ professor_id: 3 }]),
-      ok([{ student_id: 5 }]),
+      ok([{ student_id: 5, created_at: '2026-09-01T00:00:00.000Z' }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
       ok([SUE]),
       ok([])
@@ -270,7 +270,7 @@ describe('getRoster', () => {
 
     expect(await moduleService.getRoster(5, 'student', '7')).toEqual({
       professors: [{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }],
-      students: [{ ...SUE, age: null }],
+      students: [{ ...SUE, age: null, enrolled_at: '2026-09-01T00:00:00.000Z' }],
     });
   });
 

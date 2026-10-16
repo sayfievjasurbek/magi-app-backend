@@ -484,6 +484,15 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
       .is('deleted_at', null);
     if (usersError) throw new Error(usersError.message);
 
+    // whether each student is in any group at all - lets a group's own roster page offer
+    // "not in a group yet" as its own filter when picking who to add
+    const { data: memberships, error: membershipsError } = await database
+      .from('module_student')
+      .select('student_id')
+      .in('student_id', [...studentIds]);
+    if (membershipsError) throw new Error(membershipsError.message);
+    const hasGroupIds = new Set((memberships ?? []).map((row) => row.student_id));
+
     const userById = new Map((users ?? []).map((u) => [u.id, u]));
     const students = (rows ?? [])
       .map((row) => {
@@ -497,6 +506,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
           parent_relation: row.parent_relation,
           age: row.age,
           profile_photo_url: row.profile_photo_url,
+          has_group: hasGroupIds.has(row.user_id),
         };
       })
       .filter((s) => s !== null)

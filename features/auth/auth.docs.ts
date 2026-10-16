@@ -167,6 +167,7 @@ export const paths = {
                   parent_relation: nullable({ type: 'string', example: 'mother' }),
                   age: nullable({ type: 'integer', example: 17 }),
                   profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+                  has_group: { type: 'boolean', example: true, description: 'Whether this student is in any module at all, not just ones you manage' },
                 },
               },
             },

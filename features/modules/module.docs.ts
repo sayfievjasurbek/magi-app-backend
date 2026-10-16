@@ -31,8 +31,17 @@ export const schemas = {
   },
   RosterStudent: {
     type: 'object',
-    description: 'A roster student, with their age if one is on file',
-    allOf: [ref('Person'), { type: 'object', properties: { age: nullable({ type: 'integer', example: 17 }) } }],
+    description: 'A roster student, with their age if one is on file and when they joined this module',
+    allOf: [
+      ref('Person'),
+      {
+        type: 'object',
+        properties: {
+          age: nullable({ type: 'integer', example: 17 }),
+          enrolled_at: nullable(dateTime),
+        },
+      },
+    ],
   },
   ModuleDetail: {
     type: 'object',
