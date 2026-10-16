@@ -322,10 +322,10 @@ export const paths = {
       tags: ['Attempts'],
       summary: 'AI-assisted review of a submitted attempt (professor)',
       description:
-        'Asks Claude to estimate how correct each short answer/essay answer is against the question (and the question\'s model_answer, if one is set), and how ' +
-        'likely the answers were AI-written, using both the writing itself and the typing/paste metrics already captured. Cached after the first call; pass `force` to redo it ' +
-        '(e.g. the model answer changed since). A 503 when ANTHROPIC_API_KEY is not set on the server - check GET /api/ai/status first. A 400 when there is nothing to review ' +
-        '(no answered short answer/essay question in the exam).',
+        'Asks AI to estimate how correct each short answer/essay answer is against the question (and the question\'s model_answers, if any are set), and how ' +
+        'likely the answers were AI-written, using both the writing itself and the typing/paste metrics already captured. Runs automatically right after the student submits; ' +
+        'this endpoint re-reads that cached result, or redoes it when `force` is passed (e.g. the model answers changed since). A 503 when OPENAI_API_KEY is not set on the ' +
+        'server - check GET /api/ai/status first. A 400 when there is nothing to review (no answered short answer/essay question in the exam).',
       ...authed,
       parameters: [attemptId],
       requestBody: { content: json({ type: 'object', properties: { force: { type: 'boolean', example: false } } }) },

@@ -120,6 +120,31 @@ describe('createQuestion', () => {
     });
   });
 
+  it('rejects modelAnswers that are not an array of non-empty strings', async () => {
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay', modelAnswers: 'one answer' })).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay', modelAnswers: ['fine', '  '] })).rejects.toMatchObject({
+      status: 400,
+      message: 'Each model answer must be a non-empty string',
+    });
+  });
+
+  it('writes more than one model answer, trimmed, and treats an empty array as none', async () => {
+    queue(ok({ ...QUESTION, question_type: 'essay', model_answers: ['O(log n)', 'Logarithmic time'] }));
+
+    await questionService.createQuestion(3, {
+      title: 'Q',
+      question: 'Q?',
+      questionType: 'essay',
+      modelAnswers: ['  O(log n)  ', 'Logarithmic time'],
+    });
+
+    expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ model_answers: ['O(log n)', 'Logarithmic time'] }));
+
+    queue(ok({ ...QUESTION, question_type: 'essay' }));
+    await questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay', modelAnswers: [] });
+    expect(builder.insert).toHaveBeenLastCalledWith(expect.objectContaining({ model_answers: null }));
+  });
+
   it('removes the question again when its options cannot be written', async () => {
     queue(ok(QUESTION), fail({ message: 'options failed' }), ok(null));
 

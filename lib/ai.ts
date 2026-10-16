@@ -15,7 +15,7 @@ const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 export type ManualAnswer = {
   question_id: number;
   question: string;
-  model_answer: string | null;
+  model_answers: string[] | null;
   answer: string;
   max_marks: number;
   typing_duration: number;
@@ -44,8 +44,9 @@ export const aiConfigured = (): boolean => Boolean(process.env.OPENAI_API_KEY?.t
 const SYSTEM_PROMPT = `You are a grading assistant built into the MAGI exam platform. Your only job, for each
 submitted answer you are given:
 1. Estimate what percent (0-100) of the question it correctly answers, comparing it against the
-   question and the model answer when one is given. No model answer means judge the answer on its
-   own merit against the question.
+   question and, when given, the acceptable answer(s) - credit a match against any one of them
+   equally, they are alternatives, not a checklist. No acceptable answer given means judge the
+   answer on its own merit against the question.
 2. Across all the answers together, judge how likely it is this student used an AI tool (like
    ChatGPT or Claude) to write them instead of writing them themselves, as "low", "medium" or
    "high", using BOTH the writing itself (generic phrasing, a register far above a typical
@@ -88,10 +89,16 @@ const REVIEW_SCHEMA = {
 const stripHtml = (html: string) =>
   html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 
+const modelAnswersBlock = (answers: string[] | null) => {
+  if (!answers?.length) return '';
+  if (answers.length === 1) return `Acceptable answer: ${answers[0]}\n`;
+  return `Acceptable answers (any one counts as correct):\n${answers.map((a, i) => `  ${i + 1}. ${a}`).join('\n')}\n`;
+};
+
 const answerBlock = (a: ManualAnswer) =>
   `<question id="${a.question_id}" max_marks="${a.max_marks}">\n` +
   `${a.question}\n` +
-  (a.model_answer ? `Model answer: ${a.model_answer}\n` : '') +
+  modelAnswersBlock(a.model_answers) +
   `Typing: ${a.text_typed} chars typed, ${a.text_pasted} chars pasted, ${a.text_edited} chars edited/deleted, ${a.typing_duration}s spent typing\n` +
   `<answer>\n${stripHtml(a.answer)}\n</answer>\n</question>`;
 

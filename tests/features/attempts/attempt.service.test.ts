@@ -739,7 +739,7 @@ describe('submitAttempt', () => {
     queue('question_options', []);
     queue('question_assignment_option', []);
     queue('exam_question', [{ question_id: 7, marks: 10 }]);
-    queue('questions', [{ id: 7, model_answer: 'Model answer text' }]);
+    queue('questions', [{ id: 7, model_answers: ['Model answer text'] }]);
 
     await submitAttempt(STUDENT.id, 9);
     // the review runs on a floating promise, not awaited by submitAttempt itself - drain the
@@ -747,7 +747,7 @@ describe('submitAttempt', () => {
     for (let i = 0; i < 50; i++) await Promise.resolve();
 
     expect(reviewAnswers).toHaveBeenCalledWith([
-      expect.objectContaining({ question_id: 7, answer: 'My essay answer', model_answer: 'Model answer text' }),
+      expect.objectContaining({ question_id: 7, answer: 'My essay answer', model_answers: ['Model answer text'] }),
     ]);
     expect(called('assignment_ai_review', 'upsert')).toHaveLength(1);
   });
@@ -765,7 +765,7 @@ describe('submitAttempt', () => {
     queue('question_options', []);
     queue('question_assignment_option', []);
     queue('exam_question', [{ question_id: 7, marks: 10 }]);
-    queue('questions', [{ id: 7, model_answer: 'Model answer text' }]);
+    queue('questions', [{ id: 7, model_answers: ['Model answer text'] }]);
 
     const { message } = await submitAttempt(STUDENT.id, 9);
     for (let i = 0; i < 50; i++) await Promise.resolve();
@@ -1044,7 +1044,7 @@ describe('aiReviewAttempt', () => {
     queueStaffAttempt(SUBMITTED);
     queue('assignment_ai_review', null);
     queueManualQuestions();
-    queue('questions', [{ id: 7, model_answer: 'The ideal answer.' }]);
+    queue('questions', [{ id: 7, model_answers: ['The ideal answer.'] }]);
     reviewAnswers.mockResolvedValue({
       cheating_likelihood: 'medium',
       cheating_reasoning: 'Fast, high paste ratio.',
@@ -1059,7 +1059,7 @@ describe('aiReviewAttempt', () => {
     expect(reviewAnswers).toHaveBeenCalledWith([{
       question_id: 7,
       question: 'Explain X',
-      model_answer: 'The ideal answer.',
+      model_answers: ['The ideal answer.'],
       answer: 'My essay answer here.',
       max_marks: 30,
       typing_duration: 120,
@@ -1082,7 +1082,7 @@ describe('aiReviewAttempt', () => {
   it('skips the cache and re-asks the AI when forced', async () => {
     queueStaffAttempt(SUBMITTED);
     queueManualQuestions();
-    queue('questions', [{ id: 7, model_answer: null }]);
+    queue('questions', [{ id: 7, model_answers: null }]);
     reviewAnswers.mockResolvedValue({ cheating_likelihood: 'high', cheating_reasoning: 'Pasted almost everything at once.', per_question: [] });
     queue('assignment_ai_review', null);
     queue('question_ai_review', null);

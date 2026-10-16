@@ -745,18 +745,18 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
   const manual = (questions as any[]).filter((q) => MANUAL_TYPES.includes(q.question_type) && q.answer.trim() !== '');
   if (!manual.length) throw new HttpError(400, 'No answered short-answer or essay questions to review');
 
-  // model_answer isn't part of the staff grading view above (that reads exam_question/questions
+  // model_answers isn't part of the staff grading view above (that reads exam_question/questions
   // for the grading-relevant columns only) - one extra read for the one extra column this needs
   const modelAnswers = unwrap(await activeOnly(database
     .from('questions')
-    .select('id, model_answer')
-    .in('id', manual.map((q) => q.question_id)))) as { id: number; model_answer: string | null }[] ?? [];
-  const modelAnswerById = new Map(modelAnswers.map((q) => [q.id, q.model_answer]));
+    .select('id, model_answers')
+    .in('id', manual.map((q) => q.question_id)))) as { id: number; model_answers: string[] | null }[] ?? [];
+  const modelAnswersById = new Map(modelAnswers.map((q) => [q.id, q.model_answers]));
 
   const review = await reviewAnswers(manual.map((q) => ({
     question_id: q.question_id,
     question: q.question,
-    model_answer: modelAnswerById.get(q.question_id) ?? null,
+    model_answers: modelAnswersById.get(q.question_id) ?? null,
     answer: q.answer,
     max_marks: q.marks,
     typing_duration: q.typing_duration,

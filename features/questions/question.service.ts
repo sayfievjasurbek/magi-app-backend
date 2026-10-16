@@ -13,7 +13,7 @@ type QuestionFields = {
   question_type?: string;
   expected_duration?: number;
   expected_duration_unit?: string;
-  model_answer?: string | null;
+  model_answers?: string[] | null;
 };
 
 type OptionInput = { option_text: string; is_correct: boolean };
@@ -63,13 +63,19 @@ const parseQuestionFields = (body: Record<string, unknown>): QuestionFields => {
     fields.expected_duration_unit = body.expectedDurationUnit;
   };
 
-  // optional - lets the AI reviewer compare a short_answer/essay answer against something
-  // concrete instead of judging it on the question text alone; null clears it
-  if (body.modelAnswer !== undefined) {
-    if (body.modelAnswer !== null && (typeof body.modelAnswer !== 'string' || !body.modelAnswer.trim())) {
-      throw new HttpError(400, 'modelAnswer must be a non-empty string or null');
+  // optional - lets the AI reviewer compare a short_answer/essay answer against one or more
+  // acceptable answers instead of judging it on the question text alone; null/empty clears it
+  if (body.modelAnswers !== undefined) {
+    if (body.modelAnswers !== null) {
+      if (!Array.isArray(body.modelAnswers)) throw new HttpError(400, 'modelAnswers must be an array of strings or null');
+      const trimmed = (body.modelAnswers as unknown[]).map((entry) => {
+        if (typeof entry !== 'string' || !entry.trim()) throw new HttpError(400, 'Each model answer must be a non-empty string');
+        return entry.trim();
+      });
+      fields.model_answers = trimmed.length ? trimmed : null;
+    } else {
+      fields.model_answers = null;
     };
-    fields.model_answer = body.modelAnswer === null ? null : (body.modelAnswer as string).trim();
   };
 
   return fields;
