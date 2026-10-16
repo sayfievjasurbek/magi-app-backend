@@ -109,7 +109,8 @@ export const paths = {
     },
     delete: {
       tags: ['Modules'],
-      summary: 'Soft delete a module (professor)',
+      summary: 'Soft delete a module (administrator)',
+      description: 'Administrator only (a plain professor position gets a 403), same as creating a module.',
       ...authed,
       parameters: [moduleParam],
       requestBody: { content: json({ type: 'object', properties: { reason: { type: 'string', example: 'merged into Algorithms II' } } }) },

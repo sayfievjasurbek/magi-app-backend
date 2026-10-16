@@ -414,8 +414,11 @@ export const updateModule = async (professorId: number, moduleIdParam: string, b
   return updated;
 };
 
+// deleting a class is an administrator action, same as creating one - a plain professor position
+// manages their own teaching surface (roster, exams), not whether the class itself exists
 export const deleteModule = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
+  if (!(await seesAllModules(professorId))) throw new HttpError(403, 'Only an administrator can delete a class');
   const reason = parseReason(body.reason);
 
   const { error } = await database.from('modules').update(softDelete(reason)).eq('id', managed.id);
