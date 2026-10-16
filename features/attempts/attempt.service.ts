@@ -698,7 +698,7 @@ const loadCachedAiReview = async (assignmentId: number): Promise<AiReview | null
 
   const perQuestion = unwrap(await database
     .from('question_ai_review')
-    .select('question_id, percent_correct, reasoning')
+    .select('question_id, percent_correct, reasoning, writing_notes')
     .eq('assignment_id', assignmentId)) ?? [];
 
   return { ...overall, per_question: perQuestion as AiReview['per_question'] };
@@ -725,6 +725,7 @@ const storeAiReview = async (assignmentId: number, review: AiReview) => {
         question_id: q.question_id,
         percent_correct: q.percent_correct,
         reasoning: q.reasoning,
+        writing_notes: q.writing_notes,
       }))
     );
     if (insertError) throw new Error(insertError.message);

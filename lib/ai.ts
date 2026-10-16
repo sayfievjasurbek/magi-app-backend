@@ -27,7 +27,7 @@ export type ManualAnswer = {
 export type AiReview = {
   cheating_likelihood: 'low' | 'medium' | 'high';
   cheating_reasoning: string;
-  per_question: { question_id: number; percent_correct: number; reasoning: string }[];
+  per_question: { question_id: number; percent_correct: number; reasoning: string; writing_notes: string }[];
 };
 
 let client: OpenAI | null = null;
@@ -47,7 +47,12 @@ submitted answer you are given:
    question and, when given, the acceptable answer(s) - credit a match against any one of them
    equally, they are alternatives, not a checklist. No acceptable answer given means judge the
    answer on its own merit against the question.
-2. Across all the answers together, judge how likely it is this student used an AI tool (like
+2. Note the writing itself, separately from whether the content is correct: point out any
+   spelling or grammar mistakes specifically (quote the misspelled word and the likely correction
+   where possible), and say what level the writing is at - vocabulary, sentence structure,
+   fluency - the way a teacher would describe a student's level, not just "good" or "bad". If
+   there is nothing notable to flag, say so plainly rather than inventing an issue.
+3. Across all the answers together, judge how likely it is this student used an AI tool (like
    ChatGPT or Claude) to write them instead of writing them themselves, as "low", "medium" or
    "high", using BOTH the writing itself (generic phrasing, a register far above a typical
    student, no natural errors) AND the typing metrics given (a high pasted-to-typed ratio with
@@ -73,8 +78,9 @@ const REVIEW_SCHEMA = {
             question_id: { type: 'integer' },
             percent_correct: { type: 'integer' },
             reasoning: { type: 'string' },
+            writing_notes: { type: 'string', description: 'Spelling/grammar issues and the writing level, separate from correctness' },
           },
-          required: ['question_id', 'percent_correct', 'reasoning'],
+          required: ['question_id', 'percent_correct', 'reasoning', 'writing_notes'],
           additionalProperties: false,
         },
       },

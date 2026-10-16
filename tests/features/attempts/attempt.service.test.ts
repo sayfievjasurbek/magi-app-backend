@@ -725,7 +725,7 @@ describe('submitAttempt', () => {
     reviewAnswers.mockResolvedValue({
       cheating_likelihood: 'low',
       cheating_reasoning: 'Consistent typing pace, no large pastes.',
-      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Covers the key points.' }],
+      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Covers the key points.', writing_notes: 'No spelling issues; clear, confident phrasing.' }],
     });
 
     queueOwnAttempt();
@@ -1028,14 +1028,14 @@ describe('aiReviewAttempt', () => {
   it('returns a cached review without calling the AI again', async () => {
     queueStaffAttempt(SUBMITTED);
     queue('assignment_ai_review', { cheating_likelihood: 'low', cheating_reasoning: 'Looks genuine.' });
-    queue('question_ai_review', [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.' }]);
+    queue('question_ai_review', [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.', writing_notes: 'No issues.' }]);
 
     const review = await aiReviewAttempt(PROFESSOR.id, 9);
 
     expect(review).toEqual({
       cheating_likelihood: 'low',
       cheating_reasoning: 'Looks genuine.',
-      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.' }],
+      per_question: [{ question_id: 7, percent_correct: 80, reasoning: 'Good coverage.', writing_notes: 'No issues.' }],
     });
     expect(reviewAnswers).not.toHaveBeenCalled();
   });
@@ -1048,7 +1048,7 @@ describe('aiReviewAttempt', () => {
     reviewAnswers.mockResolvedValue({
       cheating_likelihood: 'medium',
       cheating_reasoning: 'Fast, high paste ratio.',
-      per_question: [{ question_id: 7, percent_correct: 70, reasoning: 'Mostly right.' }],
+      per_question: [{ question_id: 7, percent_correct: 70, reasoning: 'Mostly right.', writing_notes: 'A couple of spelling slips.' }],
     });
     queue('assignment_ai_review', null);
     queue('question_ai_review', null);
@@ -1074,7 +1074,7 @@ describe('aiReviewAttempt', () => {
     });
     expect(called('question_ai_review', 'delete')).toHaveLength(1);
     expect(called('question_ai_review', 'insert')[0].payload).toEqual([
-      { assignment_id: 9, question_id: 7, percent_correct: 70, reasoning: 'Mostly right.' },
+      { assignment_id: 9, question_id: 7, percent_correct: 70, reasoning: 'Mostly right.', writing_notes: 'A couple of spelling slips.' },
     ]);
     expect(review.cheating_likelihood).toBe('medium');
   });

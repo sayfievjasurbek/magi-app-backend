@@ -156,6 +156,11 @@ export const schemas = {
       question_id: id,
       percent_correct: { type: 'integer', example: 80, description: "AI's estimate of how much of the ideal answer this covers" },
       reasoning: { type: 'string', example: 'Covers the definition and one example, missing the edge case.' },
+      writing_notes: {
+        type: 'string',
+        example: 'One spelling slip ("recieve" -> "receive"); otherwise clear, intermediate-level sentence structure.',
+        description: 'Spelling/grammar and the writing level, kept separate from whether the content is correct',
+      },
     },
   },
   AiReview: {
