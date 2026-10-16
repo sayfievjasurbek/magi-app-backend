@@ -5,6 +5,11 @@ import { type TimeUnit } from '../../lib/deadline.js';
 
 export type AttemptStatus = 'pending' | 'in_progress' | 'submitted' | 'auto_submitted' | 'graded' | 'flagged';
 
+// one sample of "characters typed so far" at a point in the attempt, taken every few seconds on
+// the student's own client - the raw material for a WPM-over-time chart (chars / 5 is the
+// standard word-length convention), never a word count or the answer text itself
+export type TypingTimelinePoint = { t: number; chars: number };
+
 export type Assignment = {
   id: number;
   exam_id: number;
@@ -17,6 +22,7 @@ export type Assignment = {
   score: number;
   feedback: string | null;
   cheating_disclosed: boolean;
+  typing_timeline: TypingTimelinePoint[];
   created_at: string;
   updated_at: string;
   deleted_at: string | null;

@@ -126,6 +126,11 @@ export const schemas = {
       passed: nullable({ type: 'boolean', example: true, description: 'null while the attempt is not graded' }),
       feedback: nullable({ type: 'string', example: 'Good answers, watch the normalisation detail.' }),
       cheating_disclosed: { type: 'boolean', example: false, description: 'Whether this attempt\'s cheating incidents have been shown to the student' },
+      typing_timeline: {
+        type: 'array',
+        items: { type: 'object', properties: { t: { type: 'integer', example: 30 }, chars: { type: 'integer', example: 120 } } },
+        description: 'Characters typed so far, sampled every few seconds; empty when the student\'s client never supplied one',
+      },
       student: nullable(ref('Person')),
     },
   },
@@ -329,6 +334,19 @@ export const paths = {
         'A flagged attempt keeps the status `flagged` in the database until a professor grades it, but the student is answered with `submitted` or `auto_submitted`. Submitting twice is a 409.',
       ...authed,
       parameters: [attemptId],
+      requestBody: {
+        content: json({
+          type: 'object',
+          properties: {
+            typingTimeline: {
+              type: 'array',
+              maxItems: 500,
+              items: { type: 'object', properties: { t: { type: 'integer', minimum: 0, example: 30 }, chars: { type: 'integer', minimum: 0, example: 120 } } },
+              description: 'Optional: characters typed so far, sampled every few seconds across the whole attempt - powers a WPM chart for staff. Silently ignored if malformed.',
+            },
+          },
+        }),
+      },
       responses: {
         '200': ok('Attempt submitted', envelope({ attempt: ref('StudentAttempt'), message: { type: 'string', example: 'Your answers have been submitted' } })),
         ...errors(401, 403, 404, 409),

@@ -7,7 +7,7 @@ import { notify } from '../../lib/notifications.js';
 import { aiConfigured, reviewAnswers, type AiReview } from '../../lib/ai.js';
 import { aiProbabilityOf, computeWritingProfile } from '../../lib/writingProfile.js';
 import { incidentsForAttempt } from '../cheatings/cheating.service.js';
-import { type Attempt, type AttemptStatus } from './attempt.entities.js';
+import { type Attempt, type AttemptStatus, type TypingTimelinePoint } from './attempt.entities.js';
 
 // the exam columns an attempt is judged by; the exams table itself belongs to features/exams
 type Exam = {
@@ -21,7 +21,7 @@ type Exam = {
   created_by: number | null;
 };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback, cheating_disclosed';
+const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback, cheating_disclosed, typing_timeline';
 // created_by is never answered with, it is what says whether a professor manages the exam
 const EXAM_COLUMNS = 'id, name, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by';
 const ANSWER_COLUMNS = 'question_id, position, answer, typing_duration, typing_duration_unit, text_typed, text_edited, text_pasted, paste_events, text_deleted, freeze_count, longest_freeze, last_synced_at, started_at, answered_at, marks_awarded';
@@ -129,6 +129,7 @@ const staffSummary = (attempt: Attempt, exam: Exam, student: unknown) => ({
   passed: attempt.status === 'graded' ? attempt.score >= exam.passing_marks : null,
   feedback: attempt.feedback,
   cheating_disclosed: attempt.cheating_disclosed,
+  typing_timeline: attempt.typing_timeline,
   student,
 });
 
@@ -610,14 +611,42 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
   return { synced: patches.length, remaining_seconds: remainingSeconds(current, exam) };
 };
 
-export const submitAttempt = async (studentId: number, attemptId: number | null) => {
+// a malformed/oversized timeline must never fail the submission itself - it's a nice-to-have
+// chart for staff, not something the student's own exam result should ever depend on
+const MAX_TIMELINE_POINTS = 500;
+const parseTypingTimeline = (value: unknown): TypingTimelinePoint[] | null => {
+  if (!Array.isArray(value) || value.length > MAX_TIMELINE_POINTS) return null;
+  const points: TypingTimelinePoint[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) return null;
+    const { t, chars } = entry as Record<string, unknown>;
+    if (!Number.isSafeInteger(t) || (t as number) < 0 || !Number.isSafeInteger(chars) || (chars as number) < 0) return null;
+    points.push({ t: t as number, chars: chars as number });
+  }
+  return points;
+};
+
+export const submitAttempt = async (studentId: number, attemptId: number | null, body: { typingTimeline?: unknown } = {}) => {
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
   if (!isOpen(attempt)) throw new HttpError(409, 'This attempt has already been submitted');
 
   const auto = Date.now() >= deadline(attempt, exam);
-  const submitted = await finishAttempt(attempt, exam, auto);
+  let submitted = await finishAttempt(attempt, exam, auto);
+
+  if (body.typingTimeline !== undefined) {
+    const timeline = parseTypingTimeline(body.typingTimeline);
+    if (timeline) {
+      const updated = unwrap(await database
+        .from('assignments')
+        .update({ typing_timeline: timeline })
+        .eq('id', submitted.id)
+        .select(ATTEMPT_COLUMNS)
+        .single()) as Attempt | null;
+      if (updated) submitted = updated;
+    }
+  }
 
   // best-effort - the professor's "Run AI review" button is still there for a manual re-ask, but
   // the review is ready without anyone having to click it. Never let this slow down or fail the
