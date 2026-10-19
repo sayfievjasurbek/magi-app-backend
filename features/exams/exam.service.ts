@@ -48,14 +48,28 @@ const requireName = (value: unknown): string => {
   return name;
 };
 
-// an exam name read as a duplicate even if the casing differs ("Writing Test 2" vs "writing
-// test 2") - excludeId lets a rename keep its own current name
-const requireUniqueExamName = async (name: string, excludeId?: number) => {
-  let query = activeOnly(database.from('exams').select('id').ilike('name', name));
-  if (excludeId) query = query.neq('id', excludeId);
-  const { data, error } = await query.limit(1);
+// a name is only a duplicate within the same class/group - two different classes can each have
+// their own "Midterm" - case-insensitive, same as "Writing Test 2" vs "writing test 2"; an exam
+// not yet linked to any group has nothing to collide with, so this is a no-op until linkModule
+const requireUniqueExamNameInModules = async (name: string, moduleIds: number[], excludeExamId?: number) => {
+  if (!moduleIds.length) return;
+
+  const { data: links, error: linksError } = await database.from('exam_module').select('exam_id').in('module_id', moduleIds);
+  if (linksError) throw new Error(linksError.message);
+  const examIds = [...new Set((links ?? []).map((row) => row.exam_id))].filter((id) => id !== excludeExamId);
+  if (!examIds.length) return;
+
+  const { data, error } = await activeOnly(
+    database.from('exams').select('id').ilike('name', name).in('id', examIds)
+  ).limit(1);
   if (error) throw new Error(error.message);
-  if (data?.length) throw new HttpError(409, `An exam named "${name}" already exists`);
+  if (data?.length) throw new HttpError(409, `An exam named "${name}" already exists in this class`);
+};
+
+const linkedModuleIds = async (examId: number): Promise<number[]> => {
+  const { data, error } = await database.from('exam_module').select('module_id').eq('exam_id', examId);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => row.module_id);
 };
 
 const requireDate = (value: unknown, field: string): string => {
@@ -303,10 +317,8 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const kind = body.kind === undefined ? 'homework' : body.kind;
   if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
 
-  // the cheap, synchronous checks above run first - no reason to hit the database for a
-  // duplicate-name check on a request that's going to fail validation anyway
-  await requireUniqueExamName(name);
-
+  // a name only has to be unique within a class, and this exam isn't linked to one yet -
+  // linkModule is where the duplicate-name check actually happens
   const { data, error } = await database
     .from('exams')
     .insert({
@@ -357,7 +369,9 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   // the schedule is part of what the students already started on
   if (patch.scheduled_start !== undefined || patch.scheduled_end !== undefined) await assertNoAttempts(examId);
 
-  if (patch.name !== undefined) await requireUniqueExamName(patch.name as string, examId);
+  if (patch.name !== undefined) {
+    await requireUniqueExamNameInModules(patch.name as string, await linkedModuleIds(examId), examId);
+  };
 
   const { data, error } = await database.from('exams').update(patch).eq('id', examId).select(EXAM_COLUMNS).single();
   throwOnError(error);
@@ -401,7 +415,7 @@ export const setExamStatus = async (professorId: number, examId: number, body: a
 
 export const linkModule = async (professorId: number, examId: number, body: any = {}) => {
   const moduleId = requireBodyId(body.moduleId, 'moduleId');
-  await loadManagedExam(professorId, examId);
+  const exam = await loadManagedExam(professorId, examId);
   await assertNoAttempts(examId);
 
   const { data: taught, error: taughtError } = await database
@@ -412,6 +426,8 @@ export const linkModule = async (professorId: number, examId: number, body: any 
     .maybeSingle();
   throwOnError(taughtError);
   if (!taught) throw new HttpError(404, 'Module not found');
+
+  await requireUniqueExamNameInModules(exam.name, [moduleId], examId);
 
   const { error } = await database.from('exam_module').insert({ exam_id: examId, module_id: moduleId });
   throwOnError(error, 'The module is already linked to this exam');

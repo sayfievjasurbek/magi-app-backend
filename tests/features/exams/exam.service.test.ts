@@ -233,7 +233,7 @@ describe('createExam', () => {
   });
 
   it('stores the professor as the owner', async () => {
-    queue.push(rows([]), rows({ id: 1 }));
+    queue.push(rows({ id: 1 }));
 
     await createExam(7, body);
 
@@ -248,11 +248,11 @@ describe('createExam', () => {
   });
 
   it("defaults kind to 'homework', accepts 'exam', refuses anything else", async () => {
-    queue.push(rows([]), rows({ id: 1 }));
+    queue.push(rows({ id: 1 }));
     await createExam(7, body);
     expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ kind: 'homework' });
 
-    queue.push(rows([]), rows({ id: 2 }));
+    queue.push(rows({ id: 2 }));
     await createExam(7, { ...body, kind: 'exam' });
     expect(argsOf('exams', 'insert')[1][0]).toMatchObject({ kind: 'exam' });
 
@@ -264,17 +264,19 @@ describe('createExam', () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    queue.push(rows([]), rows({ id: 1 }));
+    queue.push(rows({ id: 1 }));
     await createExam(7, { ...body, scheduledStart: fiveMinAgo, scheduledEnd: inAnHour });
     expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ scheduled_start: fiveMinAgo });
 
     await expect(createExam(7, { ...body, scheduledStart: oneHourAgo, scheduledEnd: inAnHour })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('refuses a duplicate name, case-insensitively', async () => {
-    queue.push(rows([{ id: 9 }]));
+  it('does not check for a duplicate name - a name only has to be unique within a class, and this exam is not linked to one yet', async () => {
+    queue.push(rows({ id: 1 }));
 
-    await expect(createExam(7, body)).rejects.toMatchObject({ status: 409 });
+    await createExam(7, body);
+
+    expect(from).not.toHaveBeenCalledWith('exam_module');
   });
 });
 
@@ -295,6 +297,20 @@ describe('updateExam', () => {
     await updateExam(7, 1, { name: 'Resit' });
 
     expect(from).not.toHaveBeenCalledWith('assignments');
+  });
+
+  it('refuses a rename that collides with another exam already in the same class', async () => {
+    queue.push(
+      rows({ id: 1, created_by: 7, name: 'Quiz 1', scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows([{ module_id: 5 }]),
+      rows([{ exam_id: 2 }]),
+      rows([{ id: 2 }]),
+    );
+
+    await expect(updateExam(7, 1, { name: 'Midterm' })).rejects.toMatchObject({
+      status: 409,
+      message: 'An exam named "Midterm" already exists in this class',
+    });
   });
 
   it('checks the new value against the stored one', async () => {
@@ -404,9 +420,18 @@ describe('linkModule', () => {
   });
 
   it('409s a module that is already linked', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows({ module_id: 5 }), duplicate);
+    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows({ module_id: 5 }), rows([]), duplicate);
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('409s linking a module that already has an exam of the same name', async () => {
+    queue.push(rows({ id: 1, created_by: 7, name: 'Midterm' }), rows([]), rows({ module_id: 5 }), rows([{ exam_id: 2 }]), rows([{ id: 2 }]));
+
+    await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({
+      status: 409,
+      message: 'An exam named "Midterm" already exists in this class',
+    });
   });
 
   it('409s once the exam has attempts', async () => {
