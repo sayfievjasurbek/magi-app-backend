@@ -44,7 +44,10 @@ app.get("/health", async (req, res) => {
     if (error) throw new Error(error.message);
     res.json({ success: true });
   } catch (err) {
-    res.status(503).json({ success: false, message: err instanceof Error ? err.message : 'database unreachable' });
+    // this endpoint has no auth gate (Fly's checker needs to reach it) - the real error is
+    // logged server-side only, never handed to whoever happens to request it
+    console.error('health check failed:', err instanceof Error ? err.message : err);
+    res.status(503).json({ success: false, message: 'database unreachable' });
   };
 });
 app.get("/docs.json", (req, res) => res.json(openapi));

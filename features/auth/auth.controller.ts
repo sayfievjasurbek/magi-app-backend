@@ -344,7 +344,6 @@ export const createStudent = async (req: Request, res: Response) => {
     const trimmedLastName = lastName ? lastName.trim() : null;
     const trimmedPhone = phone?.trim() || null;
     const trimmedParentPhone = parentPhone?.trim() || null;
-    const trimmedIdNumber = idNumber?.trim() || null;
 
     if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
       success: false,
@@ -374,10 +373,20 @@ export const createStudent = async (req: Request, res: Response) => {
 
     // email, password and idNumber are each optional - a professor can hand them out themselves
     // (an existing gmail, a password they'll tell the student, an ID card number already on file)
-    // or leave any of them blank and get one generated the same way as before
+    // or leave any of them blank and get one generated the same way as before. Each is validated
+    // as an actual string first - req.body is unchecked JSON, and e.g. a number here would
+    // otherwise reach bcrypt.hash/.trim() and crash with a 500 instead of a clean 400.
+    if (email !== undefined && typeof email !== 'string') return res.status(400).json({ success: false, message: 'email must be a string' });
+    if (password !== undefined && typeof password !== 'string') return res.status(400).json({ success: false, message: 'password must be a string' });
+    if (idNumber !== undefined && typeof idNumber !== 'string') return res.status(400).json({ success: false, message: 'idNumber must be a string' });
+
+    const trimmedIdNumber = idNumber?.trim() || null;
+    if (trimmedIdNumber && trimmedIdNumber.length > 100) return res.status(400).json({ success: false, message: 'idNumber must be at most 100 characters' });
+
     let resolvedEmail: string;
     if (email?.trim()) {
       resolvedEmail = email.trim().toLowerCase();
+      if (resolvedEmail.length > 255) return res.status(400).json({ success: false, message: 'email must be at most 255 characters' });
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) return res.status(400).json({ success: false, message: 'Invalid email format' });
       const { data: existing, error: existingError } = await database.from('users').select('id').eq('email', resolvedEmail).maybeSingle();
       if (existingError) throw new Error(existingError.message);
@@ -386,9 +395,9 @@ export const createStudent = async (req: Request, res: Response) => {
       resolvedEmail = await uniqueLogin(trimmedFirstName);
     };
 
-    if (password !== undefined && password.length < 6) return res.status(400).json({
+    if (password !== undefined && (password.length < 6 || password.length > 100)) return res.status(400).json({
       success: false,
-      message: 'password must be at least 6 characters long',
+      message: 'password must be between 6 and 100 characters long',
     });
 
     if (trimmedIdNumber) {
