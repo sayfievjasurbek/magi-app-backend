@@ -18,9 +18,6 @@ if (!SENDER_EMAIL) {
 export const mailtrapClient = new MailtrapClient({
   token: EMAIL_TOKEN,
 });
-if (!EMAIL_TOKEN) {
-  console.warn("EMAIL_TOKEN is not set; outgoing emails will fail.");
-}
 
 export const sender = {
   email: SENDER_EMAIL,

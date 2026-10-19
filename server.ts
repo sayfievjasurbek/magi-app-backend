@@ -7,6 +7,7 @@ import { apiReference } from '@scalar/express-api-reference';
 import { openapi } from './docs/openapi.js';
 import { defaultBody } from './middleware/body.middleware.js';
 import { sameOrigin } from './middleware/origin.middleware.js';
+import { database } from './lib/db.js';
 import authRoutes from './features/auth/auth.route.js';
 import moduleRoutes from './features/modules/module.route.js';
 import examRoutes from './features/exams/exam.route.js';
@@ -34,7 +35,18 @@ app.use(
 )
 app.use(sameOrigin);
 
-app.get("/health", (req, res) => res.json({ success: true }));
+// Fly's health check (fly.toml: every 30s, 5s timeout) - a cheap, fast read confirms the one
+// thing that actually makes this app "up": the database is reachable. Anything else failing
+// (OpenAI, email) degrades individual features gracefully instead, not the whole service.
+app.get("/health", async (req, res) => {
+  try {
+    const { error } = await database.from('users').select('id').limit(1);
+    if (error) throw new Error(error.message);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(503).json({ success: false, message: err instanceof Error ? err.message : 'database unreachable' });
+  };
+});
 app.get("/docs.json", (req, res) => res.json(openapi));
 app.use("/docs", apiReference({ content: openapi, theme: "purple", pageTitle: "MAGI API" }));
 

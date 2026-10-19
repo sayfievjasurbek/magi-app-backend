@@ -34,12 +34,16 @@ export type AiReview = {
   per_question: { question_id: number; percent_correct: number; reasoning: string; writing_notes: string }[];
 };
 
+// the SDK's own default (10 min) would hold a professor's "Run AI review" request open far
+// longer than any reasonable wait - this is a suggestion feature, not worth blocking on
+const REQUEST_TIMEOUT_MS = 30_000;
+
 let client: OpenAI | null = null;
 const getClient = (): OpenAI | null => {
   if (client) return client;
   const key = process.env.OPENAI_API_KEY;
   if (!key?.trim()) return null;
-  client = new OpenAI({ apiKey: key });
+  client = new OpenAI({ apiKey: key, timeout: REQUEST_TIMEOUT_MS });
   return client;
 };
 
