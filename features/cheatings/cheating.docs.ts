@@ -8,7 +8,7 @@ const name = {
   type: 'string',
   enum: [
     'tab_switch_limit', 'copy_paste', 'devtools', 'multiple_monitors', 'face_mismatch', 'screen_share',
-    'unauthorized_app', 'manual_review', 'phone_seen', 'camera_away', 'link_blocked', 'app_closed', 'extra_person',
+    'unauthorized_app', 'manual_review', 'phone_seen', 'camera_away', 'link_blocked', 'app_closed', 'extra_person', 'talking',
   ],
   example: 'copy_paste',
 };
