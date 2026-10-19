@@ -299,7 +299,9 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const status = body.status === undefined ? 'scheduled' : body.status;
   if (status !== 'scheduled' && status !== 'demo') throw new HttpError(400, 'status must be scheduled or demo');
 
-  const kind = body.kind === undefined ? 'exam' : body.kind;
+  // homework is created far more often than a timed exam here, so it's the default when
+  // left unset, not 'exam'
+  const kind = body.kind === undefined ? 'homework' : body.kind;
   if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
 
   const { data, error } = await database

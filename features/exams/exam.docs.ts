@@ -151,7 +151,7 @@ export const paths = {
           required: ['name', 'scheduledStart', 'scheduledEnd'],
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final', description: 'Must be unique (case-insensitive) among exams' },
-            kind: { ...examKind, default: 'exam' },
+            kind: { ...examKind, default: 'homework' },
             scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
             scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart and at most 3 hours later' },
             status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled', example: 'scheduled' },
