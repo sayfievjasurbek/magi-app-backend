@@ -201,6 +201,34 @@ export const listMedia = async (kind: string, attemptIdParam: string, user: Call
   return (data ?? []) as Media[];
 };
 
+// No access check - the caller (attempts domain, deciding whether to deep-review an attempt)
+// has already verified it can see this attempt. Pulls from both the face camera and the
+// window-switch screen captures, newest first, capped to keep the vision call's payload small.
+export const proctoringPhotosForAttempt = async (attemptId: number, limit = 6): Promise<{ url: string; created_at: string }[]> => {
+  const wanted = ['face-snapshots', 'snapshots'] as const;
+  const found: { url: string; created_at: string }[] = [];
+
+  for (const kind of wanted) {
+    const media = kindOf(kind);
+    const { data: links, error: linkError } = await database
+      .from(media.join)
+      .select(media.column)
+      .eq('assignment_id', attemptId)
+      .order(media.column, { ascending: false })
+      .limit(limit);
+    if (linkError) throw new Error(linkError.message);
+    if (!links?.length) continue;
+
+    const { data, error } = await activeOnly(
+      database.from(media.table).select('url, created_at').in('id', links.map((row: Record<string, number>) => row[media.column]))
+    ).order('created_at', { ascending: false }).limit(limit);
+    if (error) throw new Error(error.message);
+    found.push(...((data ?? []) as { url: string; created_at: string }[]));
+  };
+
+  return found.sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, limit);
+};
+
 export const deleteMedia = async (kind: string, mediaIdParam: string, professorId: number, reason: unknown) => {
   const media = kindOf(kind);
   const mediaId = parseId(mediaIdParam);

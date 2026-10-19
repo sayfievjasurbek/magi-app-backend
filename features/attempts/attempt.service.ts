@@ -4,9 +4,10 @@ import { HttpError } from '../../lib/errors.js';
 import { type Caller, findVisibleExam, managedExamIds, sitsExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId } from '../../lib/utils.js';
 import { notify } from '../../lib/notifications.js';
-import { aiConfigured, reviewAnswers, type AiReview } from '../../lib/ai.js';
+import { aiConfigured, reviewAnswers, deepReviewAnswers, type AiReview, type IncidentCount } from '../../lib/ai.js';
 import { aiProbabilityOf, computeWritingProfile } from '../../lib/writingProfile.js';
 import { incidentsForAttempt } from '../cheatings/cheating.service.js';
+import { proctoringPhotosForAttempt } from '../monitoring/monitoring.service.js';
 import { type Attempt, type AttemptStatus, type TypingTimelinePoint } from './attempt.entities.js';
 
 // the exam columns an attempt is judged by; the exams table itself belongs to features/exams
@@ -835,6 +836,11 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
     .in('id', manual.map((q) => q.question_id)))) as { id: number; model_answers: string[] | null }[] ?? [];
   const modelAnswersById = new Map(modelAnswers.map((q) => [q.id, q.model_answers]));
 
+  const incidents = await incidentsForAttempt(current.id);
+  const incidentCounts: IncidentCount[] = Object.entries(
+    incidents.reduce((acc, i) => ({ ...acc, [i.name]: (acc[i.name] ?? 0) + 1 }), {} as Record<string, number>)
+  ).map(([name, count]) => ({ name, count }));
+
   const review = await reviewAnswers(manual.map((q) => ({
     question_id: q.question_id,
     question: q.question,
@@ -849,10 +855,31 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
     text_deleted: q.text_deleted,
     freeze_count: q.freeze_count,
     longest_freeze: q.longest_freeze,
-  })));
+  })), incidentCounts);
 
-  await storeAiReview(current.id, review);
-  return review;
+  // the text-only pass already found this attempt at least "medium" - worth the extra vision
+  // call to actually look at the proctoring photos before settling on a verdict
+  const finalReview = (aiProbabilityOf(review.cheating_likelihood) ?? 0) >= 50
+    ? await deepenReview(current.id, review, incidentCounts)
+    : review;
+
+  await storeAiReview(current.id, finalReview);
+  return finalReview;
+};
+
+const deepenReview = async (attemptId: number, review: AiReview, incidents: IncidentCount[]): Promise<AiReview> => {
+  const photos = await proctoringPhotosForAttempt(attemptId);
+  if (!photos.length) return review;
+
+  try {
+    const deep = await deepReviewAnswers(review.cheating_reasoning, incidents, photos);
+    return { ...review, cheating_likelihood: deep.cheating_likelihood, cheating_reasoning: deep.cheating_reasoning };
+  } catch (error) {
+    // the first-pass verdict is still a usable answer - a failed deep pass (timeout, API error)
+    // shouldn't block the whole review
+    console.error('Deep AI review failed, keeping the first-pass verdict:', error instanceof Error ? error.message : error);
+    return review;
+  };
 };
 
 export const aiReviewAttempt = async (professorId: number, attemptId: number | null, force = false): Promise<AiReview> => {

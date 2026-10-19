@@ -63,8 +63,12 @@ const { from, rpc, calls, queue, queueError, reset } = vi.hoisted(() => {
 
 vi.mock('../../../lib/db.js', () => ({ database: { from, rpc } }));
 
-const { aiConfigured, reviewAnswers } = vi.hoisted(() => ({ aiConfigured: vi.fn(), reviewAnswers: vi.fn() }));
-vi.mock('../../../lib/ai.js', () => ({ aiConfigured, reviewAnswers }));
+const { aiConfigured, reviewAnswers, deepReviewAnswers } = vi.hoisted(() => ({
+  aiConfigured: vi.fn(),
+  reviewAnswers: vi.fn(),
+  deepReviewAnswers: vi.fn(),
+}));
+vi.mock('../../../lib/ai.js', () => ({ aiConfigured, reviewAnswers, deepReviewAnswers }));
 
 import {
   startAttempt,
@@ -748,7 +752,7 @@ describe('submitAttempt', () => {
 
     expect(reviewAnswers).toHaveBeenCalledWith([
       expect.objectContaining({ question_id: 7, answer: 'My essay answer', model_answers: ['Model answer text'] }),
-    ]);
+    ], []);
     expect(called('assignment_ai_review', 'upsert')).toHaveLength(1);
   });
 
@@ -990,6 +994,20 @@ describe('aiReviewAttempt', () => {
     queue('exam_question', [{ question_id: 7, marks: 30 }]);
   };
 
+  // incidentsForAttempt (cheating.service.js, not mocked here) queries cheating_reason for the
+  // ids, then cheatings for the rows themselves
+  const queueIncidents = (names: string[]) => {
+    queue('cheating_reason', names.map((_, i) => ({ cheating_id: i + 1 })));
+    queue('cheatings', names.map((name, i) => ({ id: i + 1, name, explanation: '', created_at: NOW.toISOString() })));
+  };
+
+  // proctoringPhotosForAttempt (monitoring.service.js, not mocked here) queries the face-snapshot
+  // join table, then the face_snapshots rows themselves
+  const queuePhotos = (urls: string[]) => {
+    queue('assignment_face_snapshot', urls.map((_, i) => ({ face_snapshot_id: i + 1 })));
+    queue('face_snapshots', urls.map((url) => ({ url, created_at: NOW.toISOString() })));
+  };
+
   beforeEach(() => {
     aiConfigured.mockReturnValue(true);
   });
@@ -1066,7 +1084,7 @@ describe('aiReviewAttempt', () => {
       text_typed: 400,
       text_pasted: 50,
       text_edited: 10,
-    }]);
+    }], []);
     expect(called('assignment_ai_review', 'upsert')[0].payload).toMatchObject({
       assignment_id: 9,
       cheating_likelihood: 'medium',
@@ -1091,5 +1109,80 @@ describe('aiReviewAttempt', () => {
 
     expect(called('assignment_ai_review', 'select')).toHaveLength(0);
     expect(review.cheating_likelihood).toBe('high');
+  });
+
+  it('folds this attempt\'s camera/behavior incidents into the evidence given to the AI review', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queueIncidents(['phone_seen', 'phone_seen', 'extra_person']);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answers: null }]);
+    reviewAnswers.mockResolvedValue({ cheating_likelihood: 'low', cheating_reasoning: 'Looks genuine.', per_question: [] });
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+
+    await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(reviewAnswers).toHaveBeenCalledWith(
+      expect.anything(),
+      [{ name: 'phone_seen', count: 2 }, { name: 'extra_person', count: 1 }],
+    );
+  });
+
+  it('runs a deeper, photo-based check when the first pass already comes back medium or high', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answers: null }]);
+    reviewAnswers.mockResolvedValue({ cheating_likelihood: 'medium', cheating_reasoning: 'High paste ratio.', per_question: [{ question_id: 7, percent_correct: 70, reasoning: 'ok', writing_notes: 'ok' }] });
+    queuePhotos(['https://proctoring.example/photo1.jpg']);
+    deepReviewAnswers.mockResolvedValue({ cheating_likelihood: 'high', cheating_reasoning: 'A phone is visible in one of the photos.' });
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+    queue('question_ai_review', null);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(deepReviewAnswers).toHaveBeenCalledWith(
+      'High paste ratio.',
+      [],
+      [{ url: 'https://proctoring.example/photo1.jpg', created_at: NOW.toISOString() }],
+    );
+    // the deep pass refines the verdict, but the per-question grading from the first pass stands
+    expect(review).toMatchObject({ cheating_likelihood: 'high', cheating_reasoning: 'A phone is visible in one of the photos.' });
+    expect(review.per_question).toEqual([{ question_id: 7, percent_correct: 70, reasoning: 'ok', writing_notes: 'ok' }]);
+    expect(called('assignment_ai_review', 'upsert')[0].payload).toMatchObject({ cheating_likelihood: 'high' });
+  });
+
+  it('skips the deep check when there are no photos for this attempt', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answers: null }]);
+    reviewAnswers.mockResolvedValue({ cheating_likelihood: 'high', cheating_reasoning: 'High paste ratio.', per_question: [] });
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(deepReviewAnswers).not.toHaveBeenCalled();
+    expect(review.cheating_likelihood).toBe('high');
+  });
+
+  it('keeps the first-pass verdict when the deep photo check itself fails', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('assignment_ai_review', null);
+    queueManualQuestions();
+    queue('questions', [{ id: 7, model_answers: null }]);
+    reviewAnswers.mockResolvedValue({ cheating_likelihood: 'high', cheating_reasoning: 'High paste ratio.', per_question: [] });
+    queuePhotos(['https://proctoring.example/photo1.jpg']);
+    deepReviewAnswers.mockRejectedValue(new Error('OpenAI is down'));
+    queue('assignment_ai_review', null);
+    queue('question_ai_review', null);
+
+    const review = await aiReviewAttempt(PROFESSOR.id, 9);
+
+    expect(review.cheating_likelihood).toBe('high');
+    expect(review.cheating_reasoning).toBe('High paste ratio.');
   });
 });
