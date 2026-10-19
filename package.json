@@ -9,7 +9,6 @@
   "scripts": {
     "dev": "nodemon --exec tsx server.ts",
     "start": "tsx server.ts",
-    "deploy": "flyctl deploy --remote-only --ha=false",
     "migrate": "tsx scripts/migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

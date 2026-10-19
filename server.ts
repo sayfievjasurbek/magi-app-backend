@@ -35,16 +35,16 @@ app.use(
 )
 app.use(sameOrigin);
 
-// Fly's health check (fly.toml: every 30s, 5s timeout) - a cheap, fast read confirms the one
-// thing that actually makes this app "up": the database is reachable. Anything else failing
-// (OpenAI, email) degrades individual features gracefully instead, not the whole service.
+// the host's health check (Railway, or whatever runs this next) - a cheap, fast read confirms
+// the one thing that actually makes this app "up": the database is reachable. Anything else
+// failing (OpenAI, email) degrades individual features gracefully instead, not the whole service.
 app.get("/health", async (req, res) => {
   try {
     const { error } = await database.from('users').select('id').limit(1);
     if (error) throw new Error(error.message);
     res.json({ success: true });
   } catch (err) {
-    // this endpoint has no auth gate (Fly's checker needs to reach it) - the real error is
+    // this endpoint has no auth gate (the host's checker needs to reach it) - the real error is
     // logged server-side only, never handed to whoever happens to request it
     console.error('health check failed:', err instanceof Error ? err.message : err);
     res.status(503).json({ success: false, message: 'database unreachable' });

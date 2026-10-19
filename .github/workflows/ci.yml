@@ -1,5 +1,8 @@
-name: Fly Deploy
+name: CI
 
+# the actual deploy is Railway's own GitHub integration, triggered independently of this
+# workflow - this just runs the test suite and applies migrations to the shared database
+# before Railway's deploy (which happens to run in parallel) picks up the new code
 on:
   push:
     branches: [main]
@@ -20,7 +23,7 @@ jobs:
   migrate:
     needs: test
     runs-on: ubuntu-latest
-    concurrency: fly-deploy-migrate
+    concurrency: migrate
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -32,14 +35,3 @@ jobs:
       - run: npm run migrate
         env:
           DATABASE_DIRECT_URL: ${{ secrets.DATABASE_DIRECT_URL }}
-
-  deploy:
-    needs: migrate
-    runs-on: ubuntu-latest
-    concurrency: fly-deploy
-    steps:
-      - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
-      - run: flyctl deploy --remote-only --ha=false
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
