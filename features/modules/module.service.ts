@@ -178,7 +178,7 @@ const professorsByModule = async (moduleIds: number[]): Promise<Record<number, P
   if (error) throw new Error(error.message);
   const rows = data ?? [];
 
-  const people = await listPeople([...new Set(rows.map((row) => row.professor_id))]);
+  const people = await listTeachingPeople([...new Set(rows.map((row) => row.professor_id))]);
   const personById = new Map(people.map((p) => [p.id, p]));
 
   const byModule: Record<number, Person[]> = {};
@@ -199,6 +199,24 @@ const listPeople = async (userIds: number[]): Promise<Person[]> => {
 
   if (error) throw new Error(error.message);
   return (data ?? []) as Person[];
+};
+
+// same as listPeople, but drops anyone whose position isn't exactly "professor" - same rule as
+// seesAllModules (a director/administrator/unset/custom position manages every class directly
+// instead of teaching specific ones, so they should never show up as a class's own mentor)
+const listTeachingPeople = async (userIds: number[]): Promise<Person[]> => {
+  const people = await listPeople(userIds);
+  if (!people.length) return people;
+
+  const { data, error } = await database.from('professors').select('user_id, position').in('user_id', people.map((p) => p.id));
+  if (error) throw new Error(error.message);
+  const teaches = new Set(
+    (data ?? [])
+      .filter((row: { position: string | null }) => (row.position?.trim().toLowerCase() ?? '') === 'professor')
+      .map((row: { user_id: number }) => row.user_id)
+  );
+
+  return people.filter((p) => teaches.has(p.id));
 };
 
 // the member is named by email or by id, and has to carry the role of the list it is added to
@@ -387,7 +405,7 @@ export const getRoster = async (userId: number, role: Role, moduleIdParam: strin
 
   if (studentsError) throw new Error(studentsError.message);
 
-  const professors = await listPeople((professorRows ?? []).map((row) => row.professor_id));
+  const professors = await listTeachingPeople((professorRows ?? []).map((row) => row.professor_id));
   const students = await listPeople((studentRows ?? []).map((row) => row.student_id));
   const ages = await studentAgesById(students.map((s) => s.id));
   const enrolledAtById = new Map((studentRows ?? []).map((row) => [row.student_id, row.created_at]));
@@ -428,6 +446,13 @@ export const deleteModule = async (professorId: number, moduleIdParam: string, b
 export const addProfessor = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
   const professor = await findMember(body, 'professorId', 'professors', 'professor');
+
+  // an administrator/director already manages every class directly (seesAllModules) - adding
+  // them here would make them show up as teaching this one specific class, which they don't;
+  // same rule createModule already applies to itself, just enforced here too for an existing class
+  if (await seesAllModules(professor.id)) {
+    throw new HttpError(400, 'This account does not teach (position is not "professor"), so it cannot be added as a class mentor');
+  };
 
   const { error } = await database
     .from('module_professor')
