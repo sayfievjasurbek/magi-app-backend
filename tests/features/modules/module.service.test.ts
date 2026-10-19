@@ -95,7 +95,8 @@ describe('listModules', () => {
       ok([{ module_id: 1, student_id: 10 }, { module_id: 1, student_id: 11 }]),
       ok([{ id: 10 }, { id: 11 }]),
       ok([{ module_id: 1, professor_id: SUE.id }]),
-      ok([SUE])
+      ok([SUE]),
+      ok([{ user_id: SUE.id, position: 'professor' }])
     );
 
     expect(await moduleService.listModules(9, 'professor')).toEqual([
@@ -195,6 +196,7 @@ describe('getModule', () => {
       ok([{ id: 1 }, { id: 2 }, { id: 3 }]),
       ok([{ module_id: 7, professor_id: 3 }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
+      ok([{ user_id: 3, position: 'professor' }]),
       ok([{ student_id: 1 }, { student_id: 2 }, { student_id: 3 }]),
       ok([{ age: 16 }, { age: 18 }])
     );
@@ -215,7 +217,7 @@ describe('getModule', () => {
   });
 
   it('gives an enrolled student the module with its mentors', async () => {
-    queue(ok({ module_id: 7 }), ok(MODULE), ok([]), ok([{ module_id: 7, professor_id: SUE.id }]), ok([SUE]), ok([]));
+    queue(ok({ module_id: 7 }), ok(MODULE), ok([]), ok([{ module_id: 7, professor_id: SUE.id }]), ok([SUE]), ok([{ user_id: SUE.id, position: 'professor' }]), ok([]));
 
     expect(await moduleService.getModule(5, 'student', '7')).toEqual({
       ...MODULE,
@@ -233,6 +235,7 @@ describe('getRoster', () => {
       ok([{ professor_id: 3 }]),
       ok([{ student_id: 5, created_at: '2026-09-01T00:00:00.000Z' }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
+      ok([{ user_id: 3, position: 'professor' }]),
       ok([SUE]),
       ok([{ user_id: SUE.id, age: 16 }])
     );
@@ -264,6 +267,7 @@ describe('getRoster', () => {
       ok([{ professor_id: 3 }]),
       ok([{ student_id: 5, created_at: '2026-09-01T00:00:00.000Z' }]),
       ok([{ id: 3, first_name: 'Ada', last_name: null, email: 'ada@magi.edu' }]),
+      ok([{ user_id: 3, position: 'professor' }]),
       ok([SUE]),
       ok([])
     );
@@ -414,7 +418,7 @@ describe('addProfessor', () => {
 
   it('adds the co-professor', async () => {
     managed();
-    queue(ok(SUE), ok({ user_id: 5 }), ok(null));
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), ok(null));
 
     expect(await moduleService.addProfessor(3, '7', { professorId: 5 })).toEqual(SUE);
     expect(builder.insert).toHaveBeenCalledWith({ module_id: 7, professor_id: 5 });
@@ -422,9 +426,20 @@ describe('addProfessor', () => {
 
   it('turns a duplicate professor into 409', async () => {
     managed();
-    queue(ok(SUE), ok({ user_id: 5 }), fail({ code: '23505', message: 'duplicate key' }));
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), fail({ code: '23505', message: 'duplicate key' }));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('refuses to add a director/administrator as a mentor - they already manage every class directly', async () => {
+    managed();
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'Director' }));
+
+    await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({
+      status: 400,
+      message: 'This account does not teach (position is not "professor"), so it cannot be added as a class mentor',
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
   });
 });
 

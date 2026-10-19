@@ -13,6 +13,7 @@ vi.mock('../../../features/attempts/attempt.controller.js', () => ({
   submitAttempt: vi.fn(),
   gradeAttempt: vi.fn(),
   aiReviewAttempt: vi.fn(),
+  setCheatingDisclosure: vi.fn(),
 }));
 
 import router from '../../../features/attempts/attempt.route.js';
@@ -63,6 +64,7 @@ describe('attempt routes', () => {
     expect(route('post', '/:id/submit').handlers.at(-1)).toBe(controller.submitAttempt);
     expect(route('put', '/:id/grade').handlers.at(-1)).toBe(controller.gradeAttempt);
     expect(route('post', '/:id/ai-review').handlers.at(-1)).toBe(controller.aiReviewAttempt);
+    expect(route('put', '/:id/cheating-disclosure').handlers.at(-1)).toBe(controller.setCheatingDisclosure);
   });
 
   it('matches /my and /summary before /:id', () => {

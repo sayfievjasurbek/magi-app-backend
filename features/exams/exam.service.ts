@@ -282,7 +282,6 @@ export const getExam = async (user: TokenPayload, examId: number) => {
 // express 5 leaves req.body undefined when nothing is sent, hence the default on every body
 export const createExam = async (professorId: number, body: any = {}) => {
   const name = requireName(body.name);
-  await requireUniqueExamName(name);
   const scheduled_start = requireDate(body.scheduledStart, 'scheduledStart');
   const scheduled_end = requireDate(body.scheduledEnd, 'scheduledEnd');
   if (scheduled_end <= scheduled_start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
@@ -303,6 +302,10 @@ export const createExam = async (professorId: number, body: any = {}) => {
   // left unset, not 'exam'
   const kind = body.kind === undefined ? 'homework' : body.kind;
   if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
+
+  // the cheap, synchronous checks above run first - no reason to hit the database for a
+  // duplicate-name check on a request that's going to fail validation anyway
+  await requireUniqueExamName(name);
 
   const { data, error } = await database
     .from('exams')
@@ -327,10 +330,7 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   const exam = await loadManagedExam(professorId, examId);
 
   const patch: Record<string, unknown> = {};
-  if (body.name !== undefined) {
-    patch.name = requireName(body.name);
-    await requireUniqueExamName(patch.name as string, examId);
-  };
+  if (body.name !== undefined) patch.name = requireName(body.name);
   if (body.kind !== undefined) {
     if (!EXAM_KINDS.includes(body.kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
     patch.kind = body.kind;
@@ -356,6 +356,8 @@ export const updateExam = async (professorId: number, examId: number, body: any 
 
   // the schedule is part of what the students already started on
   if (patch.scheduled_start !== undefined || patch.scheduled_end !== undefined) await assertNoAttempts(examId);
+
+  if (patch.name !== undefined) await requireUniqueExamName(patch.name as string, examId);
 
   const { data, error } = await database.from('exams').update(patch).eq('id', examId).select(EXAM_COLUMNS).single();
   throwOnError(error);

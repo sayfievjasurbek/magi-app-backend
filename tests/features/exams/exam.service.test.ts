@@ -5,7 +5,7 @@ import { type Role, type TokenPayload } from '../../../lib/types.js';
 const { from, queue, calls } = vi.hoisted(() => {
   const queue: any[] = [];
   const calls: { table: string; method: string; args: any[] }[] = [];
-  const methods = ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'in', 'is', 'order', 'limit', 'maybeSingle', 'single'];
+  const methods = ['select', 'insert', 'update', 'upsert', 'delete', 'eq', 'neq', 'ilike', 'in', 'is', 'order', 'limit', 'maybeSingle', 'single'];
   const from = vi.fn((table: string) => {
     const builder: any = {
       then: (resolve: (value: unknown) => unknown) => resolve(queue.length ? queue.shift() : { data: null, error: null }),
@@ -221,6 +221,7 @@ describe('createExam', () => {
     await expect(createExam(7, { ...body, name: '  ' })).rejects.toMatchObject({ status: 400 });
     await expect(createExam(7, { ...body, scheduledStart: 'tomorrow' })).rejects.toMatchObject({ status: 400 });
     await expect(createExam(7, { ...body, scheduledEnd: body.scheduledStart })).rejects.toMatchObject({ status: 400 });
+    // none of these reach the duplicate-name check - they fail on the cheap, synchronous checks first
     expect(from).not.toHaveBeenCalled();
   });
 
@@ -232,7 +233,7 @@ describe('createExam', () => {
   });
 
   it('stores the professor as the owner', async () => {
-    queue.push(rows({ id: 1 }));
+    queue.push(rows([]), rows({ id: 1 }));
 
     await createExam(7, body);
 
@@ -246,14 +247,14 @@ describe('createExam', () => {
     });
   });
 
-  it("defaults kind to 'exam', accepts 'homework', refuses anything else", async () => {
-    queue.push(rows({ id: 1 }));
+  it("defaults kind to 'homework', accepts 'exam', refuses anything else", async () => {
+    queue.push(rows([]), rows({ id: 1 }));
     await createExam(7, body);
-    expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ kind: 'exam' });
+    expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ kind: 'homework' });
 
-    queue.push(rows({ id: 2 }));
-    await createExam(7, { ...body, kind: 'homework' });
-    expect(argsOf('exams', 'insert')[1][0]).toMatchObject({ kind: 'homework' });
+    queue.push(rows([]), rows({ id: 2 }));
+    await createExam(7, { ...body, kind: 'exam' });
+    expect(argsOf('exams', 'insert')[1][0]).toMatchObject({ kind: 'exam' });
 
     await expect(createExam(7, { ...body, kind: 'quiz' })).rejects.toMatchObject({ status: 400 });
   });
@@ -263,11 +264,17 @@ describe('createExam', () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    queue.push(rows({ id: 1 }));
+    queue.push(rows([]), rows({ id: 1 }));
     await createExam(7, { ...body, scheduledStart: fiveMinAgo, scheduledEnd: inAnHour });
     expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ scheduled_start: fiveMinAgo });
 
     await expect(createExam(7, { ...body, scheduledStart: oneHourAgo, scheduledEnd: inAnHour })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('refuses a duplicate name, case-insensitively', async () => {
+    queue.push(rows([{ id: 9 }]));
+
+    await expect(createExam(7, body)).rejects.toMatchObject({ status: 409 });
   });
 });
 
@@ -279,7 +286,11 @@ describe('updateExam', () => {
   });
 
   it('still renames an exam that has attempts', async () => {
-    queue.push(rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }), rows({ id: 1, name: 'Resit' }));
+    queue.push(
+      rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows([]),
+      rows({ id: 1, name: 'Resit' }),
+    );
 
     await updateExam(7, 1, { name: 'Resit' });
 
