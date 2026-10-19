@@ -17,8 +17,24 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-  deploy:
+  migrate:
     needs: test
+    runs-on: ubuntu-latest
+    concurrency: fly-deploy-migrate
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - run: npm run migrate
+        env:
+          DATABASE_DIRECT_URL: ${{ secrets.DATABASE_DIRECT_URL }}
+
+  deploy:
+    needs: migrate
     runs-on: ubuntu-latest
     concurrency: fly-deploy
     steps:
