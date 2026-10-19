@@ -317,7 +317,7 @@ const uniqueLogin = async (firstName: string): Promise<string> => {
 
 // a random 5-digit code for the given role table/column - not the users.id primary key, which is
 // never meant to be shown to anyone. For students this also ends up on proctoring photos.
-const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student_code' | 'professor_code'): Promise<string> => {
+const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student_code' | 'professor_code' | 'id_number'): Promise<string> => {
   for (let attempt = 0; attempt < 20; attempt++) {
     const candidate = String(crypto.randomInt(0, 100_000)).padStart(5, '0');
     const { data, error } = await database.from(table).select(column).eq(column, candidate).maybeSingle();
@@ -332,8 +332,8 @@ const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student
 // the student forgets it - the account is active immediately either way
 export const createStudent = async (req: Request, res: Response) => {
   try {
-    const { firstName, lastName, phone, parentPhone, parentRelation, age, photo }:
-      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s, age?: number, photo?: unknown } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, photo, email, password, idNumber }:
+      { firstName: s, lastName: s | null, phone?: s, parentPhone?: s, parentRelation?: s, age?: number, photo?: unknown, email?: s, password?: s, idNumber?: s } = req.body;
 
     if (!firstName) return res.status(400).json({
       success: false,
@@ -344,6 +344,7 @@ export const createStudent = async (req: Request, res: Response) => {
     const trimmedLastName = lastName ? lastName.trim() : null;
     const trimmedPhone = phone?.trim() || null;
     const trimmedParentPhone = parentPhone?.trim() || null;
+    const trimmedIdNumber = idNumber?.trim() || null;
 
     if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
       success: false,
@@ -371,9 +372,34 @@ export const createStudent = async (req: Request, res: Response) => {
       if (!(await hasFace(photoBytes))) throw new HttpError(400, 'invalid photo: no face detected');
     }
 
-    const email = await uniqueLogin(trimmedFirstName);
+    // email, password and idNumber are each optional - a professor can hand them out themselves
+    // (an existing gmail, a password they'll tell the student, an ID card number already on file)
+    // or leave any of them blank and get one generated the same way as before
+    let resolvedEmail: string;
+    if (email?.trim()) {
+      resolvedEmail = email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(resolvedEmail)) return res.status(400).json({ success: false, message: 'Invalid email format' });
+      const { data: existing, error: existingError } = await database.from('users').select('id').eq('email', resolvedEmail).maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+      if (existing) return res.status(409).json({ success: false, message: 'This email is already in use' });
+    } else {
+      resolvedEmail = await uniqueLogin(trimmedFirstName);
+    };
+
+    if (password !== undefined && password.length < 6) return res.status(400).json({
+      success: false,
+      message: 'password must be at least 6 characters long',
+    });
+
+    if (trimmedIdNumber) {
+      const { data: existingId, error: existingIdError } = await database.from('students').select('user_id').eq('id_number', trimmedIdNumber).maybeSingle();
+      if (existingIdError) throw new Error(existingIdError.message);
+      if (existingId) return res.status(409).json({ success: false, message: 'This ID number is already in use' });
+    };
+
     const studentCode = await uniqueRoleCode('students', 'student_code');
-    const generatedPassword = crypto.randomBytes(6).toString('base64url');
+    const resolvedIdNumber = trimmedIdNumber || await uniqueRoleCode('students', 'id_number');
+    const generatedPassword = password || crypto.randomBytes(6).toString('base64url');
     const hashedPassword = await bcrypt.hash(generatedPassword, 10);
 
     const { data: newUser, error: newUserError } = await database
@@ -381,7 +407,7 @@ export const createStudent = async (req: Request, res: Response) => {
       .insert([{
         first_name: trimmedFirstName,
         last_name: trimmedLastName,
-        email,
+        email: resolvedEmail,
         password: hashedPassword,
         is_verified: true,
         active_status: 'active',
@@ -402,6 +428,7 @@ export const createStudent = async (req: Request, res: Response) => {
       const { error: roleError } = await database.from('students').insert({
         user_id: newUser.id,
         student_code: studentCode,
+        id_number: resolvedIdNumber,
         recovery_secret: encryptSecret(generatedPassword),
         created_by: req.user!.id,
         phone: trimmedPhone,
@@ -420,6 +447,7 @@ export const createStudent = async (req: Request, res: Response) => {
       success: true,
       student: { id: newUser.id, first_name: newUser.first_name, last_name: newUser.last_name, email: newUser.email },
       student_code: studentCode,
+      id_number: resolvedIdNumber,
       password: generatedPassword,
       profile_photo_url: profilePhotoUrl,
     });
@@ -473,7 +501,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
 
     const { data: rows, error } = await database
       .from('students')
-      .select('user_id, student_code, phone, parent_phone, parent_relation, age, profile_photo_url')
+      .select('user_id, student_code, id_number, phone, parent_phone, parent_relation, age, profile_photo_url')
       .in('user_id', [...studentIds]);
     if (error) throw new Error(error.message);
 
@@ -501,6 +529,7 @@ export const listCreatedStudents = async (req: Request, res: Response) => {
         return {
           ...user,
           student_code: row.student_code,
+          id_number: row.id_number,
           phone: row.phone,
           parent_phone: row.parent_phone,
           parent_relation: row.parent_relation,
@@ -535,7 +564,7 @@ export const getStudentDetail = async (req: Request, res: Response) => {
 
     const { data: student, error: studentError } = await database
       .from('students')
-      .select('student_code, phone, parent_phone, parent_relation, age, profile_photo_url')
+      .select('student_code, id_number, phone, parent_phone, parent_relation, age, profile_photo_url')
       .eq('user_id', studentId)
       .maybeSingle();
     if (studentError) throw new Error(studentError.message);
@@ -619,9 +648,9 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
 
     const { data: student, error: studentError } = await database
       .from('students')
-      .select('student_code, recovery_secret')
+      .select('student_code, id_number, recovery_secret')
       .eq('user_id', studentId)
-      .maybeSingle<{ student_code: string | null; recovery_secret: string | null }>();
+      .maybeSingle<{ student_code: string | null; id_number: string | null; recovery_secret: string | null }>();
     if (studentError) throw new Error(studentError.message);
     if (!student?.recovery_secret) return res.status(404).json({
       success: false,
@@ -632,6 +661,7 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
       success: true,
       email: user.email,
       student_code: student.student_code,
+      id_number: student.id_number,
       password: decryptSecret(student.recovery_secret),
     });
   } catch (error: unknown) {
@@ -940,7 +970,7 @@ export const getMyProfile = async (req: Request, res: Response) => {
     if (req.user!.role === 'student') {
       const { data: student, error: studentError } = await database
         .from('students')
-        .select('student_code, phone, parent_phone, parent_relation, profile_photo_url')
+        .select('student_code, id_number, phone, parent_phone, parent_relation, profile_photo_url')
         .eq('user_id', req.user!.id)
         .maybeSingle();
       if (studentError) throw new Error(studentError.message);
