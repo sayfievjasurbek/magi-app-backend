@@ -1515,6 +1515,11 @@ export const resetPassword = async ( req: Request, res: Response ) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    // the password just changed, so any recovery_secret a professor had on file is now stale -
+    // only accounts createStudent/createProfessor made have one, this is a no-op otherwise
+    await database.from('students').update({ recovery_secret: null }).eq('user_id', getUserIdByToken.user_id);
+    await database.from('professors').update({ recovery_secret: null }).eq('user_id', getUserIdByToken.user_id);
+
     // Revoke the used token
     await database
       .from('tokens')
