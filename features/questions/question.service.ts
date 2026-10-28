@@ -2,7 +2,7 @@ import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 
-const QUESTION_TYPES = ['multiple_choice', 'true_false', 'short_answer', 'essay'];
+const QUESTION_TYPES = ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'];
 const TIME_UNITS = ['seconds', 'minutes', 'hours', 'days'];
 
 const OPTION_COLUMNS = 'id, question_id, option_text, is_correct, created_at, updated_at';
@@ -281,6 +281,27 @@ export const createQuestion = async (professorId: number, body: Record<string, u
     // nothing references the question yet, so undoing the first write is a plain delete
     await database.from('questions').delete().eq('id', question.id);
     throw optionsError;
+  };
+};
+
+// a professor writing a question bank in one sitting creates several at once; each one is
+// validated and inserted the same way createQuestion does, and a later failure rolls back
+// everything already created in this call (options cascade-delete with their question)
+export const createQuestions = async (professorId: number, body: Record<string, unknown>) => {
+  if (!Array.isArray(body.questions) || !body.questions.length) {
+    throw new HttpError(400, 'questions must be a non-empty array');
+  };
+
+  const created: Awaited<ReturnType<typeof createQuestion>>[] = [];
+  try {
+    for (const entry of body.questions as Record<string, unknown>[]) {
+      if (!entry || typeof entry !== 'object') throw new HttpError(400, 'Each question must be an object');
+      created.push(await createQuestion(professorId, entry));
+    };
+    return created;
+  } catch (error: unknown) {
+    await Promise.all(created.map((question) => database.from('questions').delete().eq('id', question.id)));
+    throw error;
   };
 };
 

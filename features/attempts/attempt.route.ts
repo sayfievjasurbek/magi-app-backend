@@ -1,7 +1,7 @@
 import express from 'express';
 import { protectRoute } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
-import { aiReviewAttempt, getAttempt, getAttemptsSummary, getExamAttempts, getMyAttempts, gradeAttempt, setCheatingDisclosure, startAttempt, submitAttempt, syncAnswers } from './attempt.controller.js';
+import { aiReviewAttempt, getAttempt, getAttemptsSummary, getExamAttempts, getMyAttempts, gradeAttempt, setCheatingDisclosure, startAttempt, submitAttempt, syncAnswers, uploadAnswerFile } from './attempt.controller.js';
 
 
 const router = express.Router();
@@ -13,6 +13,7 @@ router.use(protectRoute);
 router.post('/', requireRole('student'), startAttempt);
 router.get('/my', requireRole('student'), getMyAttempts);
 router.put('/:id/answers', requireRole('student'), syncAnswers);
+router.post('/:id/file', requireRole('student'), uploadAnswerFile);
 router.post('/:id/submit', requireRole('student'), submitAttempt);
 
 // /summary stays above /:id, it would match the id route otherwise

@@ -3,7 +3,7 @@ import { authed, dateTime, envelope, errors, id, json, messageOnly, nullable, ok
 
 export const tags = [{ name: 'Questions', description: 'Questions and their options' }];
 
-const questionType = { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' };
+const questionType = { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'], example: 'multiple_choice' };
 const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' };
 
 export const schemas = {
@@ -54,7 +54,8 @@ export const schemas = {
     type: 'object',
     description:
       'The option set has to match the type: `multiple_choice` at least 2 options and at least 1 correct, ' +
-      '`true_false` exactly 2 options and exactly 1 correct, `short_answer` and `essay` no options at all.',
+      '`true_false` exactly 2 options and exactly 1 correct, `short_answer`, `essay` and `file_upload` no options at all. ' +
+      '`file_upload` is answered by uploading a file (POST .../assignments/{id}/file) instead of typing - its `answer` is the file\'s URL.',
     properties: {
       title: { type: 'string', maxLength: 100, example: 'Complexity of binary search' },
       questionType,
@@ -89,10 +90,23 @@ export const paths = {
       summary: 'List own questions (professor)',
       ...authed,
       parameters: [
-        { name: 'questionType', in: 'query', required: false, description: 'Only questions of this type', schema: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' } },
+        { name: 'questionType', in: 'query', required: false, description: 'Only questions of this type', schema: questionType },
         { name: 'search', in: 'query', required: false, description: 'Case insensitive match on the title', schema: { type: 'string', example: 'binary search' } },
       ],
       responses: { '200': ok('Questions', envelope({ questions: { type: 'array', items: ref('Question') } })), ...errors(400, 401, 403) },
+    },
+  },
+  '/api/questions/batch': {
+    post: {
+      tags: ['Questions'],
+      summary: 'Create several questions at once (professor)',
+      description: 'Same validation as POST /api/questions, one entry at a time; if any entry fails, every question already created in this call is removed again.',
+      ...authed,
+      requestBody: {
+        required: true,
+        content: json({ type: 'object', required: ['questions'], properties: { questions: { type: 'array', minItems: 1, items: ref('QuestionInput') } } }),
+      },
+      responses: { '201': ok('Questions created', envelope({ questions: { type: 'array', items: ref('QuestionWithOptions') } })), ...errors(400, 401, 403) },
     },
   },
   '/api/questions/{id}': {

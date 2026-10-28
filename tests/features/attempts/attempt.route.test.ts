@@ -10,6 +10,7 @@ vi.mock('../../../features/attempts/attempt.controller.js', () => ({
   getExamAttempts: vi.fn(),
   getAttempt: vi.fn(),
   syncAnswers: vi.fn(),
+  uploadAnswerFile: vi.fn(),
   submitAttempt: vi.fn(),
   gradeAttempt: vi.fn(),
   aiReviewAttempt: vi.fn(),
@@ -61,6 +62,7 @@ describe('attempt routes', () => {
     expect(route('get', '/').handlers.at(-1)).toBe(controller.getExamAttempts);
     expect(route('get', '/:id').handlers.at(-1)).toBe(controller.getAttempt);
     expect(route('put', '/:id/answers').handlers.at(-1)).toBe(controller.syncAnswers);
+    expect(route('post', '/:id/file').handlers.at(-1)).toBe(controller.uploadAnswerFile);
     expect(route('post', '/:id/submit').handlers.at(-1)).toBe(controller.submitAttempt);
     expect(route('put', '/:id/grade').handlers.at(-1)).toBe(controller.gradeAttempt);
     expect(route('post', '/:id/ai-review').handlers.at(-1)).toBe(controller.aiReviewAttempt);
@@ -74,7 +76,7 @@ describe('attempt routes', () => {
   });
 
   it('keeps the student endpoints for students', () => {
-    for (const [method, path] of [['post', '/'], ['get', '/my'], ['put', '/:id/answers'], ['post', '/:id/submit']]) {
+    for (const [method, path] of [['post', '/'], ['get', '/my'], ['put', '/:id/answers'], ['post', '/:id/file'], ['post', '/:id/submit']]) {
       expect(guard(method, path, 'student').allowed).toBe(true);
       expect(guard(method, path, 'professor')).toEqual({ allowed: false, status: 403 });
       expect(guard(method, path, 'examiner')).toEqual({ allowed: false, status: 403 });

@@ -12,6 +12,16 @@ export const createQuestion = async (req: Request, res: Response) => {
   };
 };
 
+//create several questions in one call
+export const createQuestions = async (req: Request, res: Response) => {
+  try {
+    const questions = await questionService.createQuestions(req.user!.id, req.body ?? {});
+    return res.status(201).json({ success: true, questions });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "createQuestions controller");
+  };
+};
+
 //list own questions (filters: questionType, search)
 export const listQuestions = async (req: Request, res: Response) => {
   try {

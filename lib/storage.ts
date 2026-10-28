@@ -9,6 +9,11 @@ const BUCKET = 'proctoring';
 const MAX_BYTES = 5 * 1024 * 1024;
 const PROFILE_PHOTO_MAX_BYTES = 3 * 1024 * 1024;
 
+const SUBMISSIONS_BUCKET = 'submissions';
+// base64 inflates by ~4/3 and server.ts caps the JSON body at 10mb, so the decoded file has to
+// stay comfortably under that
+const SUBMISSION_MAX_BYTES = 7 * 1024 * 1024;
+
 /** Strips a `data:image/...;base64,...` prefix if present and returns the raw bytes + mime type. */
 export const decodeImageData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
   if (typeof value !== 'string' || !value) throw new HttpError(400, 'image is required');
@@ -59,4 +64,46 @@ export const uploadProfilePhoto = async (userId: number, image: unknown): Promis
   if (error) throw new Error(`photo upload failed: ${error.message}`);
 
   return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+};
+
+const sanitizeFileName = (value: unknown): string => {
+  if (typeof value !== 'string' || !value.trim()) throw new HttpError(400, 'fileName is required');
+  const base = value.trim().split(/[\\/]/).pop() ?? value.trim();
+  return base.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120);
+};
+
+/** Strips a `data:<mime>;base64,...` prefix if present and returns the raw bytes + mime type. */
+const decodeFileData = (value: unknown): { bytes: Buffer; mime: string } => {
+  if (typeof value !== 'string' || !value) throw new HttpError(400, 'fileData is required');
+
+  const match = value.match(/^data:([^;]+);base64,([\s\S]*)$/);
+  const mime = match?.[1] ?? 'application/octet-stream';
+
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(match ? match[2] : value, 'base64');
+  } catch {
+    throw new HttpError(400, 'fileData must be valid base64');
+  }
+  if (!bytes.length) throw new HttpError(400, 'fileData is required');
+  if (bytes.length > SUBMISSION_MAX_BYTES) throw new HttpError(400, 'file must be at most 20MB');
+
+  return { bytes, mime };
+};
+
+/** Uploads a student's homework/exam file answer under `{attemptId}/{questionId}/{random}-{fileName}`. */
+export const uploadSubmissionFile = async (
+  attemptId: number,
+  questionId: number,
+  fileName: unknown,
+  fileData: unknown
+): Promise<string> => {
+  const safeName = sanitizeFileName(fileName);
+  const { bytes, mime } = decodeFileData(fileData);
+  const path = `${attemptId}/${questionId}/${randomSuffix()}-${safeName}`;
+
+  const { error } = await database.storage.from(SUBMISSIONS_BUCKET).upload(path, bytes, { contentType: mime });
+  if (error) throw new Error(`file upload failed: ${error.message}`);
+
+  return database.storage.from(SUBMISSIONS_BUCKET).getPublicUrl(path).data.publicUrl;
 };

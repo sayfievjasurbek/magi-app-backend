@@ -9,7 +9,7 @@ const attemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submit
 const studentAttemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded'], example: 'in_progress' };
 
 const answerFields = {
-  answer: { type: 'string', example: 'It removes the transitive dependency of a non key column on another non key column.', description: 'The text the student typed (empty for a pure choice question)' },
+  answer: { type: 'string', example: 'It removes the transitive dependency of a non key column on another non key column.', description: 'The text the student typed, or the uploaded file\'s URL for a file_upload question (empty for a pure choice question)' },
   selected_option_ids: { type: 'array', items: id },
   typing_duration: { type: 'integer', example: 240 },
   typing_duration_unit: timeUnit,
@@ -30,7 +30,7 @@ const questionFields = {
   position: { type: 'integer', example: 1, description: 'Order of the question in this attempt (shuffled per attempt when the exam shuffles)' },
   title: { type: 'string', example: 'Third normal form' },
   question: { type: 'string', example: 'Which anomaly does the third normal form remove?' },
-  question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'short_answer' },
+  question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'], example: 'short_answer' },
   expected_duration: { type: 'integer', example: 90 },
   expected_duration_unit: timeUnit,
   marks: { type: 'integer', example: 10, description: 'What the question is worth in this exam (exam_question.marks)' },
@@ -320,6 +320,33 @@ export const paths = {
       },
       responses: {
         '200': ok('Answers written', envelope({ synced: { type: 'integer', example: 12 }, remaining_seconds: { type: 'integer', example: 2700 } })),
+        ...errors(400, 401, 403, 404, 409),
+      },
+    },
+  },
+  '/api/assignments/{id}/file': {
+    post: {
+      tags: ['Attempts'],
+      summary: 'Upload a file as the answer to a file_upload question (student)',
+      description:
+        'Only for a question of type file_upload that is part of this attempt. Uploads the file to storage and writes its public URL as the answer, same as ' +
+        'PUT .../answers would for a typed one. Only while the attempt is open and inside its time limit.',
+      ...authed,
+      parameters: [attemptId],
+      requestBody: {
+        required: true,
+        content: json({
+          type: 'object',
+          required: ['questionId', 'fileName', 'fileData'],
+          properties: {
+            questionId: id,
+            fileName: { type: 'string', example: 'homework.pdf' },
+            fileData: { type: 'string', example: 'data:application/pdf;base64,JVBERi0xLjQK...', description: 'Base64, optionally with a data: URL prefix; at most 7MB decoded' },
+          },
+        }),
+      },
+      responses: {
+        '200': ok('File uploaded', envelope({ url: { type: 'string', example: 'https://....supabase.co/storage/v1/object/public/submissions/9/41/abcd-homework.pdf' }, remaining_seconds: { type: 'integer', example: 2700 } })),
         ...errors(400, 401, 403, 404, 409),
       },
     },

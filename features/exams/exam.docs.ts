@@ -68,7 +68,7 @@ export const schemas = {
     properties: {
       id,
       title: { type: 'string', example: 'Third normal form' },
-      question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay'], example: 'multiple_choice' },
+      question_type: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'], example: 'multiple_choice' },
       question: { type: 'string', example: 'Which anomaly does the third normal form remove?' },
       expected_duration: { type: 'integer', example: 90 },
       expected_duration_unit: { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' },

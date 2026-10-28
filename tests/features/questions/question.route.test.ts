@@ -38,6 +38,7 @@ describe('question routes', () => {
   it('wires every endpoint to its controller', () => {
     expect(routes.map((route) => `${route.key} ${route.controller}`)).toEqual([
       'POST / createQuestion',
+      'POST /batch createQuestions',
       'GET / listQuestions',
       'GET /:id getQuestion',
       'PATCH /:id updateQuestion',
@@ -50,6 +51,7 @@ describe('question routes', () => {
 
     expect(byRoute).toEqual({
       'POST /': ['professor'],
+      'POST /batch': ['professor'],
       'GET /': ['professor'],
       'GET /:id': ['professor'],
       'PATCH /:id': ['professor'],

@@ -70,6 +70,9 @@ const { aiConfigured, reviewAnswers, deepReviewAnswers } = vi.hoisted(() => ({
 }));
 vi.mock('../../../lib/ai.js', () => ({ aiConfigured, reviewAnswers, deepReviewAnswers }));
 
+const { uploadSubmissionFile } = vi.hoisted(() => ({ uploadSubmissionFile: vi.fn() }));
+vi.mock('../../../lib/storage.js', () => ({ uploadSubmissionFile }));
+
 import {
   startAttempt,
   listMyAttempts,
@@ -77,6 +80,7 @@ import {
   listAttemptsSummary,
   getAttempt,
   syncAnswers,
+  uploadAnswerFile,
   submitAttempt,
   gradeAttempt,
   aiReviewAttempt,
@@ -188,13 +192,28 @@ describe('startAttempt', () => {
     await expect(startAttempt(STUDENT.id, { examId: 5 })).rejects.toMatchObject({ status: 400, message: 'This exam is over' });
   });
 
-  it('409s a second attempt at the same exam', async () => {
+  it('resumes rather than rejects a second attempt at the same exam', async () => {
     queue('exams', EXAM);
     queue('exam_student', { exam_id: 5 });
     queue('student_assignment', { assignment_id: 9 });
+    queueOwnAttempt();
+    queue('question_assignment', []);
+    queue('assignment_permitted_url', []);
 
-    await expect(startAttempt(STUDENT.id, { examId: 5 })).rejects.toMatchObject({ status: 409 });
+    const attempt = await startAttempt(STUDENT.id, { examId: 5 }) as any;
+
+    expect(attempt.id).toBe(9);
+    expect(attempt.status).toBe('in_progress');
     expect(called('assignments', 'insert')).toHaveLength(0);
+  });
+
+  it('409s resuming an attempt that is already finished', async () => {
+    queue('exams', EXAM);
+    queue('exam_student', { exam_id: 5 });
+    queue('student_assignment', { assignment_id: 9 });
+    queueOwnAttempt(attemptRow({ submitted_at: '2026-09-21T09:50:00.000Z', status: 'submitted' }));
+
+    await expect(startAttempt(STUDENT.id, { examId: 5 })).rejects.toMatchObject({ status: 409, message: 'You have already completed this exam' });
   });
 
   it('refuses an exam without live questions', async () => {
@@ -679,6 +698,60 @@ describe('syncAnswers', () => {
 
     const result = await syncAnswers(STUDENT.id, 9, { answers: [{ questionId: 7, answer: 'x' }] });
     expect(result.synced).toBe(1);
+  });
+});
+
+describe('uploadAnswerFile', () => {
+  beforeEach(() => uploadSubmissionFile.mockReset());
+
+  it('needs a questionId', async () => {
+    queueOwnAttempt();
+    await expect(uploadAnswerFile(STUDENT.id, 9, { fileData: 'x' })).rejects.toMatchObject({ status: 400, message: 'questionId is required' });
+    expect(uploadSubmissionFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses a question that is not part of the attempt', async () => {
+    queueOwnAttempt();
+    queue('question_assignment', null);
+
+    await expect(uploadAnswerFile(STUDENT.id, 9, { questionId: 7, fileData: 'x' })).rejects.toMatchObject({
+      status: 400,
+      message: 'Question 7 is not part of this attempt',
+    });
+  });
+
+  it('refuses a question that does not accept a file', async () => {
+    queueOwnAttempt();
+    queue('question_assignment', { question_id: 7 });
+    queue('questions', { question_type: 'essay' });
+
+    await expect(uploadAnswerFile(STUDENT.id, 9, { questionId: 7, fileData: 'x' })).rejects.toMatchObject({
+      status: 400,
+      message: 'This question does not accept a file',
+    });
+    expect(uploadSubmissionFile).not.toHaveBeenCalled();
+  });
+
+  it('refuses to write into an attempt that is not open', async () => {
+    queueOwnAttempt(attemptRow({ status: 'submitted', submitted_at: '2026-09-21T09:50:00.000Z' }));
+
+    await expect(uploadAnswerFile(STUDENT.id, 9, { questionId: 7, fileData: 'x' })).rejects.toMatchObject({ status: 409 });
+    expect(uploadSubmissionFile).not.toHaveBeenCalled();
+  });
+
+  it('uploads the file and writes its url as the answer', async () => {
+    queueOwnAttempt();
+    queue('question_assignment', { question_id: 7 });
+    queue('questions', { question_type: 'file_upload' });
+    queue('question_assignment', null);
+    uploadSubmissionFile.mockResolvedValue('https://x.supabase.co/storage/v1/object/public/submissions/9/7/abc-hw.pdf');
+
+    const result = await uploadAnswerFile(STUDENT.id, 9, { questionId: 7, fileName: 'hw.pdf', fileData: 'data:application/pdf;base64,AA==' });
+
+    expect(uploadSubmissionFile).toHaveBeenCalledWith(9, 7, 'hw.pdf', 'data:application/pdf;base64,AA==');
+    const update = called('question_assignment', 'update')[0];
+    expect(update.payload).toMatchObject({ answer: 'https://x.supabase.co/storage/v1/object/public/submissions/9/7/abc-hw.pdf', answered_at: NOW.toISOString() });
+    expect(result).toEqual({ url: 'https://x.supabase.co/storage/v1/object/public/submissions/9/7/abc-hw.pdf', remaining_seconds: 1800 });
   });
 });
 

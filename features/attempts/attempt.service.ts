@@ -1,6 +1,7 @@
 import { database } from '../../lib/db.js';
 import { deadline, TIME_UNITS, type TimeUnit, toSeconds } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
+import { uploadSubmissionFile } from '../../lib/storage.js';
 import { type Caller, findVisibleExam, managedExamIds, sitsExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId } from '../../lib/utils.js';
 import { notify } from '../../lib/notifications.js';
@@ -31,7 +32,9 @@ const ATTEMPT_STATUSES: AttemptStatus[] = ['pending', 'in_progress', 'submitted'
 // a student may only sit an exam that is open in the schedule sense
 const STARTABLE_EXAM_STATUSES = ['scheduled', 'ongoing', 'demo'];
 // the question types a professor has to grade by hand; the rest is graded at submit
-const MANUAL_TYPES = ['short_answer', 'essay'];
+const MANUAL_TYPES = ['short_answer', 'essay', 'file_upload'];
+// of those, the ones AI review can judge from the text itself - a file_upload has no text to compare against model_answers
+const AI_REVIEWABLE_TYPES = ['short_answer', 'essay'];
 // reads are not paginated: one exam answers with its first attempts, as the media and incident lists do
 const ATTEMPT_LIMIT = 500;
 
@@ -285,6 +288,20 @@ const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
 const ensureCurrent = async (attempt: Attempt, exam: Exam) =>
   isOpen(attempt) && Date.now() >= deadline(attempt, exam) ? finishAttempt(attempt, exam, true) : attempt;
 
+// starting an exam whose attempt is still open picks it up where it was left (the app was
+// closed, the connection dropped) instead of refusing a student who never got to submit
+const resumeAttempt = async (studentId: number, attemptId: number) => {
+  const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+  if (!isOpen(current)) throw new HttpError(409, 'You have already completed this exam');
+
+  return {
+    ...studentSummary(current, exam),
+    questions: await attemptQuestions(current, false),
+    permitted_urls: await attemptPermittedUrls(current.id),
+  };
+};
+
 export const startAttempt = async (studentId: number, body: { examId?: unknown }) => {
   const examId = parseId(body.examId);
   if (!examId) throw new HttpError(400, 'examId is required');
@@ -299,8 +316,8 @@ export const startAttempt = async (studentId: number, body: { examId?: unknown }
   if (now >= Date.parse(exam.scheduled_end)) throw new HttpError(400, 'This exam is over');
 
   // one attempt per student per exam is a unique constraint; checking first avoids creating a row for nothing
-  const existing = unwrap(await database.from('student_assignment').select('assignment_id').eq('student_id', studentId).eq('exam_id', examId).maybeSingle());
-  if (existing) throw new HttpError(409, 'You have already started this exam');
+  const existing = unwrap(await database.from('student_assignment').select('assignment_id').eq('student_id', studentId).eq('exam_id', examId).maybeSingle()) as { assignment_id: number } | null;
+  if (existing) return resumeAttempt(studentId, existing.assignment_id);
 
   const examQuestions = unwrap(await database
     .from('exam_question')
@@ -612,6 +629,49 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
   return { synced: patches.length, remaining_seconds: remainingSeconds(current, exam) };
 };
 
+// a `file_upload` question is answered by uploading a file instead of typing - the file's
+// public URL becomes the answer, same column every other question type already writes to
+export const uploadAnswerFile = async (
+  studentId: number,
+  attemptId: number | null,
+  body: { questionId?: unknown; fileName?: unknown; fileData?: unknown }
+) => {
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+
+  const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+  if (!isOpen(current)) {
+    throw new HttpError(409, current.auto_submitted
+      ? 'Time is up: this attempt has been submitted automatically'
+      : 'This attempt is not in progress');
+  }
+
+  const questionId = parseId(body.questionId);
+  if (!questionId) throw new HttpError(400, 'questionId is required');
+
+  const asked = unwrap(await database
+    .from('question_assignment')
+    .select('question_id')
+    .eq('assignment_id', current.id)
+    .eq('question_id', questionId)
+    .maybeSingle());
+  if (!asked) throw new HttpError(400, `Question ${questionId} is not part of this attempt`);
+
+  const question = unwrap(await activeOnly(database.from('questions').select('question_type').eq('id', questionId)).maybeSingle()) as { question_type: string } | null;
+  if (question?.question_type !== 'file_upload') throw new HttpError(400, 'This question does not accept a file');
+
+  const url = await uploadSubmissionFile(current.id, questionId, body.fileName, body.fileData);
+
+  const { error } = await database
+    .from('question_assignment')
+    .update({ answer: url, answered_at: new Date().toISOString(), last_synced_at: new Date().toISOString() })
+    .eq('assignment_id', current.id)
+    .eq('question_id', questionId);
+  if (error) throw new Error(error.message);
+
+  return { url, remaining_seconds: remainingSeconds(current, exam) };
+};
+
 // a malformed/oversized timeline must never fail the submission itself - it's a nice-to-have
 // chart for staff, not something the student's own exam result should ever depend on
 const MAX_TIMELINE_POINTS = 500;
@@ -825,7 +885,7 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
   };
 
   const questions = await attemptQuestions(current, true);
-  const manual = (questions as any[]).filter((q) => MANUAL_TYPES.includes(q.question_type) && q.answer.trim() !== '');
+  const manual = (questions as any[]).filter((q) => AI_REVIEWABLE_TYPES.includes(q.question_type) && q.answer.trim() !== '');
   if (!manual.length) throw new HttpError(400, 'No answered short-answer or essay questions to review');
 
   // model_answers isn't part of the staff grading view above (that reads exam_question/questions

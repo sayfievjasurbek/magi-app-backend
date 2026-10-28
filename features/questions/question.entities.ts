@@ -2,7 +2,7 @@
 // and 005_questions_owner.sql (created_by).
 import { type TimeUnit } from '../../lib/deadline.js';
 
-export type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay';
+export type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay' | 'file_upload';
 
 export type Question = {
   id: number;

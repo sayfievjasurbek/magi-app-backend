@@ -155,6 +155,45 @@ describe('createQuestion', () => {
   });
 });
 
+describe('createQuestions', () => {
+  it('needs a non-empty array', async () => {
+    await expect(questionService.createQuestions(3, {})).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestions(3, { questions: [] })).rejects.toMatchObject({ status: 400 });
+    await expect(questionService.createQuestions(3, { questions: 'nope' })).rejects.toMatchObject({ status: 400 });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('creates every question in the array, in order', async () => {
+    const second = { id: 12, title: 'Second', question_type: 'essay', created_by: 3 };
+    queue(ok(QUESTION), ok(OPTIONS), ok(second));
+
+    const created = await questionService.createQuestions(3, {
+      questions: [
+        { title: 'Binary search', question: 'How fast is binary search?', options: choices },
+        { title: 'Second', question: 'Write about it', questionType: 'essay' },
+      ],
+    });
+
+    expect(created).toEqual([{ ...QUESTION, options: OPTIONS }, { ...second, options: [] }]);
+  });
+
+  it('rolls back every question already created when a later one fails', async () => {
+    queue(ok(QUESTION), ok(OPTIONS));
+
+    await expect(
+      questionService.createQuestions(3, {
+        questions: [
+          { title: 'Binary search', question: 'How fast is binary search?', options: choices },
+          { title: 'Bad', question: 'Q?', questionType: 'essay', options: choices },
+        ],
+      })
+    ).rejects.toMatchObject({ status: 400, message: 'essay questions take no options' });
+
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.eq).toHaveBeenCalledWith('id', 11);
+  });
+});
+
 describe('listQuestions', () => {
   it('lists the live questions of the professor', async () => {
     queue(ok([QUESTION]));

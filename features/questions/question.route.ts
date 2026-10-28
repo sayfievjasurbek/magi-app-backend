@@ -1,5 +1,5 @@
 import express from 'express';
-import { createQuestion, listQuestions, getQuestion, updateQuestion, deleteQuestion } from './question.controller.js';
+import { createQuestion, createQuestions, listQuestions, getQuestion, updateQuestion, deleteQuestion } from './question.controller.js';
 import { protectRoute } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
 
@@ -11,6 +11,7 @@ router.use(protectRoute);
 
 //post
 router.post("/", requireRole('professor'), createQuestion);
+router.post("/batch", requireRole('professor'), createQuestions);
 
 //get
 router.get("/", requireRole('professor'), listQuestions);

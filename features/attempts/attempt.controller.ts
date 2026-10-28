@@ -56,6 +56,15 @@ export const syncAnswers = async (req: Request, res: Response) => {
   };
 };
 
+export const uploadAnswerFile = async (req: Request, res: Response) => {
+  try {
+    const result = await attempts.uploadAnswerFile(req.user!.id, parseId(req.params.id), req.body ?? {});
+    return res.status(200).json({ success: true, ...result });
+  } catch (error) {
+    return handleControllerError(res, error, "attempt controller");
+  };
+};
+
 export const submitAttempt = async (req: Request, res: Response) => {
   try {
     const { attempt, message } = await attempts.submitAttempt(req.user!.id, parseId(req.params.id), req.body ?? {});
