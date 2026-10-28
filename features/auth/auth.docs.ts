@@ -221,7 +221,7 @@ export const paths = {
     patch: {
       tags: ['Auth'],
       summary: "Correct a student's profile data (professor only)",
-      description: 'Every field is optional and only touched when present - the same fields createStudent accepts, minus photo/password/idNumber.',
+      description: 'Every field is optional and only touched when present - the same fields createStudent accepts, minus photo. Setting password also refreshes the recovery_secret shown on the Credentials panel, unlike the student-initiated changePassword/resetPassword which clear it instead.',
       ...authed,
       parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
       requestBody: {
@@ -235,6 +235,8 @@ export const paths = {
             parentPhone: { type: 'string', example: '+998901234567' },
             parentRelation: { type: 'string', example: 'mother' },
             age: { type: 'integer', minimum: 1, maximum: 100, example: 17 },
+            idNumber: { type: 'string', example: 'AB1234567' },
+            password: { type: 'string', minLength: 6, maxLength: 100, example: 'qkpceFnL' },
           },
         }),
       },

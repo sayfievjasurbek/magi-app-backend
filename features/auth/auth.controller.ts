@@ -591,8 +591,8 @@ export const updateStudent = async (req: Request, res: Response) => {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
 
-    const { firstName, lastName, phone, parentPhone, parentRelation, age, email }:
-      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, password }:
+      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s, idNumber?: s, password?: s } = req.body;
 
     const { data: student, error: studentError } = await database
       .from('students')
@@ -623,7 +623,29 @@ export const updateStudent = async (req: Request, res: Response) => {
       userPatch.email = trimmedEmail;
     };
 
+    // same as changePassword/resetPassword: the professor is choosing this on the student's
+    // behalf, so (unlike those) the recovery_secret below is refreshed to match, not cleared
+    if (password !== undefined) {
+      if (typeof password !== 'string') return res.status(400).json({ success: false, message: 'password must be a string' });
+      if (password.length < 6 || password.length > 100) return res.status(400).json({
+        success: false,
+        message: 'password must be between 6 and 100 characters long',
+      });
+      userPatch.password = await bcrypt.hash(password, 10);
+    };
+
     const studentPatch: Record<string, unknown> = {};
+    if (idNumber !== undefined) {
+      if (typeof idNumber !== 'string') return res.status(400).json({ success: false, message: 'idNumber must be a string' });
+      const trimmedIdNumber = idNumber.trim();
+      if (!trimmedIdNumber) return res.status(400).json({ success: false, message: 'idNumber cannot be empty' });
+      if (trimmedIdNumber.length > 100) return res.status(400).json({ success: false, message: 'idNumber must be at most 100 characters' });
+      const { data: existingId, error: existingIdError } = await database.from('students').select('user_id').eq('id_number', trimmedIdNumber).neq('user_id', studentId).maybeSingle();
+      if (existingIdError) throw new Error(existingIdError.message);
+      if (existingId) return res.status(409).json({ success: false, message: 'This ID number is already in use' });
+      studentPatch.id_number = trimmedIdNumber;
+    };
+    if (password !== undefined) studentPatch.recovery_secret = encryptSecret(password);
     if (phone !== undefined) {
       const trimmedPhone = phone?.trim() || null;
       if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
