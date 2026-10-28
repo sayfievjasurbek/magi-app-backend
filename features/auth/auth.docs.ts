@@ -236,6 +236,7 @@ export const paths = {
             parentRelation: { type: 'string', example: 'mother' },
             age: { type: 'integer', minimum: 1, maximum: 100, example: 17 },
             idNumber: { type: 'string', example: 'AB1234567' },
+            studentCode: { type: 'string', example: '74571' },
             password: { type: 'string', minLength: 6, maxLength: 100, example: 'qkpceFnL' },
           },
         }),

@@ -591,8 +591,8 @@ export const updateStudent = async (req: Request, res: Response) => {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
 
-    const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, password }:
-      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s, idNumber?: s, password?: s } = req.body;
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password }:
+      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s, idNumber?: s, studentCode?: s, password?: s } = req.body;
 
     const { data: student, error: studentError } = await database
       .from('students')
@@ -644,6 +644,16 @@ export const updateStudent = async (req: Request, res: Response) => {
       if (existingIdError) throw new Error(existingIdError.message);
       if (existingId) return res.status(409).json({ success: false, message: 'This ID number is already in use' });
       studentPatch.id_number = trimmedIdNumber;
+    };
+    if (studentCode !== undefined) {
+      if (typeof studentCode !== 'string') return res.status(400).json({ success: false, message: 'studentCode must be a string' });
+      const trimmedStudentCode = studentCode.trim();
+      if (!trimmedStudentCode) return res.status(400).json({ success: false, message: 'studentCode cannot be empty' });
+      if (trimmedStudentCode.length > 100) return res.status(400).json({ success: false, message: 'studentCode must be at most 100 characters' });
+      const { data: existingCode, error: existingCodeError } = await database.from('students').select('user_id').eq('student_code', trimmedStudentCode).neq('user_id', studentId).maybeSingle();
+      if (existingCodeError) throw new Error(existingCodeError.message);
+      if (existingCode) return res.status(409).json({ success: false, message: 'This student ID is already in use' });
+      studentPatch.student_code = trimmedStudentCode;
     };
     if (password !== undefined) studentPatch.recovery_secret = encryptSecret(password);
     if (phone !== undefined) {
