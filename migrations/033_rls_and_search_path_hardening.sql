@@ -15,10 +15,14 @@ begin
     'notifications', 'assignment_ai_review', 'question_ai_review',
     -- not created by any migration in this repo - orphaned leftovers from the deleted Chrome
     -- extension's own auth system (magi_extension); unused by this stack, kept rather than
-    -- dropped in case they still hold real data, just closed off like everything else
+    -- dropped in case they still hold real data, just closed off like everything else. Guarded
+    -- by to_regclass since a fresh database (or a disaster-recovery restore from this repo's own
+    -- migrations alone) never has them, and this whole block must still not roll back
     'magi_ext_users', 'magi_ext_refresh_tokens', 'magi_ext_sessions'
   ] loop
-    execute format('alter table public.%I enable row level security', table_name);
+    if to_regclass('public.' || table_name) is not null then
+      execute format('alter table public.%I enable row level security', table_name);
+    end if;
   end loop;
 end $$;
 
