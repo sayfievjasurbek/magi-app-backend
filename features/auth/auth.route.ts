@@ -1,5 +1,5 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, updateMyProfile, getMyCurrentPassword, setMyProfilePhoto, checkMyIdentity, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, updateStudent, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, updateMyProfile, getMyCurrentPassword, setMyProfilePhoto, checkMyIdentity, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
 import {requireRole} from '../../middleware/role.middleware.js';
 
@@ -21,6 +21,7 @@ router.post("/me/photo", protectRoute, requireRole('student'), setMyProfilePhoto
 router.post("/me/identity-check", protectRoute, requireRole('student'), checkMyIdentity);
 router.patch("/me/password", protectRoute, changePassword);
 router.patch("/me/profile", protectRoute, updateMyProfile);
+router.patch("/students/:id", protectRoute, requireRole('professor'), updateStudent);
 
 
 //get

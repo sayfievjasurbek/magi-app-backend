@@ -584,6 +584,92 @@ export const getStudentDetail = async (req: Request, res: Response) => {
   };
 };
 
+// a professor correcting a student's own profile data - same fields createStudent accepts,
+// each optional and only touched when present in the body
+export const updateStudent = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, email }:
+      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s } = req.body;
+
+    const { data: student, error: studentError } = await database
+      .from('students')
+      .select('user_id')
+      .eq('user_id', studentId)
+      .maybeSingle();
+    if (studentError) throw new Error(studentError.message);
+    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const userPatch: Record<string, unknown> = {};
+    if (firstName !== undefined) {
+      if (typeof firstName !== 'string') return res.status(400).json({ success: false, message: 'firstName must be a string' });
+      const trimmed = firstName.trim();
+      if (!trimmed) return res.status(400).json({ success: false, message: 'firstName cannot be empty' });
+      userPatch.first_name = trimmed;
+    };
+    if (lastName !== undefined) userPatch.last_name = lastName?.trim() || null;
+
+    if (email !== undefined) {
+      if (typeof email !== 'string') return res.status(400).json({ success: false, message: 'email must be a string' });
+      const trimmedEmail = email.trim().toLowerCase();
+      if (!trimmedEmail) return res.status(400).json({ success: false, message: 'email cannot be empty' });
+      if (trimmedEmail.length > 255) return res.status(400).json({ success: false, message: 'email must be at most 255 characters' });
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ success: false, message: 'Invalid email format' });
+      const { data: existing, error: existingError } = await database.from('users').select('id').eq('email', trimmedEmail).neq('id', studentId).maybeSingle();
+      if (existingError) throw new Error(existingError.message);
+      if (existing) return res.status(409).json({ success: false, message: 'This email is already in use' });
+      userPatch.email = trimmedEmail;
+    };
+
+    const studentPatch: Record<string, unknown> = {};
+    if (phone !== undefined) {
+      const trimmedPhone = phone?.trim() || null;
+      if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
+        success: false,
+        message: 'Phone must be in the format +998XXXXXXXXX',
+      });
+      studentPatch.phone = trimmedPhone;
+    };
+    if (parentPhone !== undefined) {
+      const trimmedParentPhone = parentPhone?.trim() || null;
+      if (trimmedParentPhone && !isValidUzPhone(trimmedParentPhone)) return res.status(400).json({
+        success: false,
+        message: 'Parent phone must be in the format +998XXXXXXXXX',
+      });
+      studentPatch.parent_phone = trimmedParentPhone;
+    };
+    const resolvedPhone = phone !== undefined ? (studentPatch.phone as string | null) : undefined;
+    const resolvedParentPhone = parentPhone !== undefined ? (studentPatch.parent_phone as string | null) : undefined;
+    if (resolvedPhone && resolvedParentPhone && resolvedPhone === resolvedParentPhone) return res.status(400).json({
+      success: false,
+      message: 'The student and parent phone numbers cannot be the same',
+    });
+    if (parentRelation !== undefined) studentPatch.parent_relation = parentRelation?.trim() || null;
+    if (age !== undefined) {
+      if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) return res.status(400).json({
+        success: false,
+        message: 'age must be an integer between 1 and 100',
+      });
+      studentPatch.age = age;
+    };
+
+    if (Object.keys(userPatch).length) {
+      const { error } = await database.from('users').update(userPatch).eq('id', studentId);
+      if (error) throw new Error(error.message);
+    };
+    if (Object.keys(studentPatch).length) {
+      const { error } = await database.from('students').update(studentPatch).eq('user_id', studentId);
+      if (error) throw new Error(error.message);
+    };
+
+    return getStudentDetail(req, res);
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "updateStudent controller");
+  };
+};
+
 // a professor removing a student account they (or a colleague) created - soft delete, same
 // users.deleted_at/active_status/reason columns every account deletion in this system uses;
 // a deleted account can no longer log in (see the active_status check in login above)

@@ -218,6 +218,52 @@ export const paths = {
         ...errors(400, 403, 404),
       },
     },
+    patch: {
+      tags: ['Auth'],
+      summary: "Correct a student's profile data (professor only)",
+      description: 'Every field is optional and only touched when present - the same fields createStudent accepts, minus photo/password/idNumber.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      requestBody: {
+        content: json({
+          type: 'object',
+          properties: {
+            firstName: { type: 'string', example: 'Sarah' },
+            lastName: { type: 'string', example: 'Chen' },
+            email: { type: 'string', example: 'sarah@magi.com' },
+            phone: { type: 'string', example: '+998901234567' },
+            parentPhone: { type: 'string', example: '+998901234567' },
+            parentRelation: { type: 'string', example: 'mother' },
+            age: { type: 'integer', minimum: 1, maximum: 100, example: 17 },
+          },
+        }),
+      },
+      responses: {
+        '200': ok(
+          'Student',
+          envelope({
+            student: {
+              type: 'object',
+              properties: {
+                id,
+                first_name: { type: 'string', example: 'Sarah' },
+                last_name: nullable({ type: 'string', example: 'Chen' }),
+                email: { type: 'string', example: 'sarah@magi.com' },
+                created_at: dateTime,
+                student_code: nullable({ type: 'string', example: '04213' }),
+                id_number: nullable({ type: 'string', example: 'AB1234567' }),
+                phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_phone: nullable({ type: 'string', example: '+998901234567' }),
+                parent_relation: nullable({ type: 'string', example: 'mother' }),
+                age: nullable({ type: 'integer', example: 17 }),
+                profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+              },
+            },
+          })
+        ),
+        ...errors(400, 403, 404, 409),
+      },
+    },
     delete: {
       tags: ['Auth'],
       summary: 'Delete a student account (professor only)',
