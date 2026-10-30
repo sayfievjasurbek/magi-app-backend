@@ -1101,7 +1101,10 @@ export const getMyProfile = async (req: Request, res: Response) => {
         .eq('user_id', req.user!.id)
         .maybeSingle();
       if (studentError) throw new Error(studentError.message);
-      return res.status(200).json({ success: true, profile: { ...user, ...student, role: req.user!.role } });
+      // same check setMyProfilePhoto itself runs before refusing a retake - lets the student's
+      // own settings page show "meets requirements" instead of a Retake/Upload new it would reject
+      const profilePhotoLocked = student?.profile_photo_url ? await currentPhotoStillUsable(student.profile_photo_url) : false;
+      return res.status(200).json({ success: true, profile: { ...user, ...student, role: req.user!.role, profile_photo_locked: profilePhotoLocked } });
     }
 
     if (req.user!.role === 'professor') {

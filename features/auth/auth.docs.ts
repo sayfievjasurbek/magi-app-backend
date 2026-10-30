@@ -437,8 +437,9 @@ export const paths = {
       tags: ['Auth'],
       summary: "The logged-in user's full profile",
       description:
-        'For students, includes student_code, id_number, phone, parent_phone, parent_relation and profile_photo_url on top of the base user fields - ' +
-        'id_number is what the desktop app\'s pre-exam identity check compares against what the student types. For professors, includes professor_code, ' +
+        'For students, includes student_code, id_number, phone, parent_phone, parent_relation, profile_photo_url and profile_photo_locked on top of the base ' +
+        'user fields - id_number is what the desktop app\'s pre-exam identity check compares against what the student types, and profile_photo_locked is ' +
+        'whether the current photo still meets setMyProfilePhoto\'s own checks and so can no longer be retaken. For professors, includes professor_code, ' +
         'phone and position instead.',
       ...authed,
       responses: {
@@ -459,6 +460,7 @@ export const paths = {
                 parent_phone: nullable({ type: 'string', example: '+998901234567' }),
                 parent_relation: nullable({ type: 'string', example: 'mother' }),
                 profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+                profile_photo_locked: { type: 'boolean', example: true },
                 professor_code: nullable({ type: 'string', example: '04213' }),
                 position: nullable({ type: 'string', example: 'Teacher' }),
               },
