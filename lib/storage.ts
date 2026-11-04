@@ -41,6 +41,30 @@ export const decodeImageData = (value: unknown): { bytes: Buffer; mime: string; 
   return { bytes, mime, ext };
 };
 
+const AUDIO_MAX_BYTES = 8 * 1024 * 1024;
+
+/** Strips a `data:audio/...;base64,...` prefix and returns the raw bytes + mime type; unlike
+ * decodeImageData there is no bare-base64 fallback, since the desktop app always sends the
+ * prefix for a MediaRecorder blob. */
+export const decodeAudioData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
+  if (typeof value !== 'string' || !value) throw new HttpError(400, 'audio is required');
+
+  const match = value.match(/^data:audio\/([a-zA-Z0-9.+-]+);base64,([\s\S]*)$/);
+  if (!match) throw new HttpError(400, 'audio must be a data:audio/...;base64,... string');
+  const [, subtype, raw] = match;
+
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(raw, 'base64');
+  } catch {
+    throw new HttpError(400, 'audio must be valid base64');
+  }
+  if (!bytes.length) throw new HttpError(400, 'audio is required');
+  if (bytes.length > AUDIO_MAX_BYTES) throw new HttpError(400, 'audio must be at most 8MB');
+
+  return { bytes, mime: `audio/${subtype}`, ext: subtype === 'webm' ? 'webm' : subtype };
+};
+
 const randomSuffix = () => `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
 
 /** Uploads one photo under `{attemptId}/{kind}/{random}.{ext}` and returns its public URL. */
@@ -50,6 +74,17 @@ export const uploadPhoto = async (attemptId: number, kind: string, image: unknow
 
   const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
   if (error) throw new Error(`photo upload failed: ${error.message}`);
+
+  return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+};
+
+/** Uploads one audio clip under `{attemptId}/{kind}/{random}.{ext}` and returns its public url. */
+export const uploadAudio = async (attemptId: number, kind: string, audio: unknown): Promise<string> => {
+  const { bytes, mime, ext } = decodeAudioData(audio);
+  const path = `${attemptId}/${kind}/${randomSuffix()}.${ext}`;
+
+  const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
+  if (error) throw new Error(`audio upload failed: ${error.message}`);
 
   return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 };

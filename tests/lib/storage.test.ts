@@ -9,7 +9,7 @@ vi.mock('../../lib/db.js', () => ({
   database: { storage: { from: () => ({ upload, getPublicUrl }) } },
 }));
 
-import { uploadPhoto } from '../../lib/storage.js';
+import { uploadAudio, uploadPhoto } from '../../lib/storage.js';
 import { HttpError } from '../../lib/errors.js';
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
@@ -66,6 +66,49 @@ describe('uploadPhoto', () => {
     upload.mockResolvedValue({ data: null, error: { message: 'bucket not found' } });
 
     const error = await rejected(uploadPhoto(7, 'snapshots', ONE_PIXEL_JPEG));
+
+    expect(error).not.toBeInstanceOf(HttpError);
+    expect(error.message).toContain('bucket not found');
+  });
+});
+
+describe('uploadAudio', () => {
+  const ONE_FRAME_WEBM = 'GkXfo0AgQoaBAU';
+
+  it('decodes a data url, uploads it, and returns the public url', async () => {
+    getPublicUrl.mockReturnValue({ data: { publicUrl: 'https://supabase.test/proctoring/7/audio-recordings/x.webm' } });
+
+    const url = await uploadAudio(7, 'audio-recordings', `data:audio/webm;base64,${ONE_FRAME_WEBM}`);
+
+    expect(url).toBe('https://supabase.test/proctoring/7/audio-recordings/x.webm');
+    const [path, bytes, options] = upload.mock.calls[0];
+    expect(path).toMatch(/^7\/audio-recordings\/.+\.webm$/);
+    expect(Buffer.isBuffer(bytes)).toBe(true);
+    expect(options).toEqual({ contentType: 'audio/webm' });
+  });
+
+  it('400s without a data:audio/...;base64,... prefix', async () => {
+    for (const audio of [undefined, '', 42, null, ONE_FRAME_WEBM, 'data:image/jpeg;base64,AAA']) {
+      const error = await rejected(uploadAudio(7, 'audio-recordings', audio));
+      expect(error).toBeInstanceOf(HttpError);
+      expect(error.status).toBe(400);
+    }
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('400s on audio over 8MB once decoded', async () => {
+    const huge = Buffer.alloc(9 * 1024 * 1024).toString('base64');
+    const error = await rejected(uploadAudio(7, 'audio-recordings', `data:audio/webm;base64,${huge}`));
+
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error.status).toBe(400);
+    expect(upload).not.toHaveBeenCalled();
+  });
+
+  it('turns a storage upload failure into a plain error', async () => {
+    upload.mockResolvedValue({ data: null, error: { message: 'bucket not found' } });
+
+    const error = await rejected(uploadAudio(7, 'audio-recordings', `data:audio/webm;base64,${ONE_FRAME_WEBM}`));
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toContain('bucket not found');

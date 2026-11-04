@@ -13,7 +13,10 @@ export type CheatingType =
   | 'camera_away'
   | 'link_blocked'
   | 'app_closed'
-  | 'extra_person';
+  | 'extra_person'
+  | 'talking'
+  | 'looking_away'
+  | 'background_noise';
 
 export type Cheating = {
   id: number;

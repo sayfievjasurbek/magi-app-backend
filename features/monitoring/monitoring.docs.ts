@@ -24,22 +24,22 @@ export const schemas = {
   },
 };
 
-// the four media kinds of monitoring.service.ts
+// the five media kinds of monitoring.service.ts
 const kindParam = {
   name: 'kind',
   in: 'path',
   required: true,
   description: 'Which media of the attempt. An unknown kind answers 404.',
-  schema: { type: 'string', enum: ['panoramic-views', 'video-recordings', 'face-snapshots', 'snapshots'], example: 'snapshots' },
+  schema: { type: 'string', enum: ['panoramic-views', 'video-recordings', 'face-snapshots', 'snapshots', 'audio-recordings'], example: 'snapshots' },
 };
 
 export const paths = {
   '/api/monitoring/attempts/{attemptId}/{kind}': {
     post: {
       tags: ['Monitoring'],
-      summary: 'Upload a photo to an attempt (student)',
+      summary: 'Upload a photo or audio clip to an attempt (student)',
       description:
-        'The student who owns the attempt uploads a photo, stored in Supabase Storage. ' +
+        'The student who owns the attempt uploads a photo (or, for `audio-recordings`, an audio clip), stored in Supabase Storage. ' +
         'Only while the attempt is in progress and inside its time limit (409 once the time is over). ' +
         "For `face-snapshots`, if the student has set a reference photo (see POST /api/auth/me/photo), it's compared against this one in the " +
         'background (self-hosted, no response delay) - a mismatch auto-records a face_mismatch cheating incident and flags the attempt, the same ' +
@@ -50,9 +50,9 @@ export const paths = {
         required: true,
         content: json({
           type: 'object',
-          required: ['image'],
           properties: {
-            image: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,...', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' },
+            image: { type: 'string', description: 'data:image/jpeg;base64,... or data:image/png;base64,... - every kind but audio-recordings', example: 'data:image/jpeg;base64,/9j/4AAQSkZJRg...' },
+            audio: { type: 'string', description: 'data:audio/webm;base64,... - only for kind audio-recordings', example: 'data:audio/webm;base64,GkXfo0AgQoaBAU...' },
             label: { type: 'string', example: 'ID number 12' },
           },
         }),

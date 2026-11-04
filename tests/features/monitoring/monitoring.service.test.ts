@@ -26,8 +26,9 @@ const { from, calls, results } = vi.hoisted(() => {
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 
 const uploadPhoto = vi.hoisted(() => vi.fn());
+const uploadAudio = vi.hoisted(() => vi.fn());
 const decodeImageData = vi.hoisted(() => vi.fn(() => ({ bytes: Buffer.from('photo'), mime: 'image/jpeg', ext: 'jpg' })));
-vi.mock('../../../lib/storage.js', () => ({ uploadPhoto, decodeImageData }));
+vi.mock('../../../lib/storage.js', () => ({ uploadPhoto, uploadAudio, decodeImageData }));
 
 const compareFaces = vi.hoisted(() => vi.fn());
 vi.mock('../../../lib/faceMatch.js', () => ({ compareFaces }));
@@ -67,6 +68,7 @@ beforeEach(() => {
   results.length = 0;
   from.mockClear();
   uploadPhoto.mockReset().mockResolvedValue('https://x.test/a');
+  uploadAudio.mockReset().mockResolvedValue('https://x.test/a.webm');
   decodeImageData.mockClear();
   compareFaces.mockReset();
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ arrayBuffer: () => Promise.resolve(new ArrayBuffer(1)) }));
@@ -108,6 +110,21 @@ describe('addMedia', () => {
       expect(tables()).toEqual(expectedTables);
       expect(callsOf('insert')[1]).toEqual(['insert', { assignment_id: 7, [column]: 21 }]);
     }
+  });
+
+  it('uploads audio-recordings through uploadAudio instead of uploadPhoto', async () => {
+    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a.webm', label: null, created_at: 'now' }), none);
+
+    const media = await addMedia('audio-recordings', '7', 5, 'data:audio/webm;base64,AAA', undefined);
+
+    expect(uploadAudio).toHaveBeenCalledWith(7, 'audio-recordings', 'data:audio/webm;base64,AAA');
+    expect(uploadPhoto).not.toHaveBeenCalled();
+    expect(media).toEqual({ id: 21, url: 'https://x.test/a.webm', label: null, created_at: 'now' });
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'audio_recordings', 'assignment_audio_recording']);
+    expect(callsOf('insert')).toEqual([
+      ['insert', { url: 'https://x.test/a.webm', label: null }],
+      ['insert', { assignment_id: 7, audio_recording_id: 21 }],
+    ]);
   });
 
   it('defaults an empty or missing label to null', async () => {

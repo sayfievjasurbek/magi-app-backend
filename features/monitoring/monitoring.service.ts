@@ -3,7 +3,7 @@ import { attemptExpired, type TimeUnit } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
 import { compareFaces } from '../../lib/faceMatch.js';
 import { type Caller, findVisibleExam } from '../../lib/exam-access.js';
-import { decodeImageData, uploadPhoto } from '../../lib/storage.js';
+import { decodeImageData, uploadAudio, uploadPhoto } from '../../lib/storage.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 
 type Attempt = {
@@ -24,12 +24,13 @@ const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, se
 const isRunning = (attempt: Attempt) =>
   (attempt.status === 'in_progress' || attempt.status === 'flagged') && !attempt.submitted_at;
 
-// the four media kinds, each with its own table and the join table carrying the attempt
+// the five media kinds, each with its own table and the join table carrying the attempt
 const kinds = {
   'panoramic-views': { table: 'panoramic_view', join: 'assignment_panoramic_view', column: 'panoramic_view_id' },
   'video-recordings': { table: 'video_recordings', join: 'assignment_video_recording', column: 'video_recording_id' },
   'face-snapshots': { table: 'face_snapshots', join: 'assignment_face_snapshot', column: 'face_snapshot_id' },
   'snapshots': { table: 'snapshots', join: 'assignment_snapshot', column: 'snapshot_id' },
+  'audio-recordings': { table: 'audio_recordings', join: 'assignment_audio_recording', column: 'audio_recording_id' },
 } as const;
 
 // reads are not paginated: an attempt answers with its newest media only
@@ -135,7 +136,7 @@ const findStaffAttempt = async (attemptId: number, user: Caller, missing: string
   return attempt;
 };
 
-export const addMedia = async (kind: string, attemptIdParam: string, studentId: number, image: unknown, label: unknown): Promise<Media> => {
+export const addMedia = async (kind: string, attemptIdParam: string, studentId: number, payload: unknown, label: unknown): Promise<Media> => {
   const media = kindOf(kind);
   const attemptId = parseId(attemptIdParam);
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
@@ -147,7 +148,7 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
   // the attempt is only auto submitted by the attempts domain, so the clock is checked here as well
   if (await attemptExpired(attempt)) throw new HttpError(409, 'Time is up: this attempt is over');
 
-  const mediaUrl = await uploadPhoto(attemptId, kind, image);
+  const mediaUrl = kind === 'audio-recordings' ? await uploadAudio(attemptId, kind, payload) : await uploadPhoto(attemptId, kind, payload);
 
   const { data: row, error } = await database
     .from(media.table)
@@ -170,7 +171,7 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
 
   // not awaited: the student's app gets its response immediately, the face check (a second or
   // so of ML inference) runs after, and flags the attempt in the background if it mismatches
-  if (kind === 'face-snapshots') void checkFaceMatch(attemptId, studentId, image);
+  if (kind === 'face-snapshots') void checkFaceMatch(attemptId, studentId, payload);
 
   return row;
 };
