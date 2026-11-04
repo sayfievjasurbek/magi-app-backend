@@ -86,7 +86,7 @@ const decodeFileData = (value: unknown): { bytes: Buffer; mime: string } => {
     throw new HttpError(400, 'fileData must be valid base64');
   }
   if (!bytes.length) throw new HttpError(400, 'fileData is required');
-  if (bytes.length > SUBMISSION_MAX_BYTES) throw new HttpError(400, 'file must be at most 20MB');
+  if (bytes.length > SUBMISSION_MAX_BYTES) throw new HttpError(400, 'file must be at most 7MB');
 
   return { bytes, mime };
 };

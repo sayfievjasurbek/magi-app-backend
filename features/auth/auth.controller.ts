@@ -9,7 +9,7 @@ import { decodeImageData, uploadProfilePhoto } from '../../lib/storage.js';
 import { compareFaces, hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
 import { notify } from '../../lib/notifications.js';
-import { seesAllModules } from '../../lib/position-access.js';
+import { seesAllModules, managesStudent, managesProfessor } from '../../lib/position-access.js';
 
 type s = string;
 type n = string;
@@ -561,6 +561,7 @@ export const getStudentDetail = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const { data: user, error: userError } = await database
       .from('users')
@@ -590,6 +591,7 @@ export const updateStudent = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password }:
       { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s, idNumber?: s, studentCode?: s, password?: s } = req.body;
@@ -709,6 +711,7 @@ export const deleteStudent = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const { reason }: { reason?: s } = req.body;
 
@@ -739,6 +742,7 @@ export const resetStudentPhoto = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const { data: student, error: studentError } = await database
       .from('students')
@@ -763,6 +767,7 @@ export const getStudentCredentials = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
     const { data: user, error: userError } = await database
       .from('users')
@@ -943,6 +948,7 @@ export const getProfessorDetail = async (req: Request, res: Response) => {
   try {
     const professorId = Number(req.params.id);
     if (!Number.isInteger(professorId)) return res.status(400).json({ success: false, message: 'Invalid professor id' });
+    if (!(await managesProfessor(req.user!.id, professorId))) return res.status(404).json({ success: false, message: 'Professor not found' });
 
     const { data: user, error: userError } = await database
       .from('users')
@@ -972,6 +978,7 @@ export const getProfessorCredentials = async (req: Request, res: Response) => {
   try {
     const professorId = Number(req.params.id);
     if (!Number.isInteger(professorId)) return res.status(400).json({ success: false, message: 'Invalid professor id' });
+    if (!(await managesProfessor(req.user!.id, professorId))) return res.status(404).json({ success: false, message: 'Professor not found' });
 
     const { data: user, error: userError } = await database
       .from('users')
