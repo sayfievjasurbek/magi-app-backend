@@ -4,6 +4,18 @@ import { managedExamIds, managesExam, seesExam } from '../../lib/exam-access.js'
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type TokenPayload } from '../../lib/types.js';
 import { notifyMany } from '../../lib/notifications.js';
+import {
+  requireUrl,
+  requireAppName,
+  findOrCreatePermittedUrl,
+  findOrCreatePermittedApp,
+  linkPermitted,
+  unlinkPermitted,
+  examPermittedApps,
+  sharedModuleIds,
+  effectivePermittedUrls,
+  effectivePermittedApps,
+} from '../../lib/permitted-access.js';
 
 const EXAM_COLUMNS = 'id, name, kind, shuffle_questions, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by, created_at, updated_at';
 // a student never sees who owns an exam, how it is shuffled or what it asks
@@ -278,7 +290,16 @@ export const listExams = async (user: TokenPayload, moduleId?: number, kind?: st
 
 export const getExam = async (user: TokenPayload, examId: number) => {
   const exam = await loadVisibleExam(user, examId, user.role === 'student' ? STUDENT_EXAM_COLUMNS : EXAM_COLUMNS);
-  if (user.role === 'student') return { ...exam, permitted_urls: await examUrls(examId) };
+  if (user.role === 'student') {
+    // the live view of what a module or individual grant on top of this exam would add -
+    // start_attempt() freezes the same merge onto the attempt once it actually starts
+    const moduleIds = await sharedModuleIds(examId, user.id);
+    return {
+      ...exam,
+      permitted_urls: await effectivePermittedUrls(examId, user.id, moduleIds),
+      permitted_apps: await effectivePermittedApps(examId, user.id, moduleIds),
+    };
+  };
 
   const questions = await examQuestions(examId);
   return {
@@ -288,6 +309,7 @@ export const getExam = async (user: TokenPayload, examId: number) => {
     students: await examPeople('exam_student', 'student_id', examId),
     events: await examEvents(examId),
     permitted_urls: await examUrls(examId),
+    permitted_apps: await examPermittedApps(examId),
     questions,
     marks_total: totalMarks(questions),
   };
@@ -706,51 +728,27 @@ export const detachEvent = async (professorId: number, examId: number, eventId: 
 };
 
 export const addPermittedUrl = async (professorId: number, examId: number, body: any = {}) => {
-  const url = typeof body.url === 'string' ? body.url.trim() : '';
-  let address: URL;
-  try {
-    address = new URL(url);
-  } catch {
-    throw new HttpError(400, 'url must be an http or https address');
-  };
-  if (address.protocol !== 'http:' && address.protocol !== 'https:') {
-    throw new HttpError(400, 'url must be an http or https address');
-  };
-
+  const url = requireUrl(body.url);
   await loadManagedExam(professorId, examId);
-
-  // the same address is shared by every exam that permits it
-  const { data: existing, error } = await database.from('permitted_urls').select('id, url').eq('url', url).limit(1);
-  throwOnError(error);
-
-  let permitted = existing?.[0];
-  if (!permitted) {
-    const { data: created, error: createError } = await database
-      .from('permitted_urls')
-      .insert({ url })
-      .select('id, url')
-      .single();
-    throwOnError(createError);
-    // .single() answers a row whenever it does not answer an error, which throwOnError has rethrown
-    permitted = created!;
-  };
-
-  const { error: linkError } = await database
-    .from('exam_permitted_url')
-    .insert({ exam_id: examId, permitted_url_id: permitted.id });
-  throwOnError(linkError, 'The url is already permitted for this exam');
+  const permitted = await findOrCreatePermittedUrl(url);
+  await linkPermitted('exam_permitted_url', 'exam_id', examId, 'permitted_url_id', permitted.id, 'The url is already permitted for this exam');
   return permitted;
 };
 
 export const removePermittedUrl = async (professorId: number, examId: number, permittedUrlId: number) => {
   await loadManagedExam(professorId, examId);
+  await unlinkPermitted('exam_permitted_url', 'exam_id', examId, 'permitted_url_id', permittedUrlId, 'Permitted url not found');
+};
 
-  const { data, error } = await database
-    .from('exam_permitted_url')
-    .delete()
-    .eq('exam_id', examId)
-    .eq('permitted_url_id', permittedUrlId)
-    .select('permitted_url_id');
-  throwOnError(error);
-  if (!data?.length) throw new HttpError(404, 'Permitted url not found');
+export const addPermittedApp = async (professorId: number, examId: number, body: any = {}) => {
+  const name = requireAppName(body.name);
+  await loadManagedExam(professorId, examId);
+  const permitted = await findOrCreatePermittedApp(name);
+  await linkPermitted('exam_permitted_app', 'exam_id', examId, 'permitted_app_id', permitted.id, 'The app is already permitted for this exam');
+  return permitted;
+};
+
+export const removePermittedApp = async (professorId: number, examId: number, permittedAppId: number) => {
+  await loadManagedExam(professorId, examId);
+  await unlinkPermitted('exam_permitted_app', 'exam_id', examId, 'permitted_app_id', permittedAppId, 'Permitted app not found');
 };

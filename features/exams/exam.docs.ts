@@ -43,6 +43,7 @@ export const schemas = {
       max_marks: { type: 'integer', example: 100 },
       passing_marks: { type: 'integer', example: 40 },
       permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+      permitted_apps: { type: 'array', items: ref('PermittedApp') },
     },
   },
   ExamDetail: {
@@ -56,6 +57,7 @@ export const schemas = {
           students: { type: 'array', items: ref('Person') },
           events: { type: 'array', items: ref('MonitoredEvent') },
           permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+          permitted_apps: { type: 'array', items: ref('PermittedApp') },
           questions: { type: 'array', items: ref('ExamQuestion') },
           marks_total: { type: 'integer', example: 100, description: 'The marks of the questions added up; it has to equal max_marks before the exam can go ongoing' },
         },
@@ -407,6 +409,27 @@ export const paths = {
       description: 'The address itself stays, other exams may permit it too. *professor*',
       ...authed,
       parameters: [examParam, pathParam('permittedUrlId', 'Id of the permitted url')],
+      responses: { '200': ok('Removed', messageOnly), ...errors(401, 403, 404) },
+    },
+  },
+  '/api/exams/{examId}/permitted-apps': {
+    post: {
+      tags: ['Exams'],
+      summary: 'Permit an app during the exam',
+      description: 'A name that is already stored is reused instead of duplicated. *professor*',
+      ...authed,
+      parameters: [examParam],
+      requestBody: { required: true, content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', example: 'Visual Studio Code' } } }) },
+      responses: { ...created('Permitted', envelope({ permitted_app: ref('PermittedApp') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/exams/{examId}/permitted-apps/{permittedAppId}': {
+    delete: {
+      tags: ['Exams'],
+      summary: 'Stop permitting an app during the exam',
+      description: 'The app itself stays, other exams may permit it too. *professor*',
+      ...authed,
+      parameters: [examParam, pathParam('permittedAppId', 'Id of the permitted app')],
       responses: { '200': ok('Removed', messageOnly), ...errors(401, 403, 404) },
     },
   },

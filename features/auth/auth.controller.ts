@@ -10,6 +10,16 @@ import { compareFaces, hasFace, isUsableImage } from '../../lib/faceMatch.js';
 import { HttpError } from '../../lib/errors.js';
 import { notify } from '../../lib/notifications.js';
 import { seesAllModules, managesStudent, managesProfessor } from '../../lib/position-access.js';
+import {
+  requireUrl,
+  requireAppName,
+  findOrCreatePermittedUrl,
+  findOrCreatePermittedApp,
+  linkPermitted,
+  unlinkPermitted,
+  studentPermittedUrls,
+  studentPermittedApps,
+} from '../../lib/permitted-access.js';
 
 type s = string;
 type n = string;
@@ -579,9 +589,77 @@ export const getStudentDetail = async (req: Request, res: Response) => {
       .maybeSingle();
     if (studentError) throw new Error(studentError.message);
 
-    return res.status(200).json({ success: true, student: { ...user, ...student } });
+    return res.status(200).json({
+      success: true,
+      student: {
+        ...user,
+        ...student,
+        permitted_urls: await studentPermittedUrls(studentId),
+        permitted_apps: await studentPermittedApps(studentId),
+      },
+    });
   } catch (error: unknown) {
     return handleControllerError(res, error, "getStudentDetail controller");
+  };
+};
+
+// a professor granting one student an individual url/app exception, on top of whatever their
+// group and exams already permit
+export const addStudentPermittedUrl = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const url = requireUrl(req.body?.url);
+    const permitted_url = await findOrCreatePermittedUrl(url);
+    await linkPermitted('student_permitted_url', 'student_id', studentId, 'permitted_url_id', permitted_url.id, 'The url is already permitted for this student');
+    return res.status(201).json({ success: true, permitted_url });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "addStudentPermittedUrl controller");
+  };
+};
+
+export const removeStudentPermittedUrl = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    const permittedUrlId = Number(req.params.permittedUrlId);
+    if (!Number.isInteger(studentId) || !Number.isInteger(permittedUrlId)) return res.status(400).json({ success: false, message: 'Invalid id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    await unlinkPermitted('student_permitted_url', 'student_id', studentId, 'permitted_url_id', permittedUrlId, 'Permitted url not found');
+    return res.status(200).json({ success: true, message: 'Permitted url removed' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "removeStudentPermittedUrl controller");
+  };
+};
+
+export const addStudentPermittedApp = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    const name = requireAppName(req.body?.name);
+    const permitted_app = await findOrCreatePermittedApp(name);
+    await linkPermitted('student_permitted_app', 'student_id', studentId, 'permitted_app_id', permitted_app.id, 'The app is already permitted for this student');
+    return res.status(201).json({ success: true, permitted_app });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "addStudentPermittedApp controller");
+  };
+};
+
+export const removeStudentPermittedApp = async (req: Request, res: Response) => {
+  try {
+    const studentId = Number(req.params.id);
+    const permittedAppId = Number(req.params.permittedAppId);
+    if (!Number.isInteger(studentId) || !Number.isInteger(permittedAppId)) return res.status(400).json({ success: false, message: 'Invalid id' });
+    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
+
+    await unlinkPermitted('student_permitted_app', 'student_id', studentId, 'permitted_app_id', permittedAppId, 'Permitted app not found');
+    return res.status(200).json({ success: true, message: 'Permitted app removed' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "removeStudentPermittedApp controller");
   };
 };
 

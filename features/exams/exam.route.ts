@@ -24,6 +24,8 @@ import {
   detachEvent,
   addPermittedUrl,
   removePermittedUrl,
+  addPermittedApp,
+  removePermittedApp,
 } from './exam.controller.js';
 
 
@@ -61,6 +63,9 @@ router.delete('/:examId/events/:eventId', requireRole('professor'), detachEvent)
 
 router.post('/:examId/permitted-urls', requireRole('professor'), addPermittedUrl);
 router.delete('/:examId/permitted-urls/:permittedUrlId', requireRole('professor'), removePermittedUrl);
+
+router.post('/:examId/permitted-apps', requireRole('professor'), addPermittedApp);
+router.delete('/:examId/permitted-apps/:permittedAppId', requireRole('professor'), removePermittedApp);
 
 
 export default router;

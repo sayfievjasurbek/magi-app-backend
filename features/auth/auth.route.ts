@@ -1,5 +1,5 @@
 import express, {type Request, type Response} from 'express';
-import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, updateStudent, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, updateMyProfile, getMyCurrentPassword, setMyProfilePhoto, checkMyIdentity, verifyAccount, verifyEmail, getUser} from './auth.controller.js';
+import {forgotPassword, login, logout, resetPassword, signup, createStudent, listCreatedStudents, getStudentDetail, updateStudent, deleteStudent, resetStudentPhoto, getStudentCredentials, createProfessor, listCreatedProfessors, getProfessorDetail, getProfessorCredentials, changePassword, getMyProfile, updateMyProfile, getMyCurrentPassword, setMyProfilePhoto, checkMyIdentity, verifyAccount, verifyEmail, getUser, addStudentPermittedUrl, removeStudentPermittedUrl, addStudentPermittedApp, removeStudentPermittedApp} from './auth.controller.js';
 import {protectRoute} from '../../middleware/auth.middleware.js';
 import {requireRole} from '../../middleware/role.middleware.js';
 
@@ -22,6 +22,8 @@ router.post("/me/identity-check", protectRoute, requireRole('student'), checkMyI
 router.patch("/me/password", protectRoute, changePassword);
 router.patch("/me/profile", protectRoute, updateMyProfile);
 router.patch("/students/:id", protectRoute, requireRole('professor'), updateStudent);
+router.post("/students/:id/permitted-urls", protectRoute, requireRole('professor'), addStudentPermittedUrl);
+router.post("/students/:id/permitted-apps", protectRoute, requireRole('professor'), addStudentPermittedApp);
 
 
 //get
@@ -31,6 +33,8 @@ router.get("/students/:id", protectRoute, requireRole('professor'), getStudentDe
 router.get("/students/:id/credentials", protectRoute, requireRole('professor'), getStudentCredentials);
 router.delete("/students/:id", protectRoute, requireRole('professor'), deleteStudent);
 router.delete("/students/:id/photo", protectRoute, requireRole('professor'), resetStudentPhoto);
+router.delete("/students/:id/permitted-urls/:permittedUrlId", protectRoute, requireRole('professor'), removeStudentPermittedUrl);
+router.delete("/students/:id/permitted-apps/:permittedAppId", protectRoute, requireRole('professor'), removeStudentPermittedApp);
 router.get("/professors", protectRoute, requireRole('professor'), listCreatedProfessors);
 router.get("/professors/:id", protectRoute, requireRole('professor'), getProfessorDetail);
 router.get("/professors/:id/credentials", protectRoute, requireRole('professor'), getProfessorCredentials);

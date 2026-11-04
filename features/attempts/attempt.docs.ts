@@ -109,6 +109,7 @@ export const schemas = {
         properties: {
           questions: { type: 'array', items: ref('StudentAttemptQuestion') },
           permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+          permitted_apps: { type: 'array', items: ref('PermittedApp') },
           cheating_incidents: {
             type: 'array',
             items: ref('Cheating'),

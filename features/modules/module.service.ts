@@ -4,6 +4,16 @@ import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type Role } from '../../lib/types.js';
 import { notify } from '../../lib/notifications.js';
 import { seesAllModules } from '../../lib/position-access.js';
+import {
+  requireUrl,
+  requireAppName,
+  findOrCreatePermittedUrl,
+  findOrCreatePermittedApp,
+  linkPermitted,
+  unlinkPermitted,
+  modulePermittedUrls,
+  modulePermittedApps,
+} from '../../lib/permitted-access.js';
 
 type Person = { id: number; first_name: string; last_name: string | null; email: string };
 
@@ -297,8 +307,7 @@ export const listModules = async (userId: number, role: Role) => {
 };
 
 // a professor looking up which modules one student belongs to - the Students detail page in
-// the admin panel, not scoped to modules this professor manages (same broad visibility as
-// looking up that student's credentials)
+// the admin panel, not scoped to modules this professor manages
 export const getStudentModules = async (studentIdParam: string) => {
   const studentId = parseId(studentIdParam);
   if (!studentId) return [];
@@ -329,7 +338,40 @@ export const getModule = async (userId: number, role: Role, moduleIdParam: strin
   const counts = await countStudents([managed.id]);
   const professors = await professorsByModule([managed.id]);
   const averageAge = await averageAgeForModule(managed.id);
-  return { ...managed, student_count: counts[managed.id] ?? 0, professors: professors[managed.id] ?? [], average_age: averageAge };
+  return {
+    ...managed,
+    student_count: counts[managed.id] ?? 0,
+    professors: professors[managed.id] ?? [],
+    average_age: averageAge,
+    permitted_urls: await modulePermittedUrls(managed.id),
+    permitted_apps: await modulePermittedApps(managed.id),
+  };
+};
+
+export const addModulePermittedUrl = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
+  const managed = await requireManagedModule(moduleIdParam, professorId);
+  const url = requireUrl(body.url);
+  const permitted = await findOrCreatePermittedUrl(url);
+  await linkPermitted('module_permitted_url', 'module_id', managed.id, 'permitted_url_id', permitted.id, 'The url is already permitted for this group');
+  return permitted;
+};
+
+export const removeModulePermittedUrl = async (professorId: number, moduleIdParam: string, permittedUrlId: number) => {
+  const managed = await requireManagedModule(moduleIdParam, professorId);
+  await unlinkPermitted('module_permitted_url', 'module_id', managed.id, 'permitted_url_id', permittedUrlId, 'Permitted url not found');
+};
+
+export const addModulePermittedApp = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
+  const managed = await requireManagedModule(moduleIdParam, professorId);
+  const name = requireAppName(body.name);
+  const permitted = await findOrCreatePermittedApp(name);
+  await linkPermitted('module_permitted_app', 'module_id', managed.id, 'permitted_app_id', permitted.id, 'The app is already permitted for this group');
+  return permitted;
+};
+
+export const removeModulePermittedApp = async (professorId: number, moduleIdParam: string, permittedAppId: number) => {
+  const managed = await requireManagedModule(moduleIdParam, professorId);
+  await unlinkPermitted('module_permitted_app', 'module_id', managed.id, 'permitted_app_id', permittedAppId, 'Permitted app not found');
 };
 
 // every member's total score across this module's own graded exams, highest first - a

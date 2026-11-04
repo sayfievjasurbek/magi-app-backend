@@ -28,6 +28,9 @@ export type Professor = { user_id: number };
 export type Student = { user_id: number };
 export type Examiner = { user_id: number };
 
+export type StudentPermittedUrl = { student_id: number; permitted_url_id: number };
+export type StudentPermittedApp = { student_id: number; permitted_app_id: number };
+
 export type Token = {
   id: number;
   token: string;

@@ -45,8 +45,18 @@ export const schemas = {
   },
   ModuleDetail: {
     type: 'object',
-    description: "A single module's own page: the same fields as ManagedModule plus the enrolled students' average age",
-    allOf: [ref('ManagedModule'), { type: 'object', properties: { average_age: nullable({ type: 'number', example: 17.5 }) } }],
+    description: "A single module's own page: the same fields as ManagedModule plus the enrolled students' average age and whatever urls/apps the group permits",
+    allOf: [
+      ref('ManagedModule'),
+      {
+        type: 'object',
+        properties: {
+          average_age: nullable({ type: 'number', example: 17.5 }),
+          permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+          permitted_apps: { type: 'array', items: ref('PermittedApp') },
+        },
+      },
+    ],
   },
   ModuleMemberInput: {
     type: 'object',
@@ -121,7 +131,7 @@ export const paths = {
     get: {
       tags: ['Modules'],
       summary: 'Modules one student belongs to (professor)',
-      description: 'Not scoped to modules the caller manages - any professor can look this up, same as a student\'s credentials.',
+      description: 'Not scoped to modules the caller manages - any professor can look this up.',
       ...authed,
       parameters: [pathParam('studentId', 'User id of the student')],
       responses: { '200': ok('Modules', envelope({ modules: { type: 'array', items: ref('Module') } })), ...errors(401, 403) },
@@ -208,6 +218,48 @@ export const paths = {
       ...authed,
       parameters: [moduleParam, pathParam('studentId', 'User id of the student')],
       responses: { '200': ok('Student removed', messageOnly), ...errors(401, 403, 404) },
+    },
+  },
+  '/api/modules/{id}/permitted-urls': {
+    post: {
+      tags: ['Modules'],
+      summary: 'Permit a url for the whole group (professor)',
+      description: 'Granted to every student in the module, on any exam the module is linked to. A name that is already stored is reused instead of duplicated.',
+      ...authed,
+      parameters: [moduleParam],
+      requestBody: { required: true, content: json({ type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', example: 'https://docs.python.org/3/' } } }) },
+      responses: { '201': ok('Permitted', envelope({ permitted_url: ref('PermittedUrl') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/modules/{id}/permitted-urls/{permittedUrlId}': {
+    delete: {
+      tags: ['Modules'],
+      summary: 'Stop permitting a url for the group (professor)',
+      description: 'The address itself stays, other modules or exams may permit it too.',
+      ...authed,
+      parameters: [moduleParam, pathParam('permittedUrlId', 'Id of the permitted url')],
+      responses: { '200': ok('Removed', messageOnly), ...errors(401, 403, 404) },
+    },
+  },
+  '/api/modules/{id}/permitted-apps': {
+    post: {
+      tags: ['Modules'],
+      summary: 'Permit an app for the whole group (professor)',
+      description: 'Granted to every student in the module, on any exam the module is linked to. A name that is already stored is reused instead of duplicated.',
+      ...authed,
+      parameters: [moduleParam],
+      requestBody: { required: true, content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', example: 'Visual Studio Code' } } }) },
+      responses: { '201': ok('Permitted', envelope({ permitted_app: ref('PermittedApp') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/modules/{id}/permitted-apps/{permittedAppId}': {
+    delete: {
+      tags: ['Modules'],
+      summary: 'Stop permitting an app for the group (professor)',
+      description: 'The app itself stays, other modules or exams may permit it too.',
+      ...authed,
+      parameters: [moduleParam, pathParam('permittedAppId', 'Id of the permitted app')],
+      responses: { '200': ok('Removed', messageOnly), ...errors(401, 403, 404) },
     },
   },
 };

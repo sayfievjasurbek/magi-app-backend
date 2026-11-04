@@ -218,3 +218,25 @@ export const removePermittedUrl = async (req: Request, res: Response) => {
     return handleControllerError(res, error, "removePermittedUrl controller");
   };
 };
+
+export const addPermittedApp = async (req: Request, res: Response) => {
+  try {
+    const permitted_app = await service.addPermittedApp(req.user!.id, pathId(req.params.examId, 'Exam'), req.body);
+    return res.status(201).json({ success: true, permitted_app });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "addPermittedApp controller");
+  };
+};
+
+export const removePermittedApp = async (req: Request, res: Response) => {
+  try {
+    await service.removePermittedApp(
+      req.user!.id,
+      pathId(req.params.examId, 'Exam'),
+      pathId(req.params.permittedAppId, 'Permitted app')
+    );
+    return res.status(200).json({ success: true, message: "Permitted app removed" });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "removePermittedApp controller");
+  };
+};

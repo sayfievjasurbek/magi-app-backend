@@ -41,9 +41,14 @@ export const sharedSchemas = {
     type: 'object',
     properties: { id, first_name: { type: 'string', example: 'Sarah' }, last_name: nullable({ type: 'string', example: 'Chen' }), email: { type: 'string', format: 'email', example: 'sarah.chen@magi.edu' } },
   },
-  // permitted urls belong to an exam and are copied onto every attempt of it, so both domains answer with them
+  // permitted urls/apps can be granted at exam, module and student level, and are merged and
+  // copied onto every attempt once it starts - exams, modules and students (auth) all answer with them
   PermittedUrl: {
     type: 'object',
     properties: { id, url: { type: 'string', format: 'uri', example: 'https://docs.python.org/3/' } },
+  },
+  PermittedApp: {
+    type: 'object',
+    properties: { id, name: { type: 'string', example: 'Visual Studio Code' } },
   },
 };

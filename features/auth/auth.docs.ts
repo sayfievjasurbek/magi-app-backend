@@ -211,6 +211,8 @@ export const paths = {
                 parent_relation: nullable({ type: 'string', example: 'mother' }),
                 age: nullable({ type: 'integer', example: 17 }),
                 profile_photo_url: nullable({ type: 'string', example: 'https://xxxxx.supabase.co/storage/v1/object/public/proctoring/profiles/42/a1b2c3.jpg' }),
+                permitted_urls: { type: 'array', items: ref('PermittedUrl') },
+                permitted_apps: { type: 'array', items: ref('PermittedApp') },
               },
             },
           })
@@ -311,6 +313,54 @@ export const paths = {
         ),
         ...errors(400, 403, 404),
       },
+    },
+  },
+  '/api/auth/students/{id}/permitted-urls': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Grant a student an individual permitted url (professor only)',
+      description: 'On top of whatever the student\'s group and the exam itself already permit. A url that is already stored is reused instead of duplicated.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      requestBody: { required: true, content: json({ type: 'object', required: ['url'], properties: { url: { type: 'string', format: 'uri', example: 'https://docs.python.org/3/' } } }) },
+      responses: { '201': ok('Permitted', envelope({ permitted_url: ref('PermittedUrl') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/auth/students/{id}/permitted-urls/{permittedUrlId}': {
+    delete: {
+      tags: ['Auth'],
+      summary: 'Revoke a student\'s individual permitted url (professor only)',
+      description: 'The address itself stays, other grants may still permit it.',
+      ...authed,
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } },
+        { name: 'permittedUrlId', in: 'path', required: true, schema: { type: 'integer', example: 7 } },
+      ],
+      responses: { '200': ok('Removed', messageOnly), ...errors(400, 401, 403, 404) },
+    },
+  },
+  '/api/auth/students/{id}/permitted-apps': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Grant a student an individual permitted app (professor only)',
+      description: 'On top of whatever the student\'s group and the exam itself already permit. A name that is already stored is reused instead of duplicated.',
+      ...authed,
+      parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } }],
+      requestBody: { required: true, content: json({ type: 'object', required: ['name'], properties: { name: { type: 'string', example: 'Visual Studio Code' } } }) },
+      responses: { '201': ok('Permitted', envelope({ permitted_app: ref('PermittedApp') })), ...errors(400, 401, 403, 404, 409) },
+    },
+  },
+  '/api/auth/students/{id}/permitted-apps/{permittedAppId}': {
+    delete: {
+      tags: ['Auth'],
+      summary: 'Revoke a student\'s individual permitted app (professor only)',
+      description: 'The app itself stays, other grants may still permit it.',
+      ...authed,
+      parameters: [
+        { name: 'id', in: 'path', required: true, schema: { type: 'integer', example: 42 } },
+        { name: 'permittedAppId', in: 'path', required: true, schema: { type: 'integer', example: 7 } },
+      ],
+      responses: { '200': ok('Removed', messageOnly), ...errors(400, 401, 403, 404) },
     },
   },
   '/api/auth/create-professor': {

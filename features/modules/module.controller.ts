@@ -1,6 +1,14 @@
 import { type Request, type Response } from 'express';
-import { handleControllerError } from '../../lib/utils.js';
+import { HttpError } from '../../lib/errors.js';
+import { handleControllerError, parseId } from '../../lib/utils.js';
 import * as moduleService from './module.service.js';
+
+// a path id that does not parse cannot match a row, so it answers like a missing one
+const pathId = (value: unknown, name: string) => {
+  const id = parseId(value);
+  if (!id) throw new HttpError(404, `${name} not found`);
+  return id;
+};
 
 //create module (the creator manages it)
 export const createModule = async (req: Request, res: Response) => {
@@ -129,5 +137,43 @@ export const removeStudent = async (req: Request, res: Response) => {
     return res.status(200).json({ success: true, message: 'Student removed from module' });
   } catch (error: unknown) {
     return handleControllerError(res, error, "removeStudent controller");
+  };
+};
+
+//add a permitted url - every student in the group gets it on any exam the group sits
+export const addPermittedUrl = async (req: Request, res: Response) => {
+  try {
+    const permitted_url = await moduleService.addModulePermittedUrl(req.user!.id, req.params.id as string, req.body ?? {});
+    return res.status(201).json({ success: true, permitted_url });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "addPermittedUrl controller");
+  };
+};
+
+export const removePermittedUrl = async (req: Request, res: Response) => {
+  try {
+    await moduleService.removeModulePermittedUrl(req.user!.id, req.params.id as string, pathId(req.params.permittedUrlId, 'Permitted url'));
+    return res.status(200).json({ success: true, message: 'Permitted url removed' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "removePermittedUrl controller");
+  };
+};
+
+//add a permitted app - every student in the group gets it on any exam the group sits
+export const addPermittedApp = async (req: Request, res: Response) => {
+  try {
+    const permitted_app = await moduleService.addModulePermittedApp(req.user!.id, req.params.id as string, req.body ?? {});
+    return res.status(201).json({ success: true, permitted_app });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "addPermittedApp controller");
+  };
+};
+
+export const removePermittedApp = async (req: Request, res: Response) => {
+  try {
+    await moduleService.removeModulePermittedApp(req.user!.id, req.params.id as string, pathId(req.params.permittedAppId, 'Permitted app'));
+    return res.status(200).json({ success: true, message: 'Permitted app removed' });
+  } catch (error: unknown) {
+    return handleControllerError(res, error, "removePermittedApp controller");
   };
 };

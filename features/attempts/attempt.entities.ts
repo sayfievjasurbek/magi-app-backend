@@ -53,3 +53,4 @@ export type QuestionAssignment = {
 export type QuestionAssignmentOption = { assignment_id: number; question_id: number; option_id: number };
 
 export type AssignmentPermittedUrl = { assignment_id: number; permitted_url_id: number };
+export type AssignmentPermittedApp = { assignment_id: number; permitted_app_id: number };

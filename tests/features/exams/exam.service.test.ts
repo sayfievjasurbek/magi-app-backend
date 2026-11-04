@@ -131,17 +131,28 @@ describe('listExams', () => {
 });
 
 describe('getExam', () => {
-  it('gives a student the schedule and the permitted urls but no questions', async () => {
+  it('gives a student the schedule and the permitted urls/apps but no questions', async () => {
     queue.push(
       rows({ id: 3, name: 'Databases', status: 'scheduled' }),
       rows({ exam_id: 3 }),
-      rows([{ permitted_url_id: 4 }]),
-      rows([{ id: 4, url: 'https://docs.magi' }])
+      rows([]), // module_student - the student isn't in any module
+      rows([]), // exam_module - so the shared-module intersection is empty either way
+      rows([{ permitted_url_id: 4 }]), // exam_permitted_url
+      rows([]), // student_permitted_url
+      rows([{ id: 4, url: 'https://docs.magi' }]), // permitted_urls
+      rows([]), // exam_permitted_app
+      rows([]) // student_permitted_app - no app ids at all, so permitted_apps is never queried
     );
 
     const exam = await getExam(asUser(9, 'student'), 3);
 
-    expect(exam).toEqual({ id: 3, name: 'Databases', status: 'scheduled', permitted_urls: [{ id: 4, url: 'https://docs.magi' }] });
+    expect(exam).toEqual({
+      id: 3,
+      name: 'Databases',
+      status: 'scheduled',
+      permitted_urls: [{ id: 4, url: 'https://docs.magi' }],
+      permitted_apps: [],
+    });
     expect(from).not.toHaveBeenCalledWith('exam_question');
     expect(from).not.toHaveBeenCalledWith('questions');
   });

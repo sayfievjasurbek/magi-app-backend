@@ -41,6 +41,8 @@ describe('module routes', () => {
       'POST / createModule',
       'POST /:id/professors addProfessor',
       'POST /:id/students addStudent',
+      'POST /:id/permitted-urls addPermittedUrl',
+      'POST /:id/permitted-apps addPermittedApp',
       'GET / listModules',
       'GET /students/:studentId getStudentModules',
       'GET /professors/:professorId getProfessorModules',
@@ -51,6 +53,8 @@ describe('module routes', () => {
       'DELETE /:id deleteModule',
       'DELETE /:id/professors/:professorId removeProfessor',
       'DELETE /:id/students/:studentId removeStudent',
+      'DELETE /:id/permitted-urls/:permittedUrlId removePermittedUrl',
+      'DELETE /:id/permitted-apps/:permittedAppId removePermittedApp',
     ]);
   });
 
@@ -61,6 +65,8 @@ describe('module routes', () => {
       'POST /': ['professor'],
       'POST /:id/professors': ['professor'],
       'POST /:id/students': ['professor'],
+      'POST /:id/permitted-urls': ['professor'],
+      'POST /:id/permitted-apps': ['professor'],
       'GET /': ['professor', 'student'],
       'GET /students/:studentId': ['professor'],
       'GET /professors/:professorId': ['professor'],
@@ -71,6 +77,8 @@ describe('module routes', () => {
       'DELETE /:id': ['professor'],
       'DELETE /:id/professors/:professorId': ['professor'],
       'DELETE /:id/students/:studentId': ['professor'],
+      'DELETE /:id/permitted-urls/:permittedUrlId': ['professor'],
+      'DELETE /:id/permitted-apps/:permittedAppId': ['professor'],
     });
   });
 });

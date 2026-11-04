@@ -216,6 +216,18 @@ const attemptPermittedUrls = async (attemptId: number) => {
     .in('id', links.map((link: { permitted_url_id: number }) => link.permitted_url_id))) ?? [];
 };
 
+// same shape as attemptPermittedUrls - frozen by start_attempt() alongside it, from the exam's,
+// the student's and their group's app grants
+const attemptPermittedApps = async (attemptId: number) => {
+  const links = unwrap(await database.from('assignment_permitted_app').select('permitted_app_id').eq('assignment_id', attemptId)) ?? [];
+  if (!links.length) return [];
+
+  return unwrap(await database
+    .from('permitted_apps')
+    .select('id, name')
+    .in('id', links.map((link: { permitted_app_id: number }) => link.permitted_app_id))) ?? [];
+};
+
 // Closes an attempt: marks every objective answer, stores the total and moves the status on.
 // A flagged attempt keeps its status until a professor grades it, so the flag is not lost.
 const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
@@ -299,6 +311,7 @@ const resumeAttempt = async (studentId: number, attemptId: number) => {
     ...studentSummary(current, exam),
     questions: await attemptQuestions(current, false),
     permitted_urls: await attemptPermittedUrls(current.id),
+    permitted_apps: await attemptPermittedApps(current.id),
   };
 };
 
@@ -357,6 +370,7 @@ export const startAttempt = async (studentId: number, body: { examId?: unknown }
     ...studentSummary(created, exam),
     questions: await attemptQuestions(created, false),
     permitted_urls: await attemptPermittedUrls(created.id),
+    permitted_apps: await attemptPermittedApps(created.id),
   };
 };
 
@@ -458,6 +472,7 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
       ...studentSummary(current, exam),
       questions: await attemptQuestions(current, false),
       permitted_urls: await attemptPermittedUrls(current.id),
+      permitted_apps: await attemptPermittedApps(current.id),
       // disclosed only when a professor explicitly chose to show this student what was
       // recorded against them - never by default, see setCheatingDisclosure below
       ...(current.cheating_disclosed ? { cheating_incidents: await incidentsForAttempt(current.id) } : {}),

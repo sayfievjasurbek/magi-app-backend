@@ -1,5 +1,5 @@
 import express from 'express';
-import { createModule, listModules, getModule, getModuleRating, getStudentModules, getProfessorModules, getRoster, updateModule, deleteModule, addProfessor, removeProfessor, addStudent, removeStudent } from './module.controller.js';
+import { createModule, listModules, getModule, getModuleRating, getStudentModules, getProfessorModules, getRoster, updateModule, deleteModule, addProfessor, removeProfessor, addStudent, removeStudent, addPermittedUrl, removePermittedUrl, addPermittedApp, removePermittedApp } from './module.controller.js';
 import { protectRoute } from '../../middleware/auth.middleware.js';
 import { requireRole } from '../../middleware/role.middleware.js';
 
@@ -13,6 +13,8 @@ router.use(protectRoute);
 router.post("/", requireRole('professor'), createModule);
 router.post("/:id/professors", requireRole('professor'), addProfessor);
 router.post("/:id/students", requireRole('professor'), addStudent);
+router.post("/:id/permitted-urls", requireRole('professor'), addPermittedUrl);
+router.post("/:id/permitted-apps", requireRole('professor'), addPermittedApp);
 
 //get
 router.get("/", requireRole('professor', 'student'), listModules);
@@ -29,6 +31,8 @@ router.patch("/:id", requireRole('professor'), updateModule);
 router.delete("/:id", requireRole('professor'), deleteModule);
 router.delete("/:id/professors/:professorId", requireRole('professor'), removeProfessor);
 router.delete("/:id/students/:studentId", requireRole('professor'), removeStudent);
+router.delete("/:id/permitted-urls/:permittedUrlId", requireRole('professor'), removePermittedUrl);
+router.delete("/:id/permitted-apps/:permittedAppId", requireRole('professor'), removePermittedApp);
 
 
 export default router;

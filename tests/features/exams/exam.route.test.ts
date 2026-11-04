@@ -123,4 +123,12 @@ describe('exam routes', () => {
     expect(await bad.json()).toEqual({ success: false, message: 'Permitted url not found' });
     expect(await good.json()).toEqual({ success: false, message: 'Exam not found' });
   });
+
+  it('reads the permitted app id from its own parameter', async () => {
+    const bad = await call('DELETE', '/1/permitted-apps/abc', 'professor');
+    const good = await call('DELETE', '/1/permitted-apps/2', 'professor');
+
+    expect(await bad.json()).toEqual({ success: false, message: 'Permitted app not found' });
+    expect(await good.json()).toEqual({ success: false, message: 'Exam not found' });
+  });
 });

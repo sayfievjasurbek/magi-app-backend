@@ -56,5 +56,7 @@ export type Event = {
 export type ExamEvent = { exam_id: number; event_id: number };
 
 export type PermittedUrl = { id: number; url: string; created_at: string };
+export type PermittedApp = { id: number; name: string; created_at: string };
 
 export type ExamPermittedUrl = { exam_id: number; permitted_url_id: number };
+export type ExamPermittedApp = { exam_id: number; permitted_app_id: number };

@@ -13,5 +13,8 @@ export type ModuleProfessor = { module_id: number; professor_id: number };
 
 export type ModuleStudent = { module_id: number; student_id: number };
 
+export type ModulePermittedUrl = { module_id: number; permitted_url_id: number };
+export type ModulePermittedApp = { module_id: number; permitted_app_id: number };
+
 // what the roster and the member lookup answer with, not a table of this domain
 export type Person = { id: number; first_name: string; last_name: string | null; email: string };
