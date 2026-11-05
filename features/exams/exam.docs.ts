@@ -154,8 +154,8 @@ export const paths = {
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final', description: 'Must be unique (case-insensitive) among exams' },
             kind: { ...examKind, default: 'homework' },
-            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
-            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart and at most 3 hours later' },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Any time, past or future' },
+            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart' },
             status: { type: 'string', enum: ['scheduled', 'demo'], default: 'scheduled', example: 'scheduled' },
             maxMarks: { type: 'integer', minimum: 0, default: 100, example: 100 },
             passingMarks: { type: 'integer', minimum: 0, default: 0, example: 40, description: 'Cannot be above maxMarks' },
@@ -195,8 +195,8 @@ export const paths = {
           properties: {
             name: { type: 'string', maxLength: 100, example: 'Databases, final', description: 'Must be unique (case-insensitive) among exams' },
             kind: examKind,
-            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Up to 15 minutes in the past is allowed, for "start now"' },
-            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'At most 3 hours after scheduledStart' },
+            scheduledStart: { type: 'string', format: 'date-time', example: '2026-03-12T09:00:00Z', description: 'Any time, past or future' },
+            scheduledEnd: { type: 'string', format: 'date-time', example: '2026-03-12T11:00:00Z', description: 'Must be after scheduledStart' },
             maxMarks: { type: 'integer', minimum: 0, example: 100 },
             passingMarks: { type: 'integer', minimum: 0, example: 40 },
             shuffleQuestions: { type: 'boolean', example: true },

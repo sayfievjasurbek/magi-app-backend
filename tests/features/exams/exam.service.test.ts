@@ -270,16 +270,13 @@ describe('createExam', () => {
     await expect(createExam(7, { ...body, kind: 'quiz' })).rejects.toMatchObject({ status: 400 });
   });
 
-  it('allows a scheduledStart up to 15 minutes in the past (filling out the form takes a moment), not further', async () => {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  it('allows a scheduledStart in the past, e.g. backdating a forgotten exam students are already waiting on', async () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
     queue.push(rows({ id: 1 }));
-    await createExam(7, { ...body, scheduledStart: fiveMinAgo, scheduledEnd: inAnHour });
-    expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ scheduled_start: fiveMinAgo });
-
-    await expect(createExam(7, { ...body, scheduledStart: oneHourAgo, scheduledEnd: inAnHour })).rejects.toMatchObject({ status: 400 });
+    await createExam(7, { ...body, scheduledStart: oneHourAgo, scheduledEnd: inAnHour });
+    expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ scheduled_start: oneHourAgo });
   });
 
   it('does not check for a duplicate name - a name only has to be unique within a class, and this exam is not linked to one yet', async () => {
@@ -336,17 +333,13 @@ describe('updateExam', () => {
     await expect(updateExam(7, 1, {})).rejects.toMatchObject({ status: 400, message: 'Nothing to update' });
   });
 
-  it('allows rescheduling to a start up to 15 minutes in the past, not further', async () => {
-    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  it('allows rescheduling to a start in the past', async () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const exam = { id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 };
 
-    queue.push(rows(exam), rows([]), rows({ id: 1, scheduled_start: fiveMinAgo, scheduled_end: inAnHour }));
-    await updateExam(7, 1, { scheduledStart: fiveMinAgo, scheduledEnd: inAnHour });
-
-    queue.push(rows(exam));
-    await expect(updateExam(7, 1, { scheduledStart: oneHourAgo, scheduledEnd: inAnHour })).rejects.toMatchObject({ status: 400 });
+    queue.push(rows(exam), rows([]), rows({ id: 1, scheduled_start: oneHourAgo, scheduled_end: inAnHour }));
+    await updateExam(7, 1, { scheduledStart: oneHourAgo, scheduledEnd: inAnHour });
   });
 });
 

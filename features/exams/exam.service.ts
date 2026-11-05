@@ -21,16 +21,6 @@ const EXAM_COLUMNS = 'id, name, kind, shuffle_questions, scheduled_start, schedu
 // a student never sees who owns an exam, how it is shuffled or what it asks
 const STUDENT_EXAM_COLUMNS = 'id, name, kind, scheduled_start, scheduled_end, status, max_marks, passing_marks';
 
-// filling out the create/edit form itself takes a few minutes, so a scheduledStart picked as
-// "now" at the start of that form is already slightly in the past by the time it's submitted -
-// this grace window keeps that from being rejected as "in the past"
-const START_GRACE_MS = 15 * 60 * 1000;
-
-// the scheduled window is also the ceiling on a student's own time (see startAttempt's
-// windowLeft) - an exam left open for days isn't a timed exam anymore, so this caps it at a
-// single sitting
-const MAX_WINDOW_MS = 3 * 60 * 60 * 1000;
-
 const EXAM_STATUSES = ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] as const;
 type ExamStatus = (typeof EXAM_STATUSES)[number];
 
@@ -321,10 +311,6 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const scheduled_start = requireDate(body.scheduledStart, 'scheduledStart');
   const scheduled_end = requireDate(body.scheduledEnd, 'scheduledEnd');
   if (scheduled_end <= scheduled_start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
-  if (new Date(scheduled_end).getTime() - new Date(scheduled_start).getTime() > MAX_WINDOW_MS) {
-    throw new HttpError(400, 'The exam window cannot be more than 3 hours');
-  };
-  if (new Date(scheduled_start).getTime() < Date.now() - START_GRACE_MS) throw new HttpError(400, 'scheduledStart cannot be in the past');
 
   const max_marks = body.maxMarks === undefined ? 100 : requireMarks(body.maxMarks, 'maxMarks');
   const passing_marks = body.passingMarks === undefined ? 0 : requireMarks(body.passingMarks, 'passingMarks');
@@ -379,10 +365,6 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   const start = new Date((patch.scheduled_start ?? exam.scheduled_start) as string);
   const end = new Date((patch.scheduled_end ?? exam.scheduled_end) as string);
   if (end <= start) throw new HttpError(400, 'scheduledEnd must be after scheduledStart');
-  if (end.getTime() - start.getTime() > MAX_WINDOW_MS) throw new HttpError(400, 'The exam window cannot be more than 3 hours');
-  if (patch.scheduled_start !== undefined && start.getTime() < Date.now() - START_GRACE_MS) {
-    throw new HttpError(400, 'scheduledStart cannot be in the past');
-  };
 
   const max = (patch.max_marks ?? exam.max_marks) as number;
   const passing = (patch.passing_marks ?? exam.passing_marks) as number;
