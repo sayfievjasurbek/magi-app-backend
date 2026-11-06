@@ -1,46 +1,39 @@
-import { createClient, SupabaseClient, type SupabaseClientOptions } from '@supabase/supabase-js';
+// The actual Postgres data lives directly in this project now (DATABASE_DIRECT_URL, same Railway
+// project as the server - migrated off Supabase's Postgres to cut the cross-provider network hop
+// on every query). `database.from(table)...` still works exactly as it did with supabase-js: see
+// pg-query-builder.ts, which implements the subset of that query builder this codebase actually
+// uses. Supabase itself is kept around for Storage only (DATABASE_URL/DATABASE_KEY below) - file
+// uploads are a separate product from the Postgres data and weren't the latency problem.
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { Pool } from 'pg';
 import dotenv from 'dotenv';
-import ws from 'ws';
-
+import { PgTable, rpc } from './pg-query-builder.js';
 
 dotenv.config();
 
-type Transport = NonNullable<NonNullable<SupabaseClientOptions<'public'>['realtime']>['transport']>;
-
-const databaseUrl = process.env.DATABASE_URL;
-const databaseKey = process.env.DATABASE_KEY;
-
-if (!databaseUrl || !databaseKey) {
-  throw new Error(
-    'Database is not configured. Set DATABASE_URL and DATABASE_KEY in your environment.'
-  );
+const postgresUrl = process.env.DATABASE_DIRECT_URL;
+if (!postgresUrl) {
+  throw new Error('Database is not configured. Set DATABASE_DIRECT_URL in your environment.');
 }
 
-const RETRYABLE_STATUS = new Set([502, 503, 504]);
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 300;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const storageUrl = process.env.DATABASE_URL;
+const storageKey = process.env.DATABASE_KEY;
+if (!storageUrl || !storageKey) {
+  throw new Error('Storage is not configured. Set DATABASE_URL and DATABASE_KEY in your environment.');
+}
 
-// A transient network blip or a momentary 502/503/504 from Supabase used to surface straight to
-// the end user as a 500 on the very next request. Retried here only for reads (GET) - a write
-// (POST/PATCH/DELETE) whose response was merely lost in transit is not safe to retry blindly,
-// since the original may already have gone through and a retry would duplicate it.
-const fetchWithRetry: typeof fetch = async (input, init) => {
-  if ((init?.method ?? 'GET').toUpperCase() !== 'GET') return fetch(input, init);
-
-  for (let attempt = 0; ; attempt++) {
-    try {
-      const response = await fetch(input, init);
-      if (!RETRYABLE_STATUS.has(response.status) || attempt === MAX_RETRIES) return response;
-    } catch (err) {
-      if (attempt === MAX_RETRIES) throw err;
-    }
-    await sleep(RETRY_DELAY_MS * (attempt + 1));
-  }
-};
-
-export const database: SupabaseClient = createClient(databaseUrl, databaseKey, {
-  global: { fetch: fetchWithRetry },
-  // @types/ws declares the constructor wider than the WebSocketLike one supabase-js asks for
-  realtime: { transport: ws as unknown as Transport },
+const pool = new Pool({
+  connectionString: postgresUrl,
+  // Railway's internal Postgres (and most managed providers) terminate TLS with a cert chain
+  // node's default CA list doesn't carry - this is the connection to our own project's database,
+  // not a public endpoint, so skipping chain verification here is the standard tradeoff for it
+  ssl: postgresUrl.includes('localhost') || postgresUrl.includes('127.0.0.1') ? undefined : { rejectUnauthorized: false },
 });
+
+const storageClient: SupabaseClient = createClient(storageUrl, storageKey);
+
+export const database = {
+  from: (table: string) => new PgTable(pool, table),
+  rpc: (name: string, params?: Record<string, unknown>) => rpc(pool, name, params),
+  storage: storageClient.storage,
+};

@@ -18,6 +18,7 @@
     "@scalar/express-api-reference": "^0.10.21",
     "@supabase/supabase-js": "^2.106.2",
     "@tensorflow/tfjs-node": "^4.22.0",
+    "@types/pg": "^8.23.1",
     "@vladmandic/face-api": "^1.7.15",
     "bcrypt": "^6.0.0",
     "cookie-parser": "^1.4.7",
@@ -28,6 +29,7 @@
     "jsonwebtoken": "^9.0.3",
     "mailtrap": "^4.6.0",
     "openai": "^7.33.0",
+    "pg": "^8.23.1",
     "tsx": "^4.23.15",
     "ws": "^8.21.0"
   },
