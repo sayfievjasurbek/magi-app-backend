@@ -3,7 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-// direct Postgres connection string (Supabase: Project Settings > Database), not DATABASE_URL
+// same Postgres connection string the live app queries through (see lib/db.ts) - a Railway
+// Postgres in this project, not Supabase (DATABASE_URL/DATABASE_KEY are storage-only now)
 const url = process.env.DATABASE_DIRECT_URL;
 if (!url) throw new Error('DATABASE_DIRECT_URL is not set');
 
