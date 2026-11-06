@@ -44,6 +44,17 @@ beforeEach(async () => {
   await pool.query('truncate pgqb_test restart identity');
 });
 
+describe('bigint columns', () => {
+  // the actual production bug this guards against: node-postgres returns bigint as a string by
+  // default, which silently broke every `===`/`.includes()` id check in the app (PostgREST, what
+  // those checks were written against, always serialized bigint as a plain JSON number)
+  it('comes back as a real number, not a string', async () => {
+    const { data } = await table().insert({ name: 'x' }).select().single();
+    expect(typeof data.id).toBe('number');
+    expect(Number.isInteger(data.id)).toBe(true);
+  });
+});
+
 describe('select', () => {
   it('filters with eq, orders, and limits', async () => {
     await table().insert([{ name: 'a', score: 1 }, { name: 'b', score: 2 }, { name: 'c', score: 3 }]);

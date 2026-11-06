@@ -4,7 +4,16 @@
 // order/limit, single/maybeSingle, the count+head pattern, and awaiting the builder directly),
 // nothing more. Every feature file keeps calling `database.from(table)...` exactly as before.
 
-import type { Pool } from 'pg';
+import { types, type Pool } from 'pg';
+
+// node-postgres returns bigint (every id column in this schema) as a string by default, to avoid
+// silently losing precision past Number.MAX_SAFE_INTEGER - but PostgREST (what every id comparison
+// and .includes() check in this codebase was written against) always serialized them as plain JSON
+// numbers, and no id here ever gets remotely close to that ceiling. Parsing bigint as a number
+// everywhere keeps every existing `===`/`.includes()` id check working exactly as it did before.
+// A module-level side effect (not inside a function) so it applies the moment this file is
+// imported, before any query - including from the dedicated test suite, which never imports db.ts.
+types.setTypeParser(20, (value) => parseInt(value, 10));
 
 export type PgError = { message: string; code?: string };
 // a discriminated union, matching supabase-js's own PostgrestResponse shape: once `error` has
