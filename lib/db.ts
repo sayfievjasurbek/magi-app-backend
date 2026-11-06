@@ -22,12 +22,17 @@ if (!storageUrl || !storageKey) {
   throw new Error('Storage is not configured. Set DATABASE_URL and DATABASE_KEY in your environment.');
 }
 
+// Railway's private network (*.railway.internal) is plain TCP, no TLS on the other end - asking
+// for SSL there makes the handshake fail outright, not just skip chain verification like it does
+// over the public proxy.
+const isInternal = (url: string) => url.includes('localhost') || url.includes('127.0.0.1') || url.includes('.railway.internal');
+
 const pool = new Pool({
   connectionString: postgresUrl,
   // Railway's internal Postgres (and most managed providers) terminate TLS with a cert chain
   // node's default CA list doesn't carry - this is the connection to our own project's database,
   // not a public endpoint, so skipping chain verification here is the standard tradeoff for it
-  ssl: postgresUrl.includes('localhost') || postgresUrl.includes('127.0.0.1') ? undefined : { rejectUnauthorized: false },
+  ssl: isInternal(postgresUrl) ? undefined : { rejectUnauthorized: false },
 });
 
 const storageClient: SupabaseClient = createClient(storageUrl, storageKey);
