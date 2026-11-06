@@ -17,6 +17,7 @@ import monitoringRoutes from './features/monitoring/monitoring.route.js';
 import cheatingRoutes from './features/cheatings/cheating.route.js';
 import notificationRoutes from './features/notifications/notification.route.js';
 import aiRoutes from './features/ai/ai.route.js';
+import attendanceRoutes from './features/attendance/attendance.route.js';
 
 
 const app = express();
@@ -70,6 +71,7 @@ app.use("/api/monitoring", monitoringRoutes);
 app.use("/api/cheatings", cheatingRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/attendance", attendanceRoutes);
 
 
 const server = app.listen(PORT, () => {

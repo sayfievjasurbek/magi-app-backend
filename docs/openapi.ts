@@ -8,9 +8,10 @@ import * as monitoringDocs from '../features/monitoring/monitoring.docs.js';
 import * as cheatingDocs from '../features/cheatings/cheating.docs.js';
 import * as notificationDocs from '../features/notifications/notification.docs.js';
 import * as aiDocs from '../features/ai/ai.docs.js';
+import * as attendanceDocs from '../features/attendance/attendance.docs.js';
 
 // every domain owns its <domain>.docs.ts, so adding endpoints never touches this one
-const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs, notificationDocs, aiDocs];
+const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs, notificationDocs, aiDocs, attendanceDocs];
 
 // two domains claiming the same name would otherwise silently keep the last one: a schema shared by
 // several domains belongs in common.ts, an endpoint belongs to exactly one domain

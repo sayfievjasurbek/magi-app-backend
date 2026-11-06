@@ -63,7 +63,7 @@ const findManagedModule = async (moduleId: number, professorId: number) => {
   return data;
 };
 
-const requireManagedModule = async (moduleIdParam: string, professorId: number) => {
+export const requireManagedModule = async (moduleIdParam: string, professorId: number) => {
   const moduleId = parseId(moduleIdParam);
   if (!moduleId) throw moduleNotFound();
 

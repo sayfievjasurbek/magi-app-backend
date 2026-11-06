@@ -19,6 +19,7 @@ import monitoringRoutes from '../../features/monitoring/monitoring.route.js';
 import cheatingRoutes from '../../features/cheatings/cheating.route.js';
 import notificationRoutes from '../../features/notifications/notification.route.js';
 import aiRoutes from '../../features/ai/ai.route.js';
+import attendanceRoutes from '../../features/attendance/attendance.route.js';
 
 // the same mounting as server.ts
 const mounted: [string, any][] = [
@@ -31,6 +32,7 @@ const mounted: [string, any][] = [
   ['/api/cheatings', cheatingRoutes],
   ['/api/notifications', notificationRoutes],
   ['/api/ai', aiRoutes],
+  ['/api/attendance', attendanceRoutes],
 ];
 
 // express writes /:examId, OpenAPI writes /{examId}
