@@ -12,7 +12,7 @@ vi.mock('../../../features/exams/exam.service.js', () => ({
 vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn(), updateQuestion: vi.fn() }));
 vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttendance: vi.fn(), setAttendance: vi.fn() }));
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
-vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn() }));
+vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn(), updateStudentProfile: vi.fn() }));
 vi.mock('../../../features/attempts/attempt.service.js', () => ({
   listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(),
 }));
@@ -24,7 +24,7 @@ import {
 } from '../../../features/modules/module.service.js';
 import { getExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
 import { updateQuestion } from '../../../features/questions/question.service.js';
-import { listManagedProfessors, listManagedStudents } from '../../../features/auth/auth.controller.js';
+import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.controller.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../../../features/attempts/attempt.service.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
@@ -184,6 +184,19 @@ describe('runAssistant', () => {
     expect(updateModule).toHaveBeenCalledWith(USER.id, '7', { name: 'Algorithms II' });
     expect(removeStudent).toHaveBeenCalledWith(USER.id, '7', '21');
     expect(removeProfessor).toHaveBeenCalledWith(USER.id, '7', '5');
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it("renames a student's profile", async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'update_student', { studentId: 21, firstName: 'Humoyun' })))
+      .mockResolvedValueOnce(finalRound('Renamed.'));
+    (updateStudentProfile as any).mockResolvedValue(undefined);
+
+    const { reply, actions } = await runAssistant(USER, { message: "21-talabaning ismini Humoyun deb o'zgartir" });
+
+    expect(reply).toBe('Renamed.');
+    expect(updateStudentProfile).toHaveBeenCalledWith(USER.id, 21, { firstName: 'Humoyun' });
     expect(actions.every((a) => a.ok)).toBe(true);
   });
 

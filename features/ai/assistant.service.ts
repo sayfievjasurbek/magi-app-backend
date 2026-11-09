@@ -16,7 +16,7 @@ import {
 import { listQuestions, createQuestion, updateQuestion } from '../questions/question.service.js';
 import { getAttendance, setAttendance } from '../attendance/attendance.service.js';
 import { examSummary } from '../cheatings/cheating.service.js';
-import { listManagedProfessors, listManagedStudents } from '../auth/auth.controller.js';
+import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../auth/auth.controller.js';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../attempts/attempt.service.js';
 
@@ -243,6 +243,30 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
         type: 'object',
         properties: { groupId: { type: 'integer' }, studentId: { type: 'integer' } },
         required: ['groupId', 'studentId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_student',
+      description: "Edit a student's own profile - name, email, phone, parent phone/relation, age, ID number, or student code - only the fields given are changed. Doesn't touch the student's password.",
+      parameters: {
+        type: 'object',
+        properties: {
+          studentId: { type: 'integer' },
+          firstName: { type: 'string' },
+          lastName: { type: 'string' },
+          email: { type: 'string' },
+          phone: { type: 'string', description: 'Format +998XXXXXXXXX' },
+          parentPhone: { type: 'string', description: 'Format +998XXXXXXXXX' },
+          parentRelation: { type: 'string' },
+          age: { type: 'integer' },
+          idNumber: { type: 'string' },
+          studentCode: { type: 'string' },
+        },
+        required: ['studentId'],
         additionalProperties: false,
       },
     },
@@ -664,6 +688,22 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     const studentId = toId(args.studentId, 'studentId');
     await removeStudent(user.id, String(groupId), String(studentId));
     return { result: { removed: true }, summary: `Removed student ${studentId} from group ${groupId}` };
+  },
+
+  update_student: async (args, user) => {
+    const studentId = toId(args.studentId, 'studentId');
+    const patch: Record<string, unknown> = {};
+    if (args.firstName !== undefined) patch.firstName = args.firstName;
+    if (args.lastName !== undefined) patch.lastName = args.lastName;
+    if (args.email !== undefined) patch.email = args.email;
+    if (args.phone !== undefined) patch.phone = args.phone;
+    if (args.parentPhone !== undefined) patch.parentPhone = args.parentPhone;
+    if (args.parentRelation !== undefined) patch.parentRelation = args.parentRelation;
+    if (args.age !== undefined) patch.age = args.age;
+    if (args.idNumber !== undefined) patch.idNumber = args.idNumber;
+    if (args.studentCode !== undefined) patch.studentCode = args.studentCode;
+    await updateStudentProfile(user.id, studentId, patch);
+    return { result: { updated: true }, summary: `Updated student ${studentId}` };
   },
 
   remove_professor_from_group: async (args, user) => {

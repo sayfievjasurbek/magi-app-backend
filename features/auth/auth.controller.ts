@@ -683,116 +683,114 @@ export const removeStudentPermittedApp = async (req: Request, res: Response) => 
 
 // a professor correcting a student's own profile data - same fields createStudent accepts,
 // each optional and only touched when present in the body
+export type UpdateStudentPatch = {
+  firstName?: s; lastName?: s | null; phone?: s | null; parentPhone?: s | null; parentRelation?: s | null;
+  age?: number | null; email?: s; idNumber?: s; studentCode?: s; password?: s;
+};
+
+// the core of updateStudent below, as a plain function the Magi AI chat can call directly the same
+// way it already calls updateModule/updateExam/updateQuestion - the controller is now a thin
+// req/res wrapper over this, same split as listManagedStudents/listCreatedStudents above
+export const updateStudentProfile = async (professorId: number, studentId: number, patch: UpdateStudentPatch) => {
+  if (!(await managesStudent(professorId, studentId))) throw new HttpError(404, 'Student not found');
+
+  const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password } = patch;
+
+  const { data: student, error: studentError } = await database
+    .from('students')
+    .select('user_id')
+    .eq('user_id', studentId)
+    .maybeSingle();
+  if (studentError) throw new Error(studentError.message);
+  if (!student) throw new HttpError(404, 'Student not found');
+
+  const userPatch: Record<string, unknown> = {};
+  if (firstName !== undefined) {
+    if (typeof firstName !== 'string') throw new HttpError(400, 'firstName must be a string');
+    const trimmed = firstName.trim();
+    if (!trimmed) throw new HttpError(400, 'firstName cannot be empty');
+    userPatch.first_name = trimmed;
+  };
+  if (lastName !== undefined) userPatch.last_name = lastName?.trim() || null;
+
+  if (email !== undefined) {
+    if (typeof email !== 'string') throw new HttpError(400, 'email must be a string');
+    const trimmedEmail = email.trim().toLowerCase();
+    if (!trimmedEmail) throw new HttpError(400, 'email cannot be empty');
+    if (trimmedEmail.length > 255) throw new HttpError(400, 'email must be at most 255 characters');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) throw new HttpError(400, 'Invalid email format');
+    const { data: existing, error: existingError } = await database.from('users').select('id').eq('email', trimmedEmail).neq('id', studentId).maybeSingle();
+    if (existingError) throw new Error(existingError.message);
+    if (existing) throw new HttpError(409, 'This email is already in use');
+    userPatch.email = trimmedEmail;
+  };
+
+  // same as changePassword/resetPassword: the professor is choosing this on the student's
+  // behalf, so (unlike those) the recovery_secret below is refreshed to match, not cleared
+  if (password !== undefined) {
+    if (typeof password !== 'string') throw new HttpError(400, 'password must be a string');
+    if (password.length < 6 || password.length > 100) throw new HttpError(400, 'password must be between 6 and 100 characters long');
+    userPatch.password = await bcrypt.hash(password, 10);
+  };
+
+  const studentPatch: Record<string, unknown> = {};
+  if (idNumber !== undefined) {
+    if (typeof idNumber !== 'string') throw new HttpError(400, 'idNumber must be a string');
+    const trimmedIdNumber = idNumber.trim();
+    if (!trimmedIdNumber) throw new HttpError(400, 'idNumber cannot be empty');
+    if (trimmedIdNumber.length > 100) throw new HttpError(400, 'idNumber must be at most 100 characters');
+    const { data: existingId, error: existingIdError } = await database.from('students').select('user_id').eq('id_number', trimmedIdNumber).neq('user_id', studentId).maybeSingle();
+    if (existingIdError) throw new Error(existingIdError.message);
+    if (existingId) throw new HttpError(409, 'This ID number is already in use');
+    studentPatch.id_number = trimmedIdNumber;
+  };
+  if (studentCode !== undefined) {
+    if (typeof studentCode !== 'string') throw new HttpError(400, 'studentCode must be a string');
+    const trimmedStudentCode = studentCode.trim();
+    if (!trimmedStudentCode) throw new HttpError(400, 'studentCode cannot be empty');
+    if (trimmedStudentCode.length > 100) throw new HttpError(400, 'studentCode must be at most 100 characters');
+    const { data: existingCode, error: existingCodeError } = await database.from('students').select('user_id').eq('student_code', trimmedStudentCode).neq('user_id', studentId).maybeSingle();
+    if (existingCodeError) throw new Error(existingCodeError.message);
+    if (existingCode) throw new HttpError(409, 'This student ID is already in use');
+    studentPatch.student_code = trimmedStudentCode;
+  };
+  if (password !== undefined) studentPatch.recovery_secret = encryptSecret(password);
+  if (phone !== undefined) {
+    const trimmedPhone = phone?.trim() || null;
+    if (trimmedPhone && !isValidUzPhone(trimmedPhone)) throw new HttpError(400, 'Phone must be in the format +998XXXXXXXXX');
+    studentPatch.phone = trimmedPhone;
+  };
+  if (parentPhone !== undefined) {
+    const trimmedParentPhone = parentPhone?.trim() || null;
+    if (trimmedParentPhone && !isValidUzPhone(trimmedParentPhone)) throw new HttpError(400, 'Parent phone must be in the format +998XXXXXXXXX');
+    studentPatch.parent_phone = trimmedParentPhone;
+  };
+  const resolvedPhone = phone !== undefined ? (studentPatch.phone as string | null) : undefined;
+  const resolvedParentPhone = parentPhone !== undefined ? (studentPatch.parent_phone as string | null) : undefined;
+  if (resolvedPhone && resolvedParentPhone && resolvedPhone === resolvedParentPhone) throw new HttpError(400, 'The student and parent phone numbers cannot be the same');
+  if (parentRelation !== undefined) studentPatch.parent_relation = parentRelation?.trim() || null;
+  if (age !== undefined) {
+    if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) throw new HttpError(400, 'age must be an integer between 1 and 100');
+    studentPatch.age = age;
+  };
+
+  if (Object.keys(userPatch).length) {
+    const { error } = await database.from('users').update(userPatch).eq('id', studentId);
+    if (error) throw new Error(error.message);
+  };
+  if (Object.keys(studentPatch).length) {
+    const { error } = await database.from('students').update(studentPatch).eq('user_id', studentId);
+    if (error) throw new Error(error.message);
+  };
+};
+
 export const updateStudent = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
     if (!Number.isInteger(studentId)) return res.status(400).json({ success: false, message: 'Invalid student id' });
-    if (!(await managesStudent(req.user!.id, studentId))) return res.status(404).json({ success: false, message: 'Student not found' });
 
-    const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password }:
-      { firstName?: s, lastName?: s | null, phone?: s | null, parentPhone?: s | null, parentRelation?: s | null, age?: number | null, email?: s, idNumber?: s, studentCode?: s, password?: s } = req.body;
-
-    const { data: student, error: studentError } = await database
-      .from('students')
-      .select('user_id')
-      .eq('user_id', studentId)
-      .maybeSingle();
-    if (studentError) throw new Error(studentError.message);
-    if (!student) return res.status(404).json({ success: false, message: 'Student not found' });
-
-    const userPatch: Record<string, unknown> = {};
-    if (firstName !== undefined) {
-      if (typeof firstName !== 'string') return res.status(400).json({ success: false, message: 'firstName must be a string' });
-      const trimmed = firstName.trim();
-      if (!trimmed) return res.status(400).json({ success: false, message: 'firstName cannot be empty' });
-      userPatch.first_name = trimmed;
-    };
-    if (lastName !== undefined) userPatch.last_name = lastName?.trim() || null;
-
-    if (email !== undefined) {
-      if (typeof email !== 'string') return res.status(400).json({ success: false, message: 'email must be a string' });
-      const trimmedEmail = email.trim().toLowerCase();
-      if (!trimmedEmail) return res.status(400).json({ success: false, message: 'email cannot be empty' });
-      if (trimmedEmail.length > 255) return res.status(400).json({ success: false, message: 'email must be at most 255 characters' });
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) return res.status(400).json({ success: false, message: 'Invalid email format' });
-      const { data: existing, error: existingError } = await database.from('users').select('id').eq('email', trimmedEmail).neq('id', studentId).maybeSingle();
-      if (existingError) throw new Error(existingError.message);
-      if (existing) return res.status(409).json({ success: false, message: 'This email is already in use' });
-      userPatch.email = trimmedEmail;
-    };
-
-    // same as changePassword/resetPassword: the professor is choosing this on the student's
-    // behalf, so (unlike those) the recovery_secret below is refreshed to match, not cleared
-    if (password !== undefined) {
-      if (typeof password !== 'string') return res.status(400).json({ success: false, message: 'password must be a string' });
-      if (password.length < 6 || password.length > 100) return res.status(400).json({
-        success: false,
-        message: 'password must be between 6 and 100 characters long',
-      });
-      userPatch.password = await bcrypt.hash(password, 10);
-    };
-
-    const studentPatch: Record<string, unknown> = {};
-    if (idNumber !== undefined) {
-      if (typeof idNumber !== 'string') return res.status(400).json({ success: false, message: 'idNumber must be a string' });
-      const trimmedIdNumber = idNumber.trim();
-      if (!trimmedIdNumber) return res.status(400).json({ success: false, message: 'idNumber cannot be empty' });
-      if (trimmedIdNumber.length > 100) return res.status(400).json({ success: false, message: 'idNumber must be at most 100 characters' });
-      const { data: existingId, error: existingIdError } = await database.from('students').select('user_id').eq('id_number', trimmedIdNumber).neq('user_id', studentId).maybeSingle();
-      if (existingIdError) throw new Error(existingIdError.message);
-      if (existingId) return res.status(409).json({ success: false, message: 'This ID number is already in use' });
-      studentPatch.id_number = trimmedIdNumber;
-    };
-    if (studentCode !== undefined) {
-      if (typeof studentCode !== 'string') return res.status(400).json({ success: false, message: 'studentCode must be a string' });
-      const trimmedStudentCode = studentCode.trim();
-      if (!trimmedStudentCode) return res.status(400).json({ success: false, message: 'studentCode cannot be empty' });
-      if (trimmedStudentCode.length > 100) return res.status(400).json({ success: false, message: 'studentCode must be at most 100 characters' });
-      const { data: existingCode, error: existingCodeError } = await database.from('students').select('user_id').eq('student_code', trimmedStudentCode).neq('user_id', studentId).maybeSingle();
-      if (existingCodeError) throw new Error(existingCodeError.message);
-      if (existingCode) return res.status(409).json({ success: false, message: 'This student ID is already in use' });
-      studentPatch.student_code = trimmedStudentCode;
-    };
-    if (password !== undefined) studentPatch.recovery_secret = encryptSecret(password);
-    if (phone !== undefined) {
-      const trimmedPhone = phone?.trim() || null;
-      if (trimmedPhone && !isValidUzPhone(trimmedPhone)) return res.status(400).json({
-        success: false,
-        message: 'Phone must be in the format +998XXXXXXXXX',
-      });
-      studentPatch.phone = trimmedPhone;
-    };
-    if (parentPhone !== undefined) {
-      const trimmedParentPhone = parentPhone?.trim() || null;
-      if (trimmedParentPhone && !isValidUzPhone(trimmedParentPhone)) return res.status(400).json({
-        success: false,
-        message: 'Parent phone must be in the format +998XXXXXXXXX',
-      });
-      studentPatch.parent_phone = trimmedParentPhone;
-    };
-    const resolvedPhone = phone !== undefined ? (studentPatch.phone as string | null) : undefined;
-    const resolvedParentPhone = parentPhone !== undefined ? (studentPatch.parent_phone as string | null) : undefined;
-    if (resolvedPhone && resolvedParentPhone && resolvedPhone === resolvedParentPhone) return res.status(400).json({
-      success: false,
-      message: 'The student and parent phone numbers cannot be the same',
-    });
-    if (parentRelation !== undefined) studentPatch.parent_relation = parentRelation?.trim() || null;
-    if (age !== undefined) {
-      if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) return res.status(400).json({
-        success: false,
-        message: 'age must be an integer between 1 and 100',
-      });
-      studentPatch.age = age;
-    };
-
-    if (Object.keys(userPatch).length) {
-      const { error } = await database.from('users').update(userPatch).eq('id', studentId);
-      if (error) throw new Error(error.message);
-    };
-    if (Object.keys(studentPatch).length) {
-      const { error } = await database.from('students').update(studentPatch).eq('user_id', studentId);
-      if (error) throw new Error(error.message);
-    };
+    const { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password }: UpdateStudentPatch = req.body;
+    await updateStudentProfile(req.user!.id, studentId, { firstName, lastName, phone, parentPhone, parentRelation, age, email, idNumber, studentCode, password });
 
     return getStudentDetail(req, res);
   } catch (error: unknown) {
