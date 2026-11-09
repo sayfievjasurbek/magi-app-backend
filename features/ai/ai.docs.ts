@@ -28,6 +28,35 @@ export const paths = {
       responses: { '200': ok('Status', envelope({ configured: { type: 'boolean', example: true } })), ...errors(401, 403) },
     },
   },
+  '/api/ai/history': {
+    get: {
+      tags: ['AI'],
+      summary: "The professor's past Magi AI conversation (professor)",
+      description: 'The most recent messages (both sides) from this conversation, oldest first - lets the chat panel pick up where it left off after closing or reloading.',
+      ...authed,
+      responses: {
+        '200': ok(
+          'History',
+          envelope({
+            messages: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  role: { type: 'string', enum: ['user', 'assistant'] },
+                  content: { type: 'string' },
+                  actions: { type: 'array', items: ref('AiAction'), nullable: true },
+                  fileName: { type: 'string', nullable: true },
+                  createdAt: { type: 'string', format: 'date-time' },
+                },
+              },
+            },
+          }),
+        ),
+        ...errors(401, 403),
+      },
+    },
+  },
   '/api/ai/chat': {
     post: {
       tags: ['AI'],
