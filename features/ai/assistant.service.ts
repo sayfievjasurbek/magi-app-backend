@@ -7,7 +7,7 @@ import OpenAI from 'openai';
 import { getClient, MODEL } from '../../lib/ai.js';
 import { HttpError } from '../../lib/errors.js';
 import { type TokenPayload } from '../../lib/types.js';
-import { listModules, getRoster, createModule, addProfessor } from '../modules/module.service.js';
+import { listModules, getRoster, createModule, addProfessor, deleteModule } from '../modules/module.service.js';
 import { listExams, getExam, createExam, linkModule, addStudents, attachQuestion } from '../exams/exam.service.js';
 import { listQuestions, createQuestion } from '../questions/question.service.js';
 import { getAttendance, setAttendance } from '../attendance/attendance.service.js';
@@ -71,6 +71,9 @@ directly already) - adding another professor as its mentor is a separate step.
 Rules:
 - Never invent an id. When the professor names a group/exam/question/professor instead of giving its
   id, call the matching list tool first and match the name case-insensitively against what comes back.
+- delete_group is irreversible. Before calling it, state plainly which group (by name) you are about
+  to delete and ask the professor to confirm - only call it once they clearly have (a short "ha"/"yes"
+  to that specific question counts; a vague or unrelated reply does not).
 - If a name matches more than one thing, or matches nothing, say so and ask the professor to clarify
   instead of guessing which one they meant.
 - Resolve relative dates/times ("tomorrow at 3pm", "ertaga soat 15:00") against the current instant,
@@ -137,6 +140,19 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
         type: 'object',
         properties: { groupId: { type: 'integer' }, professorId: { type: 'integer' } },
         required: ['groupId', 'professorId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_group',
+      description: 'Permanently delete a group (class). Irreversible - only call this after the professor has clearly confirmed they want this specific group deleted.',
+      parameters: {
+        type: 'object',
+        properties: { groupId: { type: 'integer' }, reason: { type: 'string' } },
+        required: ['groupId'],
         additionalProperties: false,
       },
     },
@@ -346,6 +362,13 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     const professor = await addProfessor(user.id, String(groupId), { professorId });
     const name = `${professor.first_name} ${professor.last_name ?? ''}`.trim();
     return { result: professor, summary: `Added ${name} as a mentor of group ${groupId}` };
+  },
+
+  delete_group: async (args, user) => {
+    const groupId = toId(args.groupId, 'groupId');
+    const reason = typeof args.reason === 'string' ? args.reason : undefined;
+    await deleteModule(user.id, String(groupId), { reason });
+    return { result: { deleted: true }, summary: `Deleted group ${groupId}` };
   },
 
   get_group_roster: async (args, user) => {

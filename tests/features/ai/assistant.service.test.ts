@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-test' }));
-vi.mock('../../../features/modules/module.service.js', () => ({ listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn() }));
+vi.mock('../../../features/modules/module.service.js', () => ({ listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn(), deleteModule: vi.fn() }));
 vi.mock('../../../features/exams/exam.service.js', () => ({
   listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(),
 }));
@@ -12,7 +12,7 @@ vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfess
 
 import { runAssistant } from '../../../features/ai/assistant.service.js';
 import { getClient } from '../../../lib/ai.js';
-import { listModules, createModule, addProfessor } from '../../../features/modules/module.service.js';
+import { listModules, createModule, addProfessor, deleteModule } from '../../../features/modules/module.service.js';
 import { getExam, linkModule, addStudents } from '../../../features/exams/exam.service.js';
 import { listManagedProfessors } from '../../../features/auth/auth.controller.js';
 import { HttpError } from '../../../lib/errors.js';
@@ -87,6 +87,21 @@ describe('runAssistant', () => {
     expect(addProfessor).toHaveBeenCalledWith(USER.id, '40', { professorId: 7 });
     expect(actions.map((a) => a.tool)).toEqual(['create_group', 'list_professors', 'add_professor_to_group']);
     expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('deletes a group once confirmed, passing the reason through', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'delete_group', { groupId: 18, reason: 'requested by the professor' })))
+      .mockResolvedValueOnce(finalRound('Deleted.'));
+    (deleteModule as any).mockResolvedValue(undefined);
+
+    const { reply, actions } = await runAssistant(USER, { message: 'ha, AI class guruhini ochir' });
+
+    expect(reply).toBe('Deleted.');
+    expect(deleteModule).toHaveBeenCalledWith(USER.id, '18', { reason: 'requested by the professor' });
+    expect(actions).toEqual([
+      { tool: 'delete_group', args: { groupId: 18, reason: 'requested by the professor' }, ok: true, summary: 'Deleted group 18' },
+    ]);
   });
 
   it("turns a tool's HttpError into a {error} tool result instead of throwing", async () => {
