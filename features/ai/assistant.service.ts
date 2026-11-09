@@ -4,7 +4,7 @@
 // signed-in professor could already do through the REST API - the same requireManagedModule /
 // loadManagedExam / requireOwnedQuestion checks still run underneath every call.
 import OpenAI from 'openai';
-import { getClient, MODEL } from '../../lib/ai.js';
+import { getClient } from '../../lib/ai.js';
 import { HttpError } from '../../lib/errors.js';
 import { type TokenPayload } from '../../lib/types.js';
 import { listModules, getRoster, createModule, addProfessor, deleteModule, addStudent } from '../modules/module.service.js';
@@ -21,6 +21,11 @@ export type ActionTrace = { tool: string; args: Record<string, unknown>; ok: boo
 // a runaway back-and-forth (the model never settling on a plain reply) stops here rather than
 // holding the request open indefinitely - same spirit as lib/ai.ts's REQUEST_TIMEOUT_MS
 const MAX_ROUNDS = 6;
+
+// its own model, separate from lib/ai.ts's grading MODEL (gpt-4o-mini, picked there for cost on a
+// high-volume per-answer call) - this is a lower-volume, higher-stakes chat that reasons about
+// actions and resolves names to ids, where the stronger model is worth the extra cost per message
+const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o';
 
 // the one reply the assistant is allowed to give in any language other than Uzbek/English -
 // bilingual so it's understood either way, and fixed rather than left to the model to phrase
@@ -80,10 +85,18 @@ Rules:
   instead of guessing which one they meant.
 - Resolve relative dates/times ("tomorrow at 3pm", "ertaga soat 15:00") against the current instant,
   which is: ${new Date().toISOString()} (UTC). Always pass full ISO 8601 date-times to tools that need one.
-- Answer plainly and briefly, in whichever of Uzbek or English the professor wrote in (see the
-  language check above).
+- Be clear, not just brief: say plainly what you did or found, in whichever of Uzbek or English the
+  professor wrote in (see the language check above). For more than two or three items (a roster, a
+  list of exams, several attendance rows), use a short list or line per item instead of a run-on
+  paragraph - a professor should be able to scan the answer, not have to parse it.
 - Only call a tool when the professor's message actually calls for a lookup or an action - a general
   question about how something works doesn't need one.
+- When it's genuinely useful and relevant - not as a reflex on every reply - offer a brief, concrete
+  suggestion about the MAGI platform itself: a group with no mentor yet, an exam close to its start
+  time with no questions attached, attendance nobody has marked today, a question bank that could use
+  more variety for an exam that's light on marks. Base this only on what you actually looked up in
+  this conversation, never on a guess, and keep it to a sentence or two tacked onto the real answer,
+  not a separate lecture - the professor asked you something, the suggestion is a bonus, not the point.
 - Don't assume an earlier turn in this conversation still holds. If you (or an earlier version of
   you) said something couldn't be done, re-check against the tools you actually have right now
   rather than repeating that answer - what's possible can change between messages, and a tool
@@ -132,7 +145,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'list_professors',
-      description: "List professors this professor can assign as a group's mentor, optionally filtered by a name/email/code search.",
+      description: "List every other professor this professor can see (co-mentors of their groups, plus any they created), optionally filtered by a name/email/code search. Use this both to answer a general \"what professors do I have\" question and to resolve a name to an id before assigning them as a group's mentor.",
       parameters: {
         type: 'object',
         properties: { search: { type: 'string' } },
@@ -170,7 +183,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'list_students',
-      description: "List students this professor can enroll in a group, optionally filtered by a name/email/code search.",
+      description: "List every student this professor can see (across all their groups, plus any they created), optionally filtered by a name/email/code search. Use this both to answer a general \"what students do I have\" question and to resolve a name to an id before enrolling them in a group.",
       parameters: {
         type: 'object',
         properties: { search: { type: 'string' } },

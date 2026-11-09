@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-test' }));
+vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn() }));
 vi.mock('../../../features/modules/module.service.js', () => ({
   listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn(), deleteModule: vi.fn(), addStudent: vi.fn(),
 }));
