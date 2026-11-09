@@ -1,20 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-test' }));
-vi.mock('../../../features/modules/module.service.js', () => ({ listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn(), deleteModule: vi.fn() }));
+vi.mock('../../../features/modules/module.service.js', () => ({
+  listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn(), deleteModule: vi.fn(), addStudent: vi.fn(),
+}));
 vi.mock('../../../features/exams/exam.service.js', () => ({
   listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(),
 }));
 vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn() }));
 vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttendance: vi.fn(), setAttendance: vi.fn() }));
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
-vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn() }));
+vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn() }));
 
 import { runAssistant } from '../../../features/ai/assistant.service.js';
 import { getClient } from '../../../lib/ai.js';
-import { listModules, createModule, addProfessor, deleteModule } from '../../../features/modules/module.service.js';
+import { listModules, createModule, addProfessor, deleteModule, addStudent } from '../../../features/modules/module.service.js';
 import { getExam, linkModule, addStudents } from '../../../features/exams/exam.service.js';
-import { listManagedProfessors } from '../../../features/auth/auth.controller.js';
+import { listManagedProfessors, listManagedStudents } from '../../../features/auth/auth.controller.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
 
@@ -102,6 +104,59 @@ describe('runAssistant', () => {
     expect(actions).toEqual([
       { tool: 'delete_group', args: { groupId: 18, reason: 'requested by the professor' }, ok: true, summary: 'Deleted group 18' },
     ]);
+  });
+
+  it('resolves a student by name before enrolling them in a group', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'list_students', { search: 'Sue' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'add_student_to_group', { groupId: 7, studentId: 21 })))
+      .mockResolvedValueOnce(finalRound('Enrolled.'));
+    (listManagedStudents as any).mockResolvedValue([{ id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu', student_code: '44102' }]);
+    (addStudent as any).mockResolvedValue({ id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' });
+
+    const { reply, actions } = await runAssistant(USER, { message: 'enroll Sue in group 7' });
+
+    expect(reply).toBe('Enrolled.');
+    expect(addStudent).toHaveBeenCalledWith(USER.id, '7', { studentId: 21 });
+    expect(actions.map((a) => a.tool)).toEqual(['list_students', 'add_student_to_group']);
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('enrolls a student directly by email, without needing list_students first', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'add_student_to_group', { groupId: 7, email: 'sue@magi.edu' })))
+      .mockResolvedValueOnce(finalRound('Enrolled.'));
+    (addStudent as any).mockResolvedValue({ id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' });
+
+    await runAssistant(USER, { message: 'enroll sue@magi.edu in group 7' });
+
+    expect(addStudent).toHaveBeenCalledWith(USER.id, '7', { email: 'sue@magi.edu' });
+  });
+
+  it('extracts an attached text file and folds it into the message sent to the model', async () => {
+    create.mockResolvedValueOnce(finalRound('Got it.'));
+    const csv = Buffer.from('title,question\nQ1,What is 2+2?\n').toString('base64');
+
+    await runAssistant(USER, { message: 'create questions from this file', file: { name: 'questions.csv', data: `data:text/csv;base64,${csv}` } });
+
+    const sentMessages = create.mock.calls[0][0].messages;
+    const userMessage = sentMessages.find((m: any) => m.role === 'user');
+    expect(userMessage.content).toContain('<attached_file name="questions.csv">');
+    expect(userMessage.content).toContain('What is 2+2?');
+  });
+
+  it('hands an attached image to the model as a real image, not extracted text', async () => {
+    create.mockResolvedValueOnce(finalRound('I see it.'));
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64').toString('base64');
+
+    await runAssistant(USER, { message: 'what is this?', file: { name: 'photo.png', data: `data:image/png;base64,${png}` } });
+
+    const sentMessages = create.mock.calls[0][0].messages;
+    const userMessage = sentMessages.find((m: any) => m.role === 'user');
+    expect(Array.isArray(userMessage.content)).toBe(true);
+    expect(userMessage.content[0]).toEqual({ type: 'text', text: 'what is this?' });
+    expect(userMessage.content[1].type).toBe('image_url');
+    expect(userMessage.content[1].image_url.url).toContain('data:image/png;base64,');
   });
 
   it("turns a tool's HttpError into a {error} tool result instead of throwing", async () => {

@@ -479,87 +479,105 @@ export const createStudent = async (req: Request, res: Response) => {
 // linked to a module, which listing module rosters alone would miss
 // every student this professor created directly, plus every student in a module they manage -
 // one fixed set of queries instead of the admin panel previously fetching each managed module's
-// roster separately to build this same list client-side (slow with more than a few modules)
-export const listCreatedStudents = async (req: Request, res: Response) => {
-  try {
-    let studentIds: Set<number>;
+// roster separately to build this same list client-side (slow with more than a few modules). An
+// optional search narrows by name/email/code - used by the Students page and by Magi AI's
+// list_students tool to resolve a name to an id before enrolling them in a group.
+export const listManagedStudents = async (professorId: number, search?: string) => {
+  let studentIds: Set<number>;
 
-    if (await seesAllModules(req.user!.id)) {
-      // not a plain "professor" position - manages the whole shared pool of students directly
-      const { data: everyone, error: everyoneError } = await database.from('students').select('user_id');
-      if (everyoneError) throw new Error(everyoneError.message);
-      studentIds = new Set((everyone ?? []).map((row) => row.user_id));
-    } else {
-      studentIds = new Set<number>();
+  if (await seesAllModules(professorId)) {
+    // not a plain "professor" position - manages the whole shared pool of students directly
+    const { data: everyone, error: everyoneError } = await database.from('students').select('user_id');
+    if (everyoneError) throw new Error(everyoneError.message);
+    studentIds = new Set((everyone ?? []).map((row) => row.user_id));
+  } else {
+    studentIds = new Set<number>();
 
-      const { data: managed, error: managedError } = await database
-        .from('module_professor')
-        .select('module_id')
-        .eq('professor_id', req.user!.id);
-      if (managedError) throw new Error(managedError.message);
-      const moduleIds = (managed ?? []).map((row) => row.module_id);
+    const { data: managed, error: managedError } = await database
+      .from('module_professor')
+      .select('module_id')
+      .eq('professor_id', professorId);
+    if (managedError) throw new Error(managedError.message);
+    const moduleIds = (managed ?? []).map((row) => row.module_id);
 
-      if (moduleIds.length) {
-        const { data: roster, error: rosterError } = await database
-          .from('module_student')
-          .select('student_id')
-          .in('module_id', moduleIds);
-        if (rosterError) throw new Error(rosterError.message);
-        for (const row of roster ?? []) studentIds.add(row.student_id);
-      };
-
-      const { data: created, error: createdError } = await database
-        .from('students')
-        .select('user_id')
-        .eq('created_by', req.user!.id);
-      if (createdError) throw new Error(createdError.message);
-      for (const row of created ?? []) studentIds.add(row.user_id);
+    if (moduleIds.length) {
+      const { data: roster, error: rosterError } = await database
+        .from('module_student')
+        .select('student_id')
+        .in('module_id', moduleIds);
+      if (rosterError) throw new Error(rosterError.message);
+      for (const row of roster ?? []) studentIds.add(row.student_id);
     };
 
-    if (!studentIds.size) return res.status(200).json({ success: true, students: [] });
-
-    const { data: rows, error } = await database
+    const { data: created, error: createdError } = await database
       .from('students')
-      .select('user_id, student_code, id_number, phone, parent_phone, parent_relation, age, profile_photo_url')
-      .in('user_id', [...studentIds]);
-    if (error) throw new Error(error.message);
+      .select('user_id')
+      .eq('created_by', professorId);
+    if (createdError) throw new Error(createdError.message);
+    for (const row of created ?? []) studentIds.add(row.user_id);
+  };
 
-    const { data: users, error: usersError } = await database
-      .from('users')
-      .select('id, first_name, last_name, email')
-      .in('id', [...studentIds])
-      .is('deleted_at', null);
-    if (usersError) throw new Error(usersError.message);
+  if (!studentIds.size) return [];
 
-    // whether each student is in any group at all - lets a group's own roster page offer
-    // "not in a group yet" as its own filter when picking who to add
-    const { data: memberships, error: membershipsError } = await database
-      .from('module_student')
-      .select('student_id')
-      .in('student_id', [...studentIds]);
-    if (membershipsError) throw new Error(membershipsError.message);
-    const hasGroupIds = new Set((memberships ?? []).map((row) => row.student_id));
+  const { data: rows, error } = await database
+    .from('students')
+    .select('user_id, student_code, id_number, phone, parent_phone, parent_relation, age, profile_photo_url')
+    .in('user_id', [...studentIds]);
+  if (error) throw new Error(error.message);
 
-    const userById = new Map((users ?? []).map((u) => [u.id, u]));
-    const students = (rows ?? [])
-      .map((row) => {
-        const user = userById.get(row.user_id);
-        if (!user) return null;
-        return {
-          ...user,
-          student_code: row.student_code,
-          id_number: row.id_number,
-          phone: row.phone,
-          parent_phone: row.parent_phone,
-          parent_relation: row.parent_relation,
-          age: row.age,
-          profile_photo_url: row.profile_photo_url,
-          has_group: hasGroupIds.has(row.user_id),
-        };
-      })
-      .filter((s) => s !== null)
-      .sort((a, b) => b!.id - a!.id);
+  const { data: users, error: usersError } = await database
+    .from('users')
+    .select('id, first_name, last_name, email')
+    .in('id', [...studentIds])
+    .is('deleted_at', null);
+  if (usersError) throw new Error(usersError.message);
 
+  // whether each student is in any group at all - lets a group's own roster page offer
+  // "not in a group yet" as its own filter when picking who to add
+  const { data: memberships, error: membershipsError } = await database
+    .from('module_student')
+    .select('student_id')
+    .in('student_id', [...studentIds]);
+  if (membershipsError) throw new Error(membershipsError.message);
+  const hasGroupIds = new Set((memberships ?? []).map((row) => row.student_id));
+
+  const userById = new Map((users ?? []).map((u) => [u.id, u]));
+  let students = (rows ?? [])
+    .map((row) => {
+      const user = userById.get(row.user_id);
+      if (!user) return null;
+      return {
+        ...user,
+        student_code: row.student_code,
+        id_number: row.id_number,
+        phone: row.phone,
+        parent_phone: row.parent_phone,
+        parent_relation: row.parent_relation,
+        age: row.age,
+        profile_photo_url: row.profile_photo_url,
+        has_group: hasGroupIds.has(row.user_id),
+      };
+    })
+    .filter((s): s is NonNullable<typeof s> => s !== null)
+    .sort((a, b) => b.id - a.id);
+
+  if (search?.trim()) {
+    // strips everything but letters/digits before comparing, so a run-together query like a
+    // username or a name typed without the space it's actually stored with still matches - see
+    // listManagedProfessors above, which this mirrors (originally bolted on there after a bug report)
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/gi, '');
+    const needle = normalize(search);
+    students = students.filter((s) =>
+      normalize(`${s.first_name}${s.last_name ?? ''}${s.email}${s.student_code ?? ''}`).includes(needle),
+    );
+  };
+
+  return students;
+};
+
+export const listCreatedStudents = async (req: Request, res: Response) => {
+  try {
+    const students = await listManagedStudents(req.user!.id);
     return res.status(200).json({ success: true, students });
   } catch (error: unknown) {
     return handleControllerError(res, error, "listCreatedStudents controller");
