@@ -6,7 +6,7 @@
 
 import OpenAI from 'openai';
 
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
 // a student's own typed/pasted character counts for one answer - already tracked for proctoring
 // (see attempt.service.ts's paste_ratio), reused here as a second, non-AI signal: a wall of text
@@ -45,7 +45,7 @@ export type DeepReview = { cheating_likelihood: 'low' | 'medium' | 'high'; cheat
 const REQUEST_TIMEOUT_MS = 30_000;
 
 let client: OpenAI | null = null;
-const getClient = (): OpenAI | null => {
+export const getClient = (): OpenAI | null => {
   if (client) return client;
   const key = process.env.OPENAI_API_KEY;
   if (!key?.trim()) return null;
