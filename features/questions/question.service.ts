@@ -1,6 +1,7 @@
 import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
+import { requireNotAdministrator } from '../../lib/position-access.js';
 
 const QUESTION_TYPES = ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'];
 const TIME_UNITS = ['seconds', 'minutes', 'hours', 'days'];
@@ -120,12 +121,16 @@ const findOwnedQuestion = async (questionId: number, professorId: number) => {
 };
 
 // only the owner writes: a question used by someone else's exam stays theirs
+// only used by updateQuestion/deleteQuestion (getQuestion's own read path is separate) - the one
+// choke point to also gate writing a question on, so an administrator can't do a professor's own
+// teaching work, same rule exam.service.ts's loadManagedExam enforces for exam content
 const requireOwnedQuestion = async (questionIdParam: string, professorId: number) => {
   const questionId = parseId(questionIdParam);
   if (!questionId) throw questionNotFound();
 
   const owned = await findOwnedQuestion(questionId, professorId);
   if (!owned) throw questionNotFound();
+  await requireNotAdministrator(professorId, 'manage question content');
   return owned;
 };
 
@@ -266,6 +271,8 @@ export const createQuestion = async (professorId: number, body: Record<string, u
 
   const questionType = fields.question_type ?? 'multiple_choice';
   const options = parseOptions(body.options ?? [], questionType);
+
+  await requireNotAdministrator(professorId, 'create a question');
 
   const { data: question, error } = await database
     .from('questions')

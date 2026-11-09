@@ -32,57 +32,58 @@ const SUE = { id: 5, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' 
 // the position lookup (not an admin), then the module_professor link, then the module itself
 const managed = () => queue(ok({ position: 'professor' }), ok({ module_id: MODULE.id }), ok(MODULE));
 
+// requireManagedModule's own query sequence for an administrator/director actor instead - seeing
+// all modules skips the module_professor link check entirely, unlike a plain professor above
+const managedAsAdmin = () => queue(ok({ position: 'administrator' }), ok(MODULE));
+// the extra position check requireAdministrator makes, for actions now gated to it (create/delete
+// a class, staffing it with professors or students) - queued right after managed()/managedAsAdmin()
+const isAdmin = () => queue(ok({ position: 'administrator' }));
+
 beforeEach(() => {
   results.length = 0;
   vi.clearAllMocks();
 });
 
 describe('createModule', () => {
-  it('rejects a missing or empty name', async () => {
-    await expect(moduleService.createModule(3, {})).rejects.toMatchObject({ status: 400 });
-    await expect(moduleService.createModule(3, { name: '   ' })).rejects.toMatchObject({ status: 400 });
-    expect(from).not.toHaveBeenCalled();
-  });
+  it('only an administrator (or director) may create a class', async () => {
+    queue(ok({ position: 'professor' }));
 
-  it('rejects a name longer than the column', async () => {
-    await expect(moduleService.createModule(3, { name: 'a'.repeat(101) })).rejects.toMatchObject({ status: 400 });
-  });
-
-  it('inserts the module and makes the creator its professor', async () => {
-    queue(ok([]), ok(MODULE), ok({ position: 'professor' }), ok(null));
-
-    expect(await moduleService.createModule(3, { name: '  Algorithms  ' })).toEqual(MODULE);
-    expect(from).toHaveBeenNthCalledWith(1, 'modules');
-    expect(from).toHaveBeenNthCalledWith(2, 'modules');
-    expect(builder.insert).toHaveBeenNthCalledWith(1, { name: 'Algorithms' });
-    expect(from).toHaveBeenNthCalledWith(3, 'professors');
-    expect(from).toHaveBeenNthCalledWith(4, 'module_professor');
-    expect(builder.insert).toHaveBeenNthCalledWith(2, { module_id: 7, professor_id: 3 });
-  });
-
-  it('does not link an administrator/director as a mentor of the group they created', async () => {
-    queue(ok([]), ok(MODULE), ok({ position: 'director' }));
-
-    expect(await moduleService.createModule(3, { name: 'Algorithms' })).toEqual(MODULE);
-    expect(from).toHaveBeenCalledTimes(3);
-    expect(builder.insert).toHaveBeenCalledTimes(1);
-    expect(builder.insert).not.toHaveBeenCalledWith(expect.objectContaining({ professor_id: 3 }));
-  });
-
-  it('rejects a name that already belongs to another active class', async () => {
-    queue(ok([{ id: 11 }]));
-
-    await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toMatchObject({ status: 409 });
+    await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toMatchObject({
+      status: 403,
+      message: 'Only an administrator can create a class',
+    });
     expect(builder.insert).not.toHaveBeenCalled();
   });
 
-  it('removes the module again when the professor link fails', async () => {
-    queue(ok([]), ok(MODULE), ok({ position: 'professor' }), fail({ message: 'link failed' }), ok(null));
+  it('rejects a missing or empty name', async () => {
+    queue(ok({ position: 'administrator' }));
+    await expect(moduleService.createModule(3, {})).rejects.toMatchObject({ status: 400 });
 
-    await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toThrow('link failed');
-    expect(from).toHaveBeenNthCalledWith(5, 'modules');
-    expect(builder.delete).toHaveBeenCalled();
-    expect(builder.eq).toHaveBeenCalledWith('id', 7);
+    queue(ok({ position: 'administrator' }));
+    await expect(moduleService.createModule(3, { name: '   ' })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('rejects a name longer than the column', async () => {
+    queue(ok({ position: 'administrator' }));
+    await expect(moduleService.createModule(3, { name: 'a'.repeat(101) })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it("inserts the module, with no mentor linked - the creator already manages every class directly", async () => {
+    queue(ok({ position: 'administrator' }), ok([]), ok(MODULE));
+
+    expect(await moduleService.createModule(3, { name: '  Algorithms  ' })).toEqual(MODULE);
+    expect(from).toHaveBeenNthCalledWith(1, 'professors');
+    expect(from).toHaveBeenNthCalledWith(2, 'modules');
+    expect(from).toHaveBeenNthCalledWith(3, 'modules');
+    expect(builder.insert).toHaveBeenCalledTimes(1);
+    expect(builder.insert).toHaveBeenCalledWith({ name: 'Algorithms' });
+  });
+
+  it('rejects a name that already belongs to another active class', async () => {
+    queue(ok({ position: 'director' }), ok([{ id: 11 }]));
+
+    await expect(moduleService.createModule(3, { name: 'Algorithms' })).rejects.toMatchObject({ status: 409 });
+    expect(builder.insert).not.toHaveBeenCalled();
   });
 });
 
@@ -365,24 +366,38 @@ describe('deleteModule', () => {
 });
 
 describe('addStudent', () => {
-  it('needs an email or a studentId', async () => {
+  it('only an administrator (or director) may add a student to a class', async () => {
     managed();
+    queue(ok({ position: 'professor' })); // requireAdministrator's own, separate position check
 
+    await expect(moduleService.addStudent(3, '7', { studentId: 5 })).rejects.toMatchObject({
+      status: 403,
+      message: 'Only an administrator can add a student to a class',
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
+  it('needs an email or a studentId', async () => {
+    managedAsAdmin();
+    isAdmin();
     await expect(moduleService.addStudent(3, '7', {})).rejects.toMatchObject({ status: 400 });
 
-    managed();
+    managedAsAdmin();
+    isAdmin();
     await expect(moduleService.addStudent(3, '7', { studentId: 0 })).rejects.toMatchObject({ status: 400 });
   });
 
   it('answers 404 when no user has that email', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(null));
 
     await expect(moduleService.addStudent(3, '7', { email: 'nobody@magi.edu' })).rejects.toMatchObject({ status: 404 });
   });
 
   it('refuses a user who is not a student', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(SUE), ok(null));
 
     await expect(moduleService.addStudent(3, '7', { email: 'sue@magi.edu' })).rejects.toMatchObject({
@@ -393,7 +408,8 @@ describe('addStudent', () => {
   });
 
   it('enrolls the student found by a trimmed, lowercased email', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(SUE), ok({ user_id: 5 }), ok(null));
 
     expect(await moduleService.addStudent(3, '7', { email: '  Sue@Magi.edu ' })).toEqual(SUE);
@@ -402,7 +418,8 @@ describe('addStudent', () => {
   });
 
   it('enrolls the student found by id', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(SUE), ok({ user_id: 5 }), ok(null));
 
     expect(await moduleService.addStudent(3, '7', { studentId: 5 })).toEqual(SUE);
@@ -410,7 +427,8 @@ describe('addStudent', () => {
   });
 
   it('turns a duplicate enrollment into 409', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(SUE), ok({ user_id: 5 }), fail({ code: '23505', message: 'duplicate key' }));
 
     await expect(moduleService.addStudent(3, '7', { studentId: 5 })).rejects.toMatchObject({ status: 409 });
@@ -418,13 +436,20 @@ describe('addStudent', () => {
 });
 
 describe('addProfessor', () => {
-  // managesProfessor(3, 5) resolving true via the "actor 3 created professor 5" path: not an
-  // admin (position 'professor'), then a created_by match - the cheapest true case, for tests
-  // that aren't themselves about this visibility check
-  const visibleToActor = () => queue(ok({ position: 'professor' }), ok({ user_id: 5 }));
+  it('only an administrator (or director) may add a professor to a class', async () => {
+    managed();
+    queue(ok({ position: 'professor' })); // requireAdministrator's own, separate position check
+
+    await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({
+      status: 403,
+      message: 'Only an administrator can add a professor to a class',
+    });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
 
   it('refuses a user who is not a professor', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok(SUE), ok(null));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({
@@ -434,38 +459,27 @@ describe('addProfessor', () => {
     expect(from).toHaveBeenCalledWith('professors');
   });
 
-  it('refuses to add a professor the actor has no relationship with (not visible to them)', async () => {
-    managed();
-    queue(ok(SUE), ok({ user_id: 5 })); // findMember: found, has the professor role
-    queue(ok({ position: 'professor' }), ok(null), ok([])); // managesProfessor: not admin, not created_by, no managed modules - false
-    await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({ status: 404, message: 'Professor not found' });
-    expect(builder.insert).not.toHaveBeenCalled();
-  });
-
   it('adds the co-professor', async () => {
-    managed();
-    queue(ok(SUE), ok({ user_id: 5 }));
-    visibleToActor();
-    queue(ok({ position: 'professor' }), ok(null));
+    managedAsAdmin();
+    isAdmin();
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), ok(null));
 
     expect(await moduleService.addProfessor(3, '7', { professorId: 5 })).toEqual(SUE);
     expect(builder.insert).toHaveBeenCalledWith({ module_id: 7, professor_id: 5 });
   });
 
   it('turns a duplicate professor into 409', async () => {
-    managed();
-    queue(ok(SUE), ok({ user_id: 5 }));
-    visibleToActor();
-    queue(ok({ position: 'professor' }), fail({ code: '23505', message: 'duplicate key' }));
+    managedAsAdmin();
+    isAdmin();
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), fail({ code: '23505', message: 'duplicate key' }));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('refuses to add a director/administrator as a mentor - they already manage every class directly', async () => {
-    managed();
-    queue(ok(SUE), ok({ user_id: 5 }));
-    visibleToActor();
-    queue(ok({ position: 'Director' }));
+    managedAsAdmin();
+    isAdmin();
+    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'Director' }));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({
       status: 400,
@@ -476,22 +490,36 @@ describe('addProfessor', () => {
 });
 
 describe('removeStudent', () => {
-  it('answers 404 when the student is not enrolled', async () => {
+  it('only an administrator (or director) may remove a student from a class', async () => {
     managed();
+    queue(ok({ position: 'professor' })); // requireAdministrator's own, separate position check
+
+    await expect(moduleService.removeStudent(3, '7', '5')).rejects.toMatchObject({
+      status: 403,
+      message: 'Only an administrator can remove a student from a class',
+    });
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the student is not enrolled', async () => {
+    managedAsAdmin();
+    isAdmin();
     queue(ok([]));
 
     await expect(moduleService.removeStudent(3, '7', '5')).rejects.toMatchObject({ status: 404 });
   });
 
   it('answers 404 for an id that is not an id', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
 
     await expect(moduleService.removeStudent(3, '7', 'abc')).rejects.toMatchObject({ status: 404 });
     expect(builder.delete).not.toHaveBeenCalled();
   });
 
   it('removes the enrollment of the module only', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(ok([{ student_id: 5 }]));
 
     await moduleService.removeStudent(3, '7', '5');
@@ -502,15 +530,28 @@ describe('removeStudent', () => {
 });
 
 describe('removeProfessor', () => {
-  it('answers 404 when the professor does not manage the module', async () => {
+  it('only an administrator (or director) may remove a professor from a class', async () => {
     managed();
+    queue(ok({ position: 'professor' })); // requireAdministrator's own, separate position check
+
+    await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({
+      status: 403,
+      message: 'Only an administrator can remove a professor from a class',
+    });
+    expect(builder.delete).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when the professor does not manage the module', async () => {
+    managedAsAdmin();
+    isAdmin();
     queue(okCount(2), ok([]));
 
     await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({ status: 404 });
   });
 
   it('removes the co-professor', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(okCount(2), ok([{ professor_id: 4 }]));
 
     await moduleService.removeProfessor(3, '7', '4');
@@ -518,7 +559,8 @@ describe('removeProfessor', () => {
   });
 
   it('refuses to remove the last professor managing the module', async () => {
-    managed();
+    managedAsAdmin();
+    isAdmin();
     queue(okCount(1));
 
     await expect(moduleService.removeProfessor(3, '7', '4')).rejects.toMatchObject({ status: 409 });

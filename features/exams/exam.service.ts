@@ -4,6 +4,7 @@ import { managedExamIds, managesExam, seesExam } from '../../lib/exam-access.js'
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type TokenPayload } from '../../lib/types.js';
 import { notifyMany } from '../../lib/notifications.js';
+import { requireNotAdministrator } from '../../lib/position-access.js';
 import {
   requireUrl,
   requireAppName,
@@ -114,9 +115,14 @@ const loadExamRow = async (examId: number, columns: string) => {
 };
 
 // an exam somebody else manages must not be distinguishable from one that does not exist
+// every write in this file (update/delete/schedule/link/attach/...) goes through here first - the
+// one choke point to gate writing exam content on, so an administrator (who otherwise manages
+// everything structurally) still can't do a professor's own teaching work; reads (getExam,
+// listExamQuestions) go through loadVisibleExam instead and are unaffected
 const loadManagedExam = async (professorId: number, examId: number, columns: string = EXAM_COLUMNS) => {
   const exam = await loadExamRow(examId, columns);
   if (!exam || !(await managesExam(exam, professorId))) throw new HttpError(404, 'Exam not found');
+  await requireNotAdministrator(professorId, 'manage exam/homework content');
   return exam;
 };
 
@@ -324,6 +330,8 @@ export const createExam = async (professorId: number, body: any = {}) => {
   // left unset, not 'exam'
   const kind = body.kind === undefined ? 'homework' : body.kind;
   if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
+
+  await requireNotAdministrator(professorId, 'create an exam/homework');
 
   // a name only has to be unique within a class, and this exam isn't linked to one yet -
   // linkModule is where the duplicate-name check actually happens

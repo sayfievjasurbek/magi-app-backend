@@ -243,8 +243,18 @@ describe('createExam', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may create an exam/homework, not an administrator', async () => {
+    queue.push(rows({ position: 'administrator' }));
+
+    await expect(createExam(7, body)).rejects.toMatchObject({
+      status: 403,
+      message: "An administrator cannot create an exam/homework - that is the professor's own work",
+    });
+    expect(from).not.toHaveBeenCalledWith('exams');
+  });
+
   it('stores the professor as the owner', async () => {
-    queue.push(rows({ id: 1 }));
+    queue.push(rows({ position: 'professor' }), rows({ id: 1 }));
 
     await createExam(7, body);
 
@@ -259,11 +269,11 @@ describe('createExam', () => {
   });
 
   it("defaults kind to 'homework', accepts 'exam', refuses anything else", async () => {
-    queue.push(rows({ id: 1 }));
+    queue.push(rows({ position: 'professor' }), rows({ id: 1 }));
     await createExam(7, body);
     expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ kind: 'homework' });
 
-    queue.push(rows({ id: 2 }));
+    queue.push(rows({ position: 'professor' }), rows({ id: 2 }));
     await createExam(7, { ...body, kind: 'exam' });
     expect(argsOf('exams', 'insert')[1][0]).toMatchObject({ kind: 'exam' });
 
@@ -274,13 +284,13 @@ describe('createExam', () => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
-    queue.push(rows({ id: 1 }));
+    queue.push(rows({ position: 'professor' }), rows({ id: 1 }));
     await createExam(7, { ...body, scheduledStart: oneHourAgo, scheduledEnd: inAnHour });
     expect(argsOf('exams', 'insert')[0][0]).toMatchObject({ scheduled_start: oneHourAgo });
   });
 
   it('does not check for a duplicate name - a name only has to be unique within a class, and this exam is not linked to one yet', async () => {
-    queue.push(rows({ id: 1 }));
+    queue.push(rows({ position: 'professor' }), rows({ id: 1 }));
 
     await createExam(7, body);
 
@@ -289,8 +299,19 @@ describe('createExam', () => {
 });
 
 describe('updateExam', () => {
+  it('only a professor (or director) may update an exam, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(updateExam(7, 1, { name: 'Resit' })).rejects.toMatchObject({ status: 403 });
+    expect(from).not.toHaveBeenCalledWith('assignments');
+  });
+
   it('refuses to move the schedule once the exam has attempts', async () => {
-    queue.push(rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }), rows([{ id: 4 }]));
+    queue.push(
+      rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows({ position: 'professor' }),
+      rows([{ id: 4 }]),
+    );
 
     await expect(updateExam(7, 1, { scheduledEnd: '2026-01-10T12:00:00Z' })).rejects.toMatchObject({ status: 409 });
   });
@@ -298,6 +319,7 @@ describe('updateExam', () => {
   it('still renames an exam that has attempts', async () => {
     queue.push(
       rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows({ position: 'professor' }),
       rows([]),
       rows({ id: 1, name: 'Resit' }),
     );
@@ -310,6 +332,7 @@ describe('updateExam', () => {
   it('refuses a rename that collides with another exam already in the same class', async () => {
     queue.push(
       rows({ id: 1, created_by: 7, name: 'Quiz 1', scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows({ position: 'professor' }),
       rows([{ module_id: 5 }]),
       rows([{ exam_id: 2 }]),
       rows([{ id: 2 }]),
@@ -322,13 +345,16 @@ describe('updateExam', () => {
   });
 
   it('checks the new value against the stored one', async () => {
-    queue.push(rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 50, passing_marks: 10 }));
+    queue.push(
+      rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 50, passing_marks: 10 }),
+      rows({ position: 'professor' }),
+    );
 
     await expect(updateExam(7, 1, { passingMarks: 60 })).rejects.toMatchObject({ status: 400 });
   });
 
   it('refuses an empty patch', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }));
 
     await expect(updateExam(7, 1, {})).rejects.toMatchObject({ status: 400, message: 'Nothing to update' });
   });
@@ -338,7 +364,7 @@ describe('updateExam', () => {
     const inAnHour = new Date(Date.now() + 60 * 60 * 1000).toISOString();
     const exam = { id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 };
 
-    queue.push(rows(exam), rows([]), rows({ id: 1, scheduled_start: oneHourAgo, scheduled_end: inAnHour }));
+    queue.push(rows(exam), rows({ position: 'professor' }), rows([]), rows({ id: 1, scheduled_start: oneHourAgo, scheduled_end: inAnHour }));
     await updateExam(7, 1, { scheduledStart: oneHourAgo, scheduledEnd: inAnHour });
   });
 });
@@ -349,8 +375,15 @@ describe('deleteExam', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may delete an exam, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(deleteExam(7, 1, { reason: 'replaced by the resit' })).rejects.toMatchObject({ status: 403 });
+    expect(from).not.toHaveBeenCalledWith('assignments');
+  });
+
   it('soft deletes with the reason', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows(null));
 
     await deleteExam(7, 1, { reason: 'replaced by the resit' });
 
@@ -366,14 +399,20 @@ describe('setExamStatus', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may change exam status, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7, status: 'scheduled' }), rows({ position: 'administrator' }));
+
+    await expect(setExamStatus(7, 1, { status: 'ongoing' })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('refuses to leave a completed exam', async () => {
-    queue.push(rows({ id: 1, created_by: 7, status: 'completed' }));
+    queue.push(rows({ id: 1, created_by: 7, status: 'completed' }), rows({ position: 'professor' }));
 
     await expect(setExamStatus(7, 1, { status: 'ongoing' })).rejects.toMatchObject({ status: 409 });
   });
 
   it('refuses to leave a cancelled exam', async () => {
-    queue.push(rows({ id: 1, created_by: 7, status: 'cancelled' }));
+    queue.push(rows({ id: 1, created_by: 7, status: 'cancelled' }), rows({ position: 'professor' }));
 
     await expect(setExamStatus(7, 1, { status: 'scheduled' })).rejects.toMatchObject({ status: 409 });
   });
@@ -381,6 +420,7 @@ describe('setExamStatus', () => {
   it('refuses to start an exam whose questions do not add up to max_marks', async () => {
     queue.push(
       rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 100 }),
+      rows({ position: 'professor' }),
       rows([{ question_id: 11, position: 1, marks: 6 }]),
       rows([{ id: 11 }]),
       rows([])
@@ -390,7 +430,7 @@ describe('setExamStatus', () => {
   });
 
   it('refuses to start an exam without questions', async () => {
-    queue.push(rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 100 }), rows([]));
+    queue.push(rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 100 }), rows({ position: 'professor' }), rows([]));
 
     await expect(setExamStatus(7, 1, { status: 'ongoing' })).rejects.toMatchObject({ status: 409, message: 'The exam has no questions yet' });
   });
@@ -398,6 +438,7 @@ describe('setExamStatus', () => {
   it('starts an exam whose marks match', async () => {
     queue.push(
       rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 10 }),
+      rows({ position: 'professor' }),
       rows([{ question_id: 11, position: 1, marks: 10 }]),
       rows([{ id: 11 }]),
       rows([]),
@@ -408,7 +449,7 @@ describe('setExamStatus', () => {
   });
 
   it('delays a scheduled exam without counting marks', async () => {
-    queue.push(rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 10 }), rows({ id: 1, status: 'delayed' }));
+    queue.push(rows({ id: 1, created_by: 7, status: 'scheduled', max_marks: 10 }), rows({ position: 'professor' }), rows({ id: 1, status: 'delayed' }));
 
     await setExamStatus(7, 1, { status: 'delayed' });
 
@@ -417,20 +458,26 @@ describe('setExamStatus', () => {
 });
 
 describe('linkModule', () => {
+  it('only a professor (or director) may link a module, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a module the professor does not teach', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows(null));
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 404, message: 'Module not found' });
   });
 
   it('409s a module that is already linked', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows({ module_id: 5 }), rows([]), duplicate);
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows({ module_id: 5 }), rows([]), duplicate);
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('409s linking a module that already has an exam of the same name', async () => {
-    queue.push(rows({ id: 1, created_by: 7, name: 'Midterm' }), rows([]), rows({ module_id: 5 }), rows([{ exam_id: 2 }]), rows([{ id: 2 }]));
+    queue.push(rows({ id: 1, created_by: 7, name: 'Midterm' }), rows({ position: 'professor' }), rows([]), rows({ module_id: 5 }), rows([{ exam_id: 2 }]), rows([{ id: 2 }]));
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({
       status: 409,
@@ -439,7 +486,7 @@ describe('linkModule', () => {
   });
 
   it('409s once the exam has attempts', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([{ id: 4 }]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([{ id: 4 }]));
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 409 });
   });
@@ -451,20 +498,26 @@ describe('linkModule', () => {
 });
 
 describe('addExaminer', () => {
+  it('only a professor (or director) may add an examiner, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(addExaminer(7, 1, { examinerId: 8 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a user that does not have the examiner role', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows(null));
 
     await expect(addExaminer(7, 1, { examinerId: 8 })).rejects.toMatchObject({ status: 404, message: 'Examiner not found' });
   });
 
   it('409s an examiner that is already assigned', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows({ user_id: 8 }), duplicate);
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows({ user_id: 8 }), duplicate);
 
     await expect(addExaminer(7, 1, { examinerId: 8 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('assigns an examiner even when the exam has attempts', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows({ user_id: 8 }), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows({ user_id: 8 }), rows(null));
 
     expect(await addExaminer(7, 1, { examinerId: 8 })).toEqual({ exam_id: 1, examiner_id: 8 });
     expect(from).not.toHaveBeenCalledWith('assignments');
@@ -478,26 +531,32 @@ describe('addStudents', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may assign students, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(addStudents(7, 1, { studentId: 9 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a student that is enrolled in none of the modules of the exam', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([{ module_id: 5 }]), rows([]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([{ module_id: 5 }]), rows([]));
 
     await expect(addStudents(7, 1, { studentId: 9 })).rejects.toMatchObject({ status: 404, message: 'Student not found' });
   });
 
   it('409s a student that is already assigned', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([{ module_id: 5 }]), rows([{ student_id: 9 }]), duplicate);
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([{ module_id: 5 }]), rows([{ student_id: 9 }]), duplicate);
 
     await expect(addStudents(7, 1, { studentId: 9 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('assigns one enrolled student', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([{ module_id: 5 }]), rows([{ student_id: 9 }]), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([{ module_id: 5 }]), rows([{ student_id: 9 }]), rows(null));
 
     expect(await addStudents(7, 1, { studentId: 9 })).toEqual({ added: [9] });
   });
 
   it('404s a module that is not linked to the exam', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([{ module_id: 5 }]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([{ module_id: 5 }]));
 
     await expect(addStudents(7, 1, { moduleId: 6 })).rejects.toMatchObject({ status: 404, message: 'Module not found' });
   });
@@ -505,6 +564,7 @@ describe('addStudents', () => {
   it('adds every student of a linked module and skips the ones already assigned', async () => {
     queue.push(
       rows({ id: 1, created_by: 7 }),
+      rows({ position: 'professor' }),
       rows([]),
       rows([{ module_id: 5 }]),
       rows([{ student_id: 9 }, { student_id: 10 }]),
@@ -517,21 +577,27 @@ describe('addStudents', () => {
   });
 
   it('409s once the exam has attempts', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([{ id: 4 }]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([{ id: 4 }]));
 
     await expect(addStudents(7, 1, { studentId: 9 })).rejects.toMatchObject({ status: 409 });
   });
 });
 
 describe('removeStudent', () => {
+  it('only a professor (or director) may remove an assigned student, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'administrator' }));
+
+    await expect(removeStudent(7, 1, 9)).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a student that is not assigned', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([]));
 
     await expect(removeStudent(7, 1, 9)).rejects.toMatchObject({ status: 404, message: 'Student not found' });
   });
 
   it('removes an assigned student', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows([]), rows([{ student_id: 9 }]));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows([{ student_id: 9 }]));
 
     await removeStudent(7, 1, 9);
 

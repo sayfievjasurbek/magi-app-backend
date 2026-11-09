@@ -3,7 +3,7 @@ import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type Role } from '../../lib/types.js';
 import { notify } from '../../lib/notifications.js';
-import { seesAllModules, managesProfessor } from '../../lib/position-access.js';
+import { seesAllModules, requireAdministrator } from '../../lib/position-access.js';
 import {
   requireUrl,
   requireAppName,
@@ -258,7 +258,14 @@ const findMember = async (body: Record<string, unknown>, idField: string, roleTa
   return user;
 };
 
+// creating a class is an administrator (or director) action, not a plain professor's own teaching
+// work - DashboardShell already keeps a plain professor off the Groups page for this; this is the
+// same rule enforced server-side, since nothing else (an API client, Magi AI) is bound by that
+// page's own routing. Nobody is auto-linked as a mentor: whoever creates it manages every module
+// directly already (that's what requireAdministrator just confirmed), so they aren't one of its
+// mentors just for having set it up - staffing it is a separate, explicit addProfessor call.
 export const createModule = async (professorId: number, body: Record<string, unknown>) => {
+  await requireAdministrator(professorId, 'create a class');
   const name = parseName(body.name);
   await requireUniqueName(name);
 
@@ -269,22 +276,6 @@ export const createModule = async (professorId: number, body: Record<string, unk
     .single();
 
   if (error) throw new Error(error.message);
-
-  // only an account that actually teaches (position "professor") is linked as a mentor here - an
-  // administrator/director creating a group already manages every module via seesAllModules, and
-  // isn't one of its mentors just for having set it up
-  if (!(await seesAllModules(professorId))) {
-    const { error: linkError } = await database
-      .from('module_professor')
-      .insert({ module_id: newModule.id, professor_id: professorId });
-
-    // the two writes are not one transaction: a module nobody manages is worse than no module
-    if (linkError) {
-      await database.from('modules').delete().eq('id', newModule.id);
-      throw new Error(linkError.message);
-    };
-  };
-
   return newModule;
 };
 
@@ -478,7 +469,7 @@ export const updateModule = async (professorId: number, moduleIdParam: string, b
 // manages their own teaching surface (roster, exams), not whether the class itself exists
 export const deleteModule = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
-  if (!(await seesAllModules(professorId))) throw new HttpError(403, 'Only an administrator can delete a class');
+  await requireAdministrator(professorId, 'delete a class');
   const reason = parseReason(body.reason);
 
   const { error } = await database.from('modules').update(softDelete(reason)).eq('id', managed.id);
@@ -487,13 +478,8 @@ export const deleteModule = async (professorId: number, moduleIdParam: string, b
 
 export const addProfessor = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
+  await requireAdministrator(professorId, 'add a professor to a class');
   const professor = await findMember(body, 'professorId', 'professors', 'professor');
-
-  // a plain "professor" position can only name someone they already have a reason to know about
-  // (a co-professor on a module they manage, or an account they created) as a class mentor - not
-  // any professor in the system by knowing or guessing their id; an administrator/director
-  // (seesAllModules, which managesProfessor already defers to) is unrestricted, same as before
-  if (!(await managesProfessor(professorId, professor.id))) throw new HttpError(404, 'Professor not found');
 
   // an administrator/director already manages every class directly (seesAllModules) - adding
   // them here would make them show up as teaching this one specific class, which they don't;
@@ -516,6 +502,7 @@ export const addProfessor = async (professorId: number, moduleIdParam: string, b
 
 export const removeProfessor = async (professorId: number, moduleIdParam: string, targetIdParam: string) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
+  await requireAdministrator(professorId, 'remove a professor from a class');
 
   const notInModule = () => new HttpError(404, 'This professor does not manage the module');
   const targetId = parseId(targetIdParam);
@@ -543,6 +530,7 @@ export const removeProfessor = async (professorId: number, moduleIdParam: string
 
 export const addStudent = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
+  await requireAdministrator(professorId, 'add a student to a class');
   const student = await findMember(body, 'studentId', 'students', 'student');
 
   const { error } = await database
@@ -560,6 +548,7 @@ export const addStudent = async (professorId: number, moduleIdParam: string, bod
 
 export const removeStudent = async (professorId: number, moduleIdParam: string, studentIdParam: string) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
+  await requireAdministrator(professorId, 'remove a student from a class');
 
   const notEnrolled = () => new HttpError(404, 'This student is not enrolled in the module');
   const studentId = parseId(studentIdParam);

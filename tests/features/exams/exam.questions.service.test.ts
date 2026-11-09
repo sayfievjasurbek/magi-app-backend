@@ -44,7 +44,9 @@ const asUser = (id: number, role: Role): TokenPayload =>
 
 const argsOf = (table: string, method: string) => calls.filter((call) => call.table === table && call.method === method).map((call) => call.args);
 
-const ownedExam = () => rows({ id: 1, created_by: 7, max_marks: 10 });
+// loadManagedExam's minimal query pair: the exam row (owned, so managesExam short-circuits) then
+// requireNotAdministrator's own position check - every write below goes through both first
+const ownedExam = () => queue.push(rows({ id: 1, created_by: 7, max_marks: 10 }), rows({ position: 'professor' }));
 const noAttempts = () => rows([]);
 
 beforeEach(() => {
@@ -82,21 +84,29 @@ describe('attachQuestion', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may attach a question, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7, max_marks: 10 }), rows({ position: 'administrator' }));
+
+    await expect(attachQuestion(7, 1, { questionId: 11 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('409s once the exam has attempts', async () => {
-    queue.push(ownedExam(), rows([{ id: 4 }]));
+    ownedExam();
+    queue.push(rows([{ id: 4 }]));
 
     await expect(attachQuestion(7, 1, { questionId: 11 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('404s a question the professor neither owns nor uses in an exam of theirs', async () => {
-    queue.push(ownedExam(), noAttempts(), rows({ id: 11, created_by: 99 }), rows([]));
+    ownedExam();
+    queue.push(noAttempts(), rows({ id: 11, created_by: 99 }), rows([]));
 
     await expect(attachQuestion(7, 1, { questionId: 11 })).rejects.toMatchObject({ status: 404, message: 'Question not found' });
   });
 
   it('takes a question that is already in an exam the professor manages', async () => {
+    ownedExam();
     queue.push(
-      ownedExam(),
       noAttempts(),
       rows({ id: 11, created_by: 99 }),
       rows([{ exam_id: 4 }]),
@@ -110,7 +120,8 @@ describe('attachQuestion', () => {
   });
 
   it('appends the question after the last position', async () => {
-    queue.push(ownedExam(), noAttempts(), rows({ id: 11, created_by: 7 }), rows([{ position: 3 }]), rows({ question_id: 11, position: 4, marks: 5 }));
+    ownedExam();
+    queue.push(noAttempts(), rows({ id: 11, created_by: 7 }), rows([{ position: 3 }]), rows({ question_id: 11, position: 4, marks: 5 }));
 
     await attachQuestion(7, 1, { questionId: 11, marks: 5 });
 
@@ -118,7 +129,8 @@ describe('attachQuestion', () => {
   });
 
   it('starts at position 1 in an empty exam', async () => {
-    queue.push(ownedExam(), noAttempts(), rows({ id: 11, created_by: 7 }), rows([]), rows({ question_id: 11, position: 1, marks: 1 }));
+    ownedExam();
+    queue.push(noAttempts(), rows({ id: 11, created_by: 7 }), rows([]), rows({ question_id: 11, position: 1, marks: 1 }));
 
     await attachQuestion(7, 1, { questionId: 11 });
 
@@ -126,7 +138,8 @@ describe('attachQuestion', () => {
   });
 
   it('409s a question that is already in the exam', async () => {
-    queue.push(ownedExam(), noAttempts(), rows({ id: 11, created_by: 7 }), rows([]), duplicate);
+    ownedExam();
+    queue.push(noAttempts(), rows({ id: 11, created_by: 7 }), rows([]), duplicate);
 
     await expect(attachQuestion(7, 1, { questionId: 11 })).rejects.toMatchObject({ status: 409 });
   });
@@ -138,14 +151,22 @@ describe('updateExamQuestion', () => {
     expect(from).not.toHaveBeenCalled();
   });
 
+  it('only a professor (or director) may change a question\'s marks, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7, max_marks: 10 }), rows({ position: 'administrator' }));
+
+    await expect(updateExamQuestion(7, 1, 11, { marks: 5 })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a question that is not in the exam', async () => {
-    queue.push(ownedExam(), noAttempts(), rows([]));
+    ownedExam();
+    queue.push(noAttempts(), rows([]));
 
     await expect(updateExamQuestion(7, 1, 11, { marks: 5 })).rejects.toMatchObject({ status: 404 });
   });
 
   it('changes the marks of the link only', async () => {
-    queue.push(ownedExam(), noAttempts(), rows([{ question_id: 11, position: 1, marks: 5 }]));
+    ownedExam();
+    queue.push(noAttempts(), rows([{ question_id: 11, position: 1, marks: 5 }]));
 
     expect(await updateExamQuestion(7, 1, 11, { marks: 5 })).toEqual({ question_id: 11, position: 1, marks: 5 });
     expect(argsOf('exam_question', 'update')[0][0]).toEqual({ marks: 5 });
@@ -161,14 +182,15 @@ describe('reorderQuestions', () => {
   });
 
   it('wants every question of the exam exactly once', async () => {
-    queue.push(ownedExam(), noAttempts(), rows([{ question_id: 11 }, { question_id: 12 }]));
+    ownedExam();
+    queue.push(noAttempts(), rows([{ question_id: 11 }, { question_id: 12 }]));
 
     await expect(reorderQuestions(7, 1, { questionIds: [11] })).rejects.toMatchObject({ status: 400 });
   });
 
   it('renumbers the whole exam in one statement', async () => {
+    ownedExam();
     queue.push(
-      ownedExam(),
       noAttempts(),
       rows([{ question_id: 11 }, { question_id: 12 }]),
       rows(null),
@@ -189,21 +211,30 @@ describe('reorderQuestions', () => {
   });
 
   it('409s once the exam has attempts', async () => {
-    queue.push(ownedExam(), rows([{ id: 4 }]));
+    ownedExam();
+    queue.push(rows([{ id: 4 }]));
 
     await expect(reorderQuestions(7, 1, { questionIds: [11] })).rejects.toMatchObject({ status: 409 });
   });
 });
 
 describe('detachQuestion', () => {
+  it('only a professor (or director) may detach a question, not an administrator', async () => {
+    queue.push(rows({ id: 1, created_by: 7, max_marks: 10 }), rows({ position: 'administrator' }));
+
+    await expect(detachQuestion(7, 1, 11)).rejects.toMatchObject({ status: 403 });
+  });
+
   it('404s a question that is not in the exam', async () => {
-    queue.push(ownedExam(), noAttempts(), rows([]));
+    ownedExam();
+    queue.push(noAttempts(), rows([]));
 
     await expect(detachQuestion(7, 1, 11)).rejects.toMatchObject({ status: 404 });
   });
 
   it('removes the link only', async () => {
-    queue.push(ownedExam(), noAttempts(), rows([{ question_id: 11 }]));
+    ownedExam();
+    queue.push(noAttempts(), rows([{ question_id: 11 }]));
 
     await detachQuestion(7, 1, 11);
 
@@ -221,26 +252,30 @@ describe('events', () => {
   });
 
   it('404s an event that is not in the catalog', async () => {
-    queue.push(ownedExam(), rows(null));
+    ownedExam();
+    queue.push(rows(null));
 
     await expect(attachEvent(7, 1, { eventId: 3 })).rejects.toMatchObject({ status: 404, message: 'Event not found' });
   });
 
   it('409s an event that is already monitored', async () => {
-    queue.push(ownedExam(), rows({ id: 3, name: 'tab_switch' }), duplicate);
+    ownedExam();
+    queue.push(rows({ id: 3, name: 'tab_switch' }), duplicate);
 
     await expect(attachEvent(7, 1, { eventId: 3 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('monitors a catalog event', async () => {
-    queue.push(ownedExam(), rows({ id: 3, name: 'tab_switch', description: 'switched tab' }), rows(null));
+    ownedExam();
+    queue.push(rows({ id: 3, name: 'tab_switch', description: 'switched tab' }), rows(null));
 
     expect(await attachEvent(7, 1, { eventId: 3 })).toMatchObject({ id: 3, name: 'tab_switch' });
     expect(argsOf('exam_events', 'insert')[0][0]).toEqual({ exam_id: 1, event_id: 3 });
   });
 
   it('404s an event that is not monitored when it is detached', async () => {
-    queue.push(ownedExam(), rows([]));
+    ownedExam();
+    queue.push(rows([]));
 
     await expect(detachEvent(7, 1, 3)).rejects.toMatchObject({ status: 404 });
   });
@@ -256,7 +291,8 @@ describe('permitted urls', () => {
   });
 
   it('reuses the stored address', async () => {
-    queue.push(ownedExam(), rows([{ id: 4, url: 'https://docs.magi' }]), rows(null));
+    ownedExam();
+    queue.push(rows([{ id: 4, url: 'https://docs.magi' }]), rows(null));
 
     expect(await addPermittedUrl(7, 1, { url: 'https://docs.magi' })).toEqual({ id: 4, url: 'https://docs.magi' });
     expect(argsOf('permitted_urls', 'insert')).toHaveLength(0);
@@ -264,20 +300,23 @@ describe('permitted urls', () => {
   });
 
   it('stores an address nobody permitted yet', async () => {
-    queue.push(ownedExam(), rows([]), rows({ id: 9, url: 'https://docs.magi' }), rows(null));
+    ownedExam();
+    queue.push(rows([]), rows({ id: 9, url: 'https://docs.magi' }), rows(null));
 
     expect(await addPermittedUrl(7, 1, { url: '  https://docs.magi  ' })).toEqual({ id: 9, url: 'https://docs.magi' });
     expect(argsOf('permitted_urls', 'insert')[0][0]).toEqual({ url: 'https://docs.magi' });
   });
 
   it('409s an address that is already permitted for this exam', async () => {
-    queue.push(ownedExam(), rows([{ id: 4, url: 'https://docs.magi' }]), duplicate);
+    ownedExam();
+    queue.push(rows([{ id: 4, url: 'https://docs.magi' }]), duplicate);
 
     await expect(addPermittedUrl(7, 1, { url: 'https://docs.magi' })).rejects.toMatchObject({ status: 409 });
   });
 
   it('404s an address that is not permitted for this exam', async () => {
-    queue.push(ownedExam(), rows([]));
+    ownedExam();
+    queue.push(rows([]));
 
     await expect(removePermittedUrl(7, 1, 4)).rejects.toMatchObject({ status: 404 });
   });

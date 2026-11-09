@@ -88,15 +88,26 @@ describe('createQuestion', () => {
     await expect(questionService.createQuestion(3, { title: 'Q', options: [{ optionText: 'a', isCorrect: 'yes' }, { optionText: 'b' }] })).rejects.toMatchObject({ status: 400 });
   });
 
+  it('only a professor (or director) may create a question, not an administrator', async () => {
+    queue(ok({ position: 'administrator' }));
+
+    await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay' })).rejects.toMatchObject({
+      status: 403,
+      message: "An administrator cannot create a question - that is the professor's own work",
+    });
+    expect(from).toHaveBeenCalledTimes(1);
+  });
+
   it('writes the question with its owner and its options', async () => {
-    queue(ok(QUESTION), ok(OPTIONS));
+    queue(ok({ position: 'professor' }), ok(QUESTION), ok(OPTIONS));
 
     const created = await questionService.createQuestion(3, { title: '  Binary search  ', question: '  How fast is binary search?  ', options: choices });
 
     expect(created).toEqual({ ...QUESTION, options: OPTIONS });
-    expect(from).toHaveBeenNthCalledWith(1, 'questions');
+    expect(from).toHaveBeenNthCalledWith(1, 'professors');
+    expect(from).toHaveBeenNthCalledWith(2, 'questions');
     expect(builder.insert).toHaveBeenNthCalledWith(1, { title: 'Binary search', question: 'How fast is binary search?', question_type: 'multiple_choice', created_by: 3 });
-    expect(from).toHaveBeenNthCalledWith(2, 'question_options');
+    expect(from).toHaveBeenNthCalledWith(3, 'question_options');
     expect(builder.insert).toHaveBeenNthCalledWith(2, [
       { option_text: 'O(log n)', is_correct: true, question_id: 11 },
       { option_text: 'O(n)', is_correct: false, question_id: 11 },
@@ -104,12 +115,12 @@ describe('createQuestion', () => {
   });
 
   it('writes no options for an essay question', async () => {
-    queue(ok({ ...QUESTION, question_type: 'essay' }));
+    queue(ok({ position: 'professor' }), ok({ ...QUESTION, question_type: 'essay' }));
 
     const created = await questionService.createQuestion(3, { title: 'Essay', question: 'Write an essay.', questionType: 'essay', expectedDuration: 30, expectedDurationUnit: 'minutes' });
 
     expect(created.options).toEqual([]);
-    expect(from).toHaveBeenCalledTimes(1);
+    expect(from).toHaveBeenCalledTimes(2);
     expect(builder.insert).toHaveBeenCalledWith({
       title: 'Essay',
       question: 'Write an essay.',
@@ -129,7 +140,7 @@ describe('createQuestion', () => {
   });
 
   it('writes more than one model answer, trimmed, and treats an empty array as none', async () => {
-    queue(ok({ ...QUESTION, question_type: 'essay', model_answers: ['O(log n)', 'Logarithmic time'] }));
+    queue(ok({ position: 'professor' }), ok({ ...QUESTION, question_type: 'essay', model_answers: ['O(log n)', 'Logarithmic time'] }));
 
     await questionService.createQuestion(3, {
       title: 'Q',
@@ -140,16 +151,16 @@ describe('createQuestion', () => {
 
     expect(builder.insert).toHaveBeenCalledWith(expect.objectContaining({ model_answers: ['O(log n)', 'Logarithmic time'] }));
 
-    queue(ok({ ...QUESTION, question_type: 'essay' }));
+    queue(ok({ position: 'professor' }), ok({ ...QUESTION, question_type: 'essay' }));
     await questionService.createQuestion(3, { title: 'Q', question: 'Q?', questionType: 'essay', modelAnswers: [] });
     expect(builder.insert).toHaveBeenLastCalledWith(expect.objectContaining({ model_answers: null }));
   });
 
   it('removes the question again when its options cannot be written', async () => {
-    queue(ok(QUESTION), fail({ message: 'options failed' }), ok(null));
+    queue(ok({ position: 'professor' }), ok(QUESTION), fail({ message: 'options failed' }), ok(null));
 
     await expect(questionService.createQuestion(3, { title: 'Q', question: 'Q?', options: choices })).rejects.toThrow('options failed');
-    expect(from).toHaveBeenNthCalledWith(3, 'questions');
+    expect(from).toHaveBeenNthCalledWith(4, 'questions');
     expect(builder.delete).toHaveBeenCalled();
     expect(builder.eq).toHaveBeenCalledWith('id', 11);
   });
@@ -165,7 +176,7 @@ describe('createQuestions', () => {
 
   it('creates every question in the array, in order', async () => {
     const second = { id: 12, title: 'Second', question_type: 'essay', created_by: 3 };
-    queue(ok(QUESTION), ok(OPTIONS), ok(second));
+    queue(ok({ position: 'professor' }), ok(QUESTION), ok(OPTIONS), ok({ position: 'professor' }), ok(second));
 
     const created = await questionService.createQuestions(3, {
       questions: [
@@ -178,7 +189,7 @@ describe('createQuestions', () => {
   });
 
   it('rolls back every question already created when a later one fails', async () => {
-    queue(ok(QUESTION), ok(OPTIONS));
+    queue(ok({ position: 'professor' }), ok(QUESTION), ok(OPTIONS));
 
     await expect(
       questionService.createQuestions(3, {
@@ -268,14 +279,20 @@ describe('updateQuestion', () => {
     await expect(questionService.updateQuestion(9, '11', { title: 'Mine now' })).rejects.toMatchObject({ status: 404 });
   });
 
+  it('only a professor (or director) may update a question, not an administrator', async () => {
+    queue(ok(QUESTION), ok({ position: 'administrator' }));
+
+    await expect(questionService.updateQuestion(3, '11', { title: 'Mine now' })).rejects.toMatchObject({ status: 403 });
+  });
+
   it('rejects an empty update', async () => {
-    queue(ok(QUESTION));
+    queue(ok(QUESTION), ok({ position: 'professor' }));
 
     await expect(questionService.updateQuestion(3, '11', {})).rejects.toMatchObject({ status: 400 });
   });
 
   it('updates the fields and keeps the options', async () => {
-    queue(ok(QUESTION), ok(OPTIONS), ok({ ...QUESTION, title: 'Binary search II' }));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok(OPTIONS), ok({ ...QUESTION, title: 'Binary search II' }));
 
     const updated = await questionService.updateQuestion(3, '11', { title: 'Binary search II' });
 
@@ -284,21 +301,21 @@ describe('updateQuestion', () => {
   });
 
   it('refuses a new type the kept options do not fit', async () => {
-    queue(ok(QUESTION), ok([...OPTIONS, { id: 3, question_id: 11, option_text: 'O(1)', is_correct: false }]));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([...OPTIONS, { id: 3, question_id: 11, option_text: 'O(1)', is_correct: false }]));
 
     await expect(questionService.updateQuestion(3, '11', { questionType: 'true_false' })).rejects.toMatchObject({ status: 400 });
     expect(builder.update).not.toHaveBeenCalled();
   });
 
   it('accepts a new type the kept options fit', async () => {
-    queue(ok(QUESTION), ok(OPTIONS), ok({ ...QUESTION, question_type: 'true_false' }));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok(OPTIONS), ok({ ...QUESTION, question_type: 'true_false' }));
 
     const updated = await questionService.updateQuestion(3, '11', { questionType: 'true_false' });
     expect(updated.question_type).toBe('true_false');
   });
 
   it('replaces the option set by soft deleting the old rows', async () => {
-    queue(ok(QUESTION), ok([]), ok(QUESTION), ok([{ id: 1 }, { id: 2 }]), ok([{ id: 3 }, { id: 4 }]));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([]), ok(QUESTION), ok([{ id: 1 }, { id: 2 }]), ok([{ id: 3 }, { id: 4 }]));
 
     const updated = await questionService.updateQuestion(3, '11', { options: choices });
 
@@ -309,7 +326,7 @@ describe('updateQuestion', () => {
   });
 
   it('refuses to change the options of an answered question', async () => {
-    queue(ok(QUESTION), ok([{ assignment_id: 1 }]));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([{ assignment_id: 1 }]));
 
     await expect(questionService.updateQuestion(3, '11', { options: choices })).rejects.toMatchObject({ status: 409 });
     expect(builder.update).not.toHaveBeenCalled();
@@ -317,7 +334,7 @@ describe('updateQuestion', () => {
   });
 
   it('puts the old options back when the new ones cannot be written', async () => {
-    queue(ok(QUESTION), ok([]), ok(QUESTION), ok([{ id: 1 }, { id: 2 }]), fail({ message: 'insert failed' }), ok(null));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([]), ok(QUESTION), ok([{ id: 1 }, { id: 2 }]), fail({ message: 'insert failed' }), ok(null));
 
     await expect(questionService.updateQuestion(3, '11', { options: choices })).rejects.toThrow('insert failed');
     expect(builder.update).toHaveBeenLastCalledWith({ deleted_at: null, reason: null });
@@ -332,22 +349,28 @@ describe('deleteQuestion', () => {
     await expect(questionService.deleteQuestion(9, '11', {})).rejects.toMatchObject({ status: 404 });
   });
 
+  it('only a professor (or director) may delete a question, not an administrator', async () => {
+    queue(ok(QUESTION), ok({ position: 'administrator' }));
+
+    await expect(questionService.deleteQuestion(3, '11', {})).rejects.toMatchObject({ status: 403 });
+  });
+
   it('refuses to delete an answered question', async () => {
-    queue(ok(QUESTION), ok([{ assignment_id: 1 }]));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([{ assignment_id: 1 }]));
 
     await expect(questionService.deleteQuestion(3, '11', {})).rejects.toMatchObject({ status: 409 });
     expect(builder.update).not.toHaveBeenCalled();
   });
 
   it('refuses to delete a question still attached to an exam', async () => {
-    queue(ok(QUESTION), ok([]), ok([{ exam_id: 5 }]));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([]), ok([{ exam_id: 5 }]));
 
     await expect(questionService.deleteQuestion(3, '11', {})).rejects.toMatchObject({ status: 409 });
     expect(builder.update).not.toHaveBeenCalled();
   });
 
   it('stamps deleted_at and keeps the reason', async () => {
-    queue(ok(QUESTION), ok([]), ok([]), ok(null));
+    queue(ok(QUESTION), ok({ position: 'professor' }), ok([]), ok([]), ok(null));
 
     await questionService.deleteQuestion(3, '11', { reason: 'replaced by a clearer wording' });
 
@@ -357,7 +380,7 @@ describe('deleteQuestion', () => {
   });
 
   it('rejects a reason that is not a string', async () => {
-    queue(ok(QUESTION));
+    queue(ok(QUESTION), ok({ position: 'professor' }));
 
     await expect(questionService.deleteQuestion(3, '11', { reason: 42 })).rejects.toMatchObject({ status: 400 });
   });
