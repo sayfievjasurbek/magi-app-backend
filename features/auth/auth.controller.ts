@@ -1016,12 +1016,13 @@ export const listManagedProfessors = async (professorId: number, search?: string
     .sort((a, b) => b.id - a.id);
 
   if (search?.trim()) {
-    const needle = search.trim().toLowerCase();
-    professors = professors.filter(
-      (p) =>
-        `${p.first_name} ${p.last_name ?? ''}`.toLowerCase().includes(needle) ||
-        p.email.toLowerCase().includes(needle) ||
-        (p.professor_code ?? '').toLowerCase().includes(needle),
+    // strips everything but letters/digits before comparing, so "behruz123" still matches a
+    // first_name/last_name of "Behruz"/"123" even though the stored name has a space between them
+    // that the search text doesn't (e.g. typed as a run-together username/display name)
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/gi, '');
+    const needle = normalize(search);
+    professors = professors.filter((p) =>
+      normalize(`${p.first_name}${p.last_name ?? ''}${p.email}${p.professor_code ?? ''}`).includes(needle),
     );
   };
 
