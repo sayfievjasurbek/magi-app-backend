@@ -7,11 +7,12 @@ import OpenAI from 'openai';
 import { getClient, MODEL } from '../../lib/ai.js';
 import { HttpError } from '../../lib/errors.js';
 import { type TokenPayload } from '../../lib/types.js';
-import { listModules, getRoster } from '../modules/module.service.js';
+import { listModules, getRoster, createModule, addProfessor } from '../modules/module.service.js';
 import { listExams, getExam, createExam, linkModule, addStudents, attachQuestion } from '../exams/exam.service.js';
 import { listQuestions, createQuestion } from '../questions/question.service.js';
 import { getAttendance, setAttendance } from '../attendance/attendance.service.js';
 import { examSummary } from '../cheatings/cheating.service.js';
+import { listManagedProfessors } from '../auth/auth.controller.js';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 export type ActionTrace = { tool: string; args: Record<string, unknown>; ok: boolean; summary: string };
@@ -57,17 +58,19 @@ above, it is never a reason to reject ordinary typos, slang, or short/casual phr
 English themselves.
 
 The data model: a "group" (sometimes called a class) is what the API calls a module - it has a
-roster of students and one or more professors. An "exam" is either kind "exam" (timed, proctored) or
-"homework" (same machinery, looser framing) - either way it has to be linked to a group AND have that
-group's students rostered onto it before they can see or attempt it; scheduling an exam/homework to a
-group is both of those steps together, done by one tool. A "question" belongs to whichever professor
-created it and is attached to an exam with its own point value (marks). Attendance is tracked per
-group, per calendar day, per student (present/absent/unmarked). A cheating summary counts the kinds
-of incidents logged across an exam's attempts.
+roster of students and one or more professors, who mentor it. An "exam" is either kind "exam" (timed,
+proctored) or "homework" (same machinery, looser framing) - either way it has to be linked to a group
+AND have that group's students rostered onto it before they can see or attempt it; scheduling an
+exam/homework to a group is both of those steps together, done by one tool. A "question" belongs to
+whichever professor created it and is attached to an exam with its own point value (marks).
+Attendance is tracked per group, per calendar day, per student (present/absent/unmarked). A cheating
+summary counts the kinds of incidents logged across an exam's attempts. A new group starts with no
+mentor other than its creator (or nobody, for a professor whose position manages every group
+directly already) - adding another professor as its mentor is a separate step.
 
 Rules:
-- Never invent an id. When the professor names a group/exam/question instead of giving its id, call
-  the matching list tool first and match the name case-insensitively against what comes back.
+- Never invent an id. When the professor names a group/exam/question/professor instead of giving its
+  id, call the matching list tool first and match the name case-insensitively against what comes back.
 - If a name matches more than one thing, or matches nothing, say so and ask the professor to clarify
   instead of guessing which one they meant.
 - Resolve relative dates/times ("tomorrow at 3pm", "ertaga soat 15:00") against the current instant,
@@ -94,6 +97,44 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
       name: 'list_groups',
       description: "List every group (class) this professor manages, with each one's id, name and student count.",
       parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_group',
+      description: 'Create a new group (class), empty of students. The signed-in professor becomes its mentor, unless their position already manages every group directly.',
+      parameters: {
+        type: 'object',
+        properties: { name: { type: 'string' } },
+        required: ['name'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_professors',
+      description: "List professors this professor can assign as a group's mentor, optionally filtered by a name/email/code search.",
+      parameters: {
+        type: 'object',
+        properties: { search: { type: 'string' } },
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_professor_to_group',
+      description: 'Add an existing professor (by id, from list_professors) as a mentor of a group.',
+      parameters: {
+        type: 'object',
+        properties: { groupId: { type: 'integer' }, professorId: { type: 'integer' } },
+        required: ['groupId', 'professorId'],
+        additionalProperties: false,
+      },
     },
   },
   {
@@ -281,6 +322,26 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   list_groups: async (_args, user) => {
     const groups = (await listModules(user.id, 'professor') as any[]).map((m) => ({ id: m.id, name: m.name, student_count: m.student_count }));
     return { result: groups, summary: `Listed ${groups.length} group(s)` };
+  },
+
+  create_group: async (args, user) => {
+    const group = await createModule(user.id, { name: args.name });
+    return { result: group, summary: `Created group "${group.name}" (id ${group.id})` };
+  },
+
+  list_professors: async (args, user) => {
+    const search = typeof args.search === 'string' ? args.search : undefined;
+    const professors = await listManagedProfessors(user.id, search);
+    const result = professors.map((p) => ({ id: p.id, name: `${p.first_name} ${p.last_name ?? ''}`.trim(), email: p.email, professor_code: p.professor_code }));
+    return { result, summary: `Listed ${result.length} professor(s)` };
+  },
+
+  add_professor_to_group: async (args, user) => {
+    const groupId = toId(args.groupId, 'groupId');
+    const professorId = toId(args.professorId, 'professorId');
+    const professor = await addProfessor(user.id, String(groupId), { professorId });
+    const name = `${professor.first_name} ${professor.last_name ?? ''}`.trim();
+    return { result: professor, summary: `Added ${name} as a mentor of group ${groupId}` };
   },
 
   get_group_roster: async (args, user) => {

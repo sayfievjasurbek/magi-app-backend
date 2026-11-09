@@ -946,75 +946,91 @@ export const createProfessor = async (req: Request, res: Response) => {
   };
 };
 
-// every professor this professor created directly, newest first
 // every professor this professor created directly, plus every co-professor on a module they
 // manage - one fixed set of queries instead of the admin panel previously fetching each managed
-// module's roster separately to build this same list client-side (slow with more than a few modules)
-export const listCreatedProfessors = async (req: Request, res: Response) => {
-  try {
-    let professorIds: Set<number>;
+// module's roster separately to build this same list client-side (slow with more than a few modules).
+// An optional search narrows by name/email/professor_code - used by the Professors page and by
+// Magi AI's list_professors tool to resolve a name to an id before assigning a mentor.
+export const listManagedProfessors = async (professorId: number, search?: string) => {
+  let professorIds: Set<number>;
 
-    if (await seesAllModules(req.user!.id)) {
-      // not a plain "professor" position - manages the whole shared pool of employees directly
-      const { data: everyone, error: everyoneError } = await database.from('professors').select('user_id');
-      if (everyoneError) throw new Error(everyoneError.message);
-      professorIds = new Set((everyone ?? []).map((row) => row.user_id));
-    } else {
-      professorIds = new Set<number>();
+  if (await seesAllModules(professorId)) {
+    // not a plain "professor" position - manages the whole shared pool of employees directly
+    const { data: everyone, error: everyoneError } = await database.from('professors').select('user_id');
+    if (everyoneError) throw new Error(everyoneError.message);
+    professorIds = new Set((everyone ?? []).map((row) => row.user_id));
+  } else {
+    professorIds = new Set<number>();
 
-      const { data: managed, error: managedError } = await database
+    const { data: managed, error: managedError } = await database
+      .from('module_professor')
+      .select('module_id')
+      .eq('professor_id', professorId);
+    if (managedError) throw new Error(managedError.message);
+    const moduleIds = (managed ?? []).map((row) => row.module_id);
+
+    if (moduleIds.length) {
+      const { data: roster, error: rosterError } = await database
         .from('module_professor')
-        .select('module_id')
-        .eq('professor_id', req.user!.id);
-      if (managedError) throw new Error(managedError.message);
-      const moduleIds = (managed ?? []).map((row) => row.module_id);
-
-      if (moduleIds.length) {
-        const { data: roster, error: rosterError } = await database
-          .from('module_professor')
-          .select('professor_id')
-          .in('module_id', moduleIds);
-        if (rosterError) throw new Error(rosterError.message);
-        for (const row of roster ?? []) professorIds.add(row.professor_id);
-      };
-
-      const { data: created, error: createdError } = await database
-        .from('professors')
-        .select('user_id')
-        .eq('created_by', req.user!.id);
-      if (createdError) throw new Error(createdError.message);
-      for (const row of created ?? []) professorIds.add(row.user_id);
+        .select('professor_id')
+        .in('module_id', moduleIds);
+      if (rosterError) throw new Error(rosterError.message);
+      for (const row of roster ?? []) professorIds.add(row.professor_id);
     };
 
-    // this professor managing a module (so in the set via module_professor above, or always in
-    // the "everyone" case) doesn't belong in their own "other employees" list
-    professorIds.delete(req.user!.id);
-
-    if (!professorIds.size) return res.status(200).json({ success: true, professors: [] });
-
-    const { data: rows, error } = await database
+    const { data: created, error: createdError } = await database
       .from('professors')
-      .select('user_id, professor_code, phone, position')
-      .in('user_id', [...professorIds]);
-    if (error) throw new Error(error.message);
+      .select('user_id')
+      .eq('created_by', professorId);
+    if (createdError) throw new Error(createdError.message);
+    for (const row of created ?? []) professorIds.add(row.user_id);
+  };
 
-    const { data: users, error: usersError } = await database
-      .from('users')
-      .select('id, first_name, last_name, email')
-      .in('id', [...professorIds])
-      .is('deleted_at', null);
-    if (usersError) throw new Error(usersError.message);
+  // this professor managing a module (so in the set via module_professor above, or always in
+  // the "everyone" case) doesn't belong in their own "other employees" list
+  professorIds.delete(professorId);
 
-    const userById = new Map((users ?? []).map((u) => [u.id, u]));
-    const professors = (rows ?? [])
-      .map((row) => {
-        const user = userById.get(row.user_id);
-        if (!user) return null;
-        return { ...user, professor_code: row.professor_code, phone: row.phone, position: row.position };
-      })
-      .filter((p) => p !== null)
-      .sort((a, b) => b!.id - a!.id);
+  if (!professorIds.size) return [];
 
+  const { data: rows, error } = await database
+    .from('professors')
+    .select('user_id, professor_code, phone, position')
+    .in('user_id', [...professorIds]);
+  if (error) throw new Error(error.message);
+
+  const { data: users, error: usersError } = await database
+    .from('users')
+    .select('id, first_name, last_name, email')
+    .in('id', [...professorIds])
+    .is('deleted_at', null);
+  if (usersError) throw new Error(usersError.message);
+
+  const userById = new Map((users ?? []).map((u) => [u.id, u]));
+  let professors = (rows ?? [])
+    .map((row) => {
+      const user = userById.get(row.user_id);
+      if (!user) return null;
+      return { ...user, professor_code: row.professor_code, phone: row.phone, position: row.position };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null)
+    .sort((a, b) => b.id - a.id);
+
+  if (search?.trim()) {
+    const needle = search.trim().toLowerCase();
+    professors = professors.filter(
+      (p) =>
+        `${p.first_name} ${p.last_name ?? ''}`.toLowerCase().includes(needle) ||
+        p.email.toLowerCase().includes(needle) ||
+        (p.professor_code ?? '').toLowerCase().includes(needle),
+    );
+  };
+
+  return professors;
+};
+
+export const listCreatedProfessors = async (req: Request, res: Response) => {
+  try {
+    const professors = await listManagedProfessors(req.user!.id);
     return res.status(200).json({ success: true, professors });
   } catch (error: unknown) {
     return handleControllerError(res, error, "listCreatedProfessors controller");

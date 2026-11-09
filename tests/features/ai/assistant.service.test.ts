@@ -1,18 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-test' }));
-vi.mock('../../../features/modules/module.service.js', () => ({ listModules: vi.fn(), getRoster: vi.fn() }));
+vi.mock('../../../features/modules/module.service.js', () => ({ listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn() }));
 vi.mock('../../../features/exams/exam.service.js', () => ({
   listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(),
 }));
 vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn() }));
 vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttendance: vi.fn(), setAttendance: vi.fn() }));
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
+vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn() }));
 
 import { runAssistant } from '../../../features/ai/assistant.service.js';
 import { getClient } from '../../../lib/ai.js';
-import { listModules } from '../../../features/modules/module.service.js';
+import { listModules, createModule, addProfessor } from '../../../features/modules/module.service.js';
 import { getExam, linkModule, addStudents } from '../../../features/exams/exam.service.js';
+import { listManagedProfessors } from '../../../features/auth/auth.controller.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
 
@@ -66,6 +68,25 @@ describe('runAssistant', () => {
     expect(actions).toEqual([
       { tool: 'schedule_exam_to_group', args: { examId: 12, groupId: 5 }, ok: true, summary: expect.stringContaining('Scheduled exam 12 to group 5') },
     ]);
+  });
+
+  it('creates a group, then resolves a professor by name before adding them as its mentor', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'create_group', { name: 'AI class' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'list_professors', { search: 'Bobur' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_3', 'add_professor_to_group', { groupId: 40, professorId: 7 })))
+      .mockResolvedValueOnce(finalRound('Done.'));
+    (createModule as any).mockResolvedValue({ id: 40, name: 'AI class' });
+    (listManagedProfessors as any).mockResolvedValue([{ id: 7, first_name: 'Bobur', last_name: null, email: 'bobur@magi.edu', professor_code: 'Bobur123' }]);
+    (addProfessor as any).mockResolvedValue({ id: 7, first_name: 'Bobur', last_name: null, email: 'bobur@magi.edu' });
+
+    const { reply, actions } = await runAssistant(USER, { message: "Create a new class named 'AI class' and assign teacher Bobur123 to it." });
+
+    expect(reply).toBe('Done.');
+    expect(createModule).toHaveBeenCalledWith(USER.id, { name: 'AI class' });
+    expect(addProfessor).toHaveBeenCalledWith(USER.id, '40', { professorId: 7 });
+    expect(actions.map((a) => a.tool)).toEqual(['create_group', 'list_professors', 'add_professor_to_group']);
+    expect(actions.every((a) => a.ok)).toBe(true);
   });
 
   it("turns a tool's HttpError into a {error} tool result instead of throwing", async () => {
