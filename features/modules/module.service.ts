@@ -3,7 +3,7 @@ import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type Role } from '../../lib/types.js';
 import { notify } from '../../lib/notifications.js';
-import { seesAllModules } from '../../lib/position-access.js';
+import { seesAllModules, managesProfessor } from '../../lib/position-access.js';
 import {
   requireUrl,
   requireAppName,
@@ -488,6 +488,12 @@ export const deleteModule = async (professorId: number, moduleIdParam: string, b
 export const addProfessor = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
   const professor = await findMember(body, 'professorId', 'professors', 'professor');
+
+  // a plain "professor" position can only name someone they already have a reason to know about
+  // (a co-professor on a module they manage, or an account they created) as a class mentor - not
+  // any professor in the system by knowing or guessing their id; an administrator/director
+  // (seesAllModules, which managesProfessor already defers to) is unrestricted, same as before
+  if (!(await managesProfessor(professorId, professor.id))) throw new HttpError(404, 'Professor not found');
 
   // an administrator/director already manages every class directly (seesAllModules) - adding
   // them here would make them show up as teaching this one specific class, which they don't;

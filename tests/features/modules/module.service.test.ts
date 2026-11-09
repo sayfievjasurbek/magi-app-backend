@@ -418,6 +418,11 @@ describe('addStudent', () => {
 });
 
 describe('addProfessor', () => {
+  // managesProfessor(3, 5) resolving true via the "actor 3 created professor 5" path: not an
+  // admin (position 'professor'), then a created_by match - the cheapest true case, for tests
+  // that aren't themselves about this visibility check
+  const visibleToActor = () => queue(ok({ position: 'professor' }), ok({ user_id: 5 }));
+
   it('refuses a user who is not a professor', async () => {
     managed();
     queue(ok(SUE), ok(null));
@@ -429,9 +434,19 @@ describe('addProfessor', () => {
     expect(from).toHaveBeenCalledWith('professors');
   });
 
+  it('refuses to add a professor the actor has no relationship with (not visible to them)', async () => {
+    managed();
+    queue(ok(SUE), ok({ user_id: 5 })); // findMember: found, has the professor role
+    queue(ok({ position: 'professor' }), ok(null), ok([])); // managesProfessor: not admin, not created_by, no managed modules - false
+    await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({ status: 404, message: 'Professor not found' });
+    expect(builder.insert).not.toHaveBeenCalled();
+  });
+
   it('adds the co-professor', async () => {
     managed();
-    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), ok(null));
+    queue(ok(SUE), ok({ user_id: 5 }));
+    visibleToActor();
+    queue(ok({ position: 'professor' }), ok(null));
 
     expect(await moduleService.addProfessor(3, '7', { professorId: 5 })).toEqual(SUE);
     expect(builder.insert).toHaveBeenCalledWith({ module_id: 7, professor_id: 5 });
@@ -439,14 +454,18 @@ describe('addProfessor', () => {
 
   it('turns a duplicate professor into 409', async () => {
     managed();
-    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'professor' }), fail({ code: '23505', message: 'duplicate key' }));
+    queue(ok(SUE), ok({ user_id: 5 }));
+    visibleToActor();
+    queue(ok({ position: 'professor' }), fail({ code: '23505', message: 'duplicate key' }));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({ status: 409 });
   });
 
   it('refuses to add a director/administrator as a mentor - they already manage every class directly', async () => {
     managed();
-    queue(ok(SUE), ok({ user_id: 5 }), ok({ position: 'Director' }));
+    queue(ok(SUE), ok({ user_id: 5 }));
+    visibleToActor();
+    queue(ok({ position: 'Director' }));
 
     await expect(moduleService.addProfessor(3, '7', { professorId: 5 })).rejects.toMatchObject({
       status: 400,
