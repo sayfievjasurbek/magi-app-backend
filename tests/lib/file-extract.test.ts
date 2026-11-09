@@ -57,7 +57,7 @@ describe('extractFile', () => {
     expect((result as { text: string }).text.length).toBeGreaterThan(0);
   });
 
-  it('extracts text from a PDF', async () => {
+  it('extracts text from a PDF that has real embedded text', async () => {
     // a minimal, hand-written single-page PDF with one line of text - self-contained, no fixture file
     const pdf = [
       '%PDF-1.1',
@@ -78,6 +78,28 @@ describe('extractFile', () => {
 
     expect(result.kind).toBe('text');
     expect((result as { text: string }).text).toContain('Hello Magi PDF');
+  });
+
+  it('renders a scanned/image-only PDF (no embedded text) as an image instead', async () => {
+    // same minimal single-page PDF, but with no text stream at all - the common shape of a
+    // scanned certificate or a photographed form
+    const pdf = [
+      '%PDF-1.1',
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+      '3 0 obj << /Type /Page /Parent 2 0 R /Resources << >> /MediaBox [0 0 300 144] /Contents 5 0 R >> endobj',
+      '5 0 obj << /Length 0 >>',
+      'stream',
+      'endstream',
+      'endobj',
+      'trailer << /Size 6 /Root 1 0 R >>',
+      '%%EOF',
+    ].join('\n');
+
+    const result = await extractFile('certificate.pdf', 'application/pdf', Buffer.from(pdf, 'latin1'));
+
+    expect(result.kind).toBe('image');
+    expect((result as { dataUrl: string }).dataUrl).toMatch(/^data:image\/png;base64,/);
   });
 
   it('hands an image back as a data url instead of extracting text', async () => {

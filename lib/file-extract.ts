@@ -58,6 +58,14 @@ export const extractFile = async (name: string, mime: string, bytes: Buffer): Pr
     const parser = new PDFParse({ data: bytes });
     try {
       const result = await parser.getText();
+      // a scanned/image-only PDF (common for a certificate, a printed form someone photographed
+      // into one) has no embedded text to extract - render its first page as an image instead and
+      // let the model actually look at it, rather than handing it empty text and a confused reply
+      if (result.text.trim().length < 20) {
+        const screenshot = await parser.getScreenshot({ first: 1 });
+        const page = screenshot.pages[0];
+        if (page) return { kind: 'image', dataUrl: page.dataUrl };
+      };
       return { kind: 'text', text: truncate(result.text) };
     } finally {
       await parser.destroy();
