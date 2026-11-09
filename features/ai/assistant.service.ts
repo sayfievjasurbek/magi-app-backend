@@ -7,13 +7,18 @@ import OpenAI from 'openai';
 import { getClient } from '../../lib/ai.js';
 import { HttpError } from '../../lib/errors.js';
 import { type TokenPayload } from '../../lib/types.js';
-import { listModules, getRoster, createModule, addProfessor, deleteModule, addStudent } from '../modules/module.service.js';
-import { listExams, getExam, createExam, linkModule, addStudents, attachQuestion } from '../exams/exam.service.js';
-import { listQuestions, createQuestion } from '../questions/question.service.js';
+import {
+  listModules, getRoster, createModule, addProfessor, deleteModule, addStudent, removeStudent, removeProfessor, updateModule,
+} from '../modules/module.service.js';
+import {
+  listExams, getExam, createExam, updateExam, setExamStatus, linkModule, addStudents, attachQuestion, detachQuestion,
+} from '../exams/exam.service.js';
+import { listQuestions, createQuestion, updateQuestion } from '../questions/question.service.js';
 import { getAttendance, setAttendance } from '../attendance/attendance.service.js';
 import { examSummary } from '../cheatings/cheating.service.js';
 import { listManagedProfessors, listManagedStudents } from '../auth/auth.controller.js';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
+import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../attempts/attempt.service.js';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 export type ActionTrace = { tool: string; args: Record<string, unknown>; ok: boolean; summary: string };
@@ -72,15 +77,37 @@ whichever professor created it and is attached to an exam with its own point val
 Attendance is tracked per group, per calendar day, per student (present/absent/unmarked). A cheating
 summary counts the kinds of incidents logged across an exam's attempts. A new group starts with no
 mentor other than its creator (or nobody, for a professor whose position manages every group
-directly already) - adding another professor as its mentor is a separate step.
+directly already) - adding another professor as its mentor is a separate step. An "attempt" is one
+student's run at one exam - its id (not the exam's, not the student's) is what get_attempt,
+grade_attempt and trigger_ai_review need; list_exam_attempts or list_attempts_summary is how you find
+it. A short_answer/essay/file_upload question has to be graded by hand (per-question marks via
+grade_attempt's marks field); multiple_choice/true_false grade themselves.
 
 Rules:
 - Never invent an id. When the professor names a group/exam/question/professor/student instead of
   giving its id, call the matching list tool first and match the name case-insensitively against
-  what comes back.
-- delete_group is irreversible. Before calling it, state plainly which group (by name) you are about
-  to delete and ask the professor to confirm - only call it once they clearly have (a short "ha"/"yes"
-  to that specific question counts; a vague or unrelated reply does not).
+  what comes back. An attempt is the one exception worth noting: there's rarely a "name" for it, so
+  resolve it from list_exam_attempts (by student name) or list_attempts_summary instead.
+  Earlier turns only leave behind their visible reply text, never the real ids behind them - an
+  attempt's id almost never appears written out in your own earlier reply, so if you discussed one a
+  turn or two ago and are now asked to act on it (grade_attempt, trigger_ai_review, get_attempt), you
+  do NOT actually have its id yet, no matter how clearly you remember which student/exam it was.
+  Call list_exam_attempts or get_attempt again - right now, in this same turn, before the tool that
+  acts - to fetch the real id, then immediately call the acting tool with it. This means grading
+  routinely takes two tool calls back to back in the turn where you finally grade: one to re-resolve
+  the attempt id, one to call grade_attempt - never skip straight to grade_attempt with a number you
+  can't point to in a tool result from this turn.
+- delete_group is irreversible, and grade_attempt notifies the student immediately once it runs -
+  before calling either, state plainly what you're about to do (which group to delete; what score
+  and/or feedback you're about to give, and to whom) and ask the professor to confirm. Only proceed
+  once they clearly have - a short "ha"/"yes" to that specific question counts; a vague or unrelated
+  reply does not.
+  But if the professor's own message already gives the exact score/feedback, that message IS the
+  confirmation - call the tool right away, don't restate the plan and ask "tasdiqlaysizmi?"/"confirm?"
+  again. Example: they're told Sue's attempt is ungraded and asked how many points, and they reply
+  "85 ball qoy, feedback: Good work" - that's a direct instruction with an exact score, so call
+  grade_attempt immediately with score 85 and that feedback. Only ask first when they haven't given
+  a number/decision yet (e.g. "Sue's attemptini korib chiq" with no score mentioned).
 - If a name matches more than one thing, or matches nothing, say so and ask the professor to clarify
   instead of guessing which one they meant.
 - Resolve relative dates/times ("tomorrow at 3pm", "ertaga soat 15:00") against the current instant,
@@ -210,6 +237,45 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'remove_student_from_group',
+      description: 'Remove a student from a group (the student account itself is unaffected).',
+      parameters: {
+        type: 'object',
+        properties: { groupId: { type: 'integer' }, studentId: { type: 'integer' } },
+        required: ['groupId', 'studentId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_professor_from_group',
+      description: "Remove a professor as a group's mentor. A group must keep at least one mentor - this fails if they're the last one.",
+      parameters: {
+        type: 'object',
+        properties: { groupId: { type: 'integer' }, professorId: { type: 'integer' } },
+        required: ['groupId', 'professorId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'rename_group',
+      description: 'Rename an existing group.',
+      parameters: {
+        type: 'object',
+        properties: { groupId: { type: 'integer' }, name: { type: 'string' } },
+        required: ['groupId', 'name'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_group_roster',
       description: 'Get the professors and students of one group, by its id.',
       parameters: {
@@ -271,6 +337,39 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'update_exam',
+      description: "Edit an existing exam/homework's name, schedule, or marks. Only the fields given are changed. Can't change the schedule once it has attempts.",
+      parameters: {
+        type: 'object',
+        properties: {
+          examId: { type: 'integer' },
+          name: { type: 'string' },
+          scheduledStart: { type: 'string', description: 'ISO 8601 date-time' },
+          scheduledEnd: { type: 'string', description: 'ISO 8601 date-time' },
+          maxMarks: { type: 'integer' },
+          passingMarks: { type: 'integer' },
+        },
+        required: ['examId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_exam_status',
+      description: "Change an exam's status. Valid next statuses depend on its current one (e.g. scheduled -> ongoing/delayed/cancelled; completed/cancelled are final). Starting one (status 'ongoing') requires its questions' marks to add up to the exam's max marks.",
+      parameters: {
+        type: 'object',
+        properties: { examId: { type: 'integer' }, status: { type: 'string', enum: ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] } },
+        required: ['examId', 'status'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'schedule_exam_to_group',
       description: "Assign an exam/homework to a group: links them and rosters every one of the group's students onto the exam so they can see and take it.",
       parameters: {
@@ -325,6 +424,36 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'update_question',
+      description: "Edit an existing question's title, text, type, options, or expected duration - only the fields given are changed. Can't change its options once it has been answered by a student.",
+      parameters: {
+        type: 'object',
+        properties: {
+          questionId: { type: 'integer' },
+          title: { type: 'string' },
+          question: { type: 'string' },
+          questionType: { type: 'string', enum: ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'] },
+          options: {
+            type: 'array',
+            description: 'Replaces the full option set - required for multiple_choice (2+, at least 1 correct) and true_false (exactly 2, exactly 1 correct)',
+            items: {
+              type: 'object',
+              properties: { optionText: { type: 'string' }, isCorrect: { type: 'boolean' } },
+              required: ['optionText'],
+              additionalProperties: false,
+            },
+          },
+          expectedDuration: { type: 'integer' },
+          expectedDurationUnit: { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'] },
+        },
+        required: ['questionId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'attach_question_to_exam',
       description: "Attach one of this professor's questions to an exam, worth a given number of marks.",
       parameters: {
@@ -334,6 +463,19 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
           questionId: { type: 'integer' },
           marks: { type: 'integer', description: 'Defaults to 1' },
         },
+        required: ['examId', 'questionId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'remove_question_from_exam',
+      description: 'Detach a question from an exam - the question itself stays in the question bank.',
+      parameters: {
+        type: 'object',
+        properties: { examId: { type: 'integer' }, questionId: { type: 'integer' } },
         required: ['examId', 'questionId'],
         additionalProperties: false,
       },
@@ -383,10 +525,91 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'list_exam_attempts',
+      description: "List attempts for one exam - who's taken it, their status (submitted, awaiting grading, graded, ...) and score, optionally filtered to one status.",
+      parameters: {
+        type: 'object',
+        properties: {
+          examId: { type: 'integer' },
+          status: { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'] },
+        },
+        required: ['examId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_attempts_summary',
+      description: 'Per-exam counts across every exam this professor manages: how many students were assigned, how many attempts are awaiting grading, how many are graded. Use this for a general "what still needs grading" overview, without needing a specific exam id.',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_attempt',
+      description: "Get one student's full attempt: their answers, per-question marks, overall score, and feedback.",
+      parameters: {
+        type: 'object',
+        properties: { attemptId: { type: 'integer' } },
+        required: ['attemptId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'grade_attempt',
+      description: "Grade a submitted attempt: either one overall score (out of the exam's max marks), or per-question marks for manually-graded questions (short_answer/essay/file_upload) from get_attempt's question list - not both. Optional written feedback either way. The student is notified immediately once this runs.",
+      parameters: {
+        type: 'object',
+        properties: {
+          attemptId: { type: 'integer' },
+          score: { type: 'integer', description: "An overall score for the whole attempt, out of the exam's max marks" },
+          marks: {
+            type: 'array',
+            description: 'Per-question marks instead of an overall score',
+            items: {
+              type: 'object',
+              properties: { questionId: { type: 'integer' }, marks: { type: 'integer' } },
+              required: ['questionId', 'marks'],
+              additionalProperties: false,
+            },
+          },
+          feedback: { type: 'string' },
+        },
+        required: ['attemptId'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'trigger_ai_review',
+      description: "Run the AI-assisted cheating/writing review on a submitted attempt - a suggested cheating likelihood and per-question notes for the professor to weigh, never a grade by itself. Only re-runs an attempt already reviewed if force is set.",
+      parameters: {
+        type: 'object',
+        properties: { attemptId: { type: 'integer' }, force: { type: 'boolean' } },
+        required: ['attemptId'],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 type ToolResult = { result: unknown; summary: string };
-type ToolExecutor = (args: Record<string, any>, user: TokenPayload) => Promise<ToolResult>;
+// attempt ids the model has actually seen via list_exam_attempts/get_attempt this request - grade_attempt
+// and trigger_ai_review check against it so a fabricated id (one the model never really looked up)
+// gets rejected before it reaches the real service, rather than trusting the model's arithmetic/memory
+type ToolCtx = { seenAttemptIds: Set<number> };
+type ToolExecutor = (args: Record<string, any>, user: TokenPayload, ctx: ToolCtx) => Promise<ToolResult>;
 
 const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   list_groups: async (_args, user) => {
@@ -436,6 +659,26 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return { result: student, summary: `Enrolled ${name} in group ${groupId}` };
   },
 
+  remove_student_from_group: async (args, user) => {
+    const groupId = toId(args.groupId, 'groupId');
+    const studentId = toId(args.studentId, 'studentId');
+    await removeStudent(user.id, String(groupId), String(studentId));
+    return { result: { removed: true }, summary: `Removed student ${studentId} from group ${groupId}` };
+  },
+
+  remove_professor_from_group: async (args, user) => {
+    const groupId = toId(args.groupId, 'groupId');
+    const professorId = toId(args.professorId, 'professorId');
+    await removeProfessor(user.id, String(groupId), String(professorId));
+    return { result: { removed: true }, summary: `Removed professor ${professorId} from group ${groupId}` };
+  },
+
+  rename_group: async (args, user) => {
+    const groupId = toId(args.groupId, 'groupId');
+    const group = await updateModule(user.id, String(groupId), { name: args.name });
+    return { result: group, summary: `Renamed group ${groupId} to "${group.name}"` };
+  },
+
   get_group_roster: async (args, user) => {
     const groupId = toId(args.groupId, 'groupId');
     const roster = await getRoster(user.id, 'professor', String(groupId));
@@ -468,6 +711,18 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return { result: exam, summary: `Created exam "${exam.name}" (id ${exam.id})` };
   },
 
+  update_exam: async (args, user) => {
+    const examId = toId(args.examId, 'examId');
+    const exam = await updateExam(user.id, examId, args);
+    return { result: exam, summary: `Updated exam ${examId}` };
+  },
+
+  set_exam_status: async (args, user) => {
+    const examId = toId(args.examId, 'examId');
+    const exam = await setExamStatus(user.id, examId, { status: args.status });
+    return { result: exam, summary: `Set exam ${examId} status to ${exam.status}` };
+  },
+
   schedule_exam_to_group: async (args, user) => {
     const examId = toId(args.examId, 'examId');
     const groupId = toId(args.groupId, 'groupId');
@@ -487,10 +742,23 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return { result: question, summary: `Created question "${question.title}" (id ${question.id})` };
   },
 
+  update_question: async (args, user) => {
+    const questionId = toId(args.questionId, 'questionId');
+    const question = await updateQuestion(user.id, String(questionId), args);
+    return { result: question, summary: `Updated question ${questionId}` };
+  },
+
   attach_question_to_exam: async (args, user) => {
     const examId = toId(args.examId, 'examId');
     const link = await attachQuestion(user.id, examId, args);
     return { result: link, summary: `Attached question ${link.question_id} to exam ${examId}` };
+  },
+
+  remove_question_from_exam: async (args, user) => {
+    const examId = toId(args.examId, 'examId');
+    const questionId = toId(args.questionId, 'questionId');
+    await detachQuestion(user.id, examId, questionId);
+    return { result: { removed: true }, summary: `Removed question ${questionId} from exam ${examId}` };
   },
 
   get_attendance: async (args, user) => {
@@ -510,6 +778,74 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     const examId = toId(args.examId, 'examId');
     const summary = await examSummary(examId, { id: user.id, role: 'professor' });
     return { result: summary, summary: `Looked up the cheating summary for exam ${examId}` };
+  },
+
+  list_exam_attempts: async (args, user, ctx) => {
+    const examId = toId(args.examId, 'examId');
+    const status = typeof args.status === 'string' ? args.status : undefined;
+    const attempts = (await listExamAttempts({ id: user.id, role: 'professor' }, { examId, status })) as any[];
+    const result = attempts.map((a) => ({
+      id: a.id,
+      status: a.status,
+      score: a.score ?? null,
+      passed: a.passed ?? null,
+      submitted_at: a.submitted_at,
+      student: a.student ? { id: a.student.id, name: `${a.student.first_name} ${a.student.last_name ?? ''}`.trim(), email: a.student.email } : null,
+    }));
+    result.forEach((a) => ctx.seenAttemptIds.add(a.id));
+    return { result, summary: `Listed ${result.length} attempt(s) for exam ${examId}` };
+  },
+
+  list_attempts_summary: async (_args, user) => {
+    const summary = await listAttemptsSummary(user.id);
+    return { result: summary, summary: `Summarized attempts across ${summary.length} exam(s)` };
+  },
+
+  get_attempt: async (args, user, ctx) => {
+    const attemptId = toId(args.attemptId, 'attemptId');
+    const detail = (await getAttempt({ id: user.id, role: 'professor' }, attemptId)) as any;
+    ctx.seenAttemptIds.add(attemptId);
+    const questions = (detail.questions ?? []).map((q: any) => {
+      const selectedText = (q.selected_option_ids ?? [])
+        .map((id: number) => (q.options ?? []).find((o: any) => o.id === id)?.option_text)
+        .filter(Boolean);
+      return {
+        question_id: q.question_id,
+        title: q.title,
+        question: q.question,
+        answer: q.answer || (selectedText.length ? selectedText.join(', ') : null),
+        marks: q.marks,
+        marks_awarded: q.marks_awarded ?? null,
+      };
+    });
+    const student = detail.student
+      ? { id: detail.student.id, name: `${detail.student.first_name} ${detail.student.last_name ?? ''}`.trim(), email: detail.student.email }
+      : null;
+    const result = { id: detail.id, status: detail.status, score: detail.score ?? null, feedback: detail.feedback ?? null, exam: detail.exam, student, questions };
+    return { result, summary: `Looked up attempt ${attemptId}` };
+  },
+
+  grade_attempt: async (args, user, ctx) => {
+    const attemptId = toId(args.attemptId, 'attemptId');
+    if (!ctx.seenAttemptIds.has(attemptId)) {
+      throw new HttpError(400, `attempt ${attemptId} hasn't been looked up yet this turn - call list_exam_attempts or get_attempt first to confirm it's real`);
+    };
+    const body: Record<string, unknown> = {};
+    if (args.score !== undefined) body.score = args.score;
+    if (args.marks !== undefined) body.marks = args.marks;
+    if (args.feedback !== undefined) body.feedback = args.feedback;
+    const graded = (await gradeAttempt(user.id, attemptId, body)) as any;
+    return { result: { score: graded.score, status: graded.status }, summary: `Graded attempt ${attemptId}: ${graded.score}` };
+  },
+
+  trigger_ai_review: async (args, user, ctx) => {
+    const attemptId = toId(args.attemptId, 'attemptId');
+    if (!ctx.seenAttemptIds.has(attemptId)) {
+      throw new HttpError(400, `attempt ${attemptId} hasn't been looked up yet this turn - call list_exam_attempts or get_attempt first to confirm it's real`);
+    };
+    const force = args.force === true;
+    const review = await aiReviewAttempt(user.id, attemptId, force);
+    return { result: review, summary: `Ran AI review on attempt ${attemptId} - cheating likelihood: ${review.cheating_likelihood}` };
   },
 };
 
@@ -561,6 +897,7 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
     { role: 'user', content: userContent },
   ];
   const actions: ActionTrace[] = [];
+  const ctx: ToolCtx = { seenAttemptIds: new Set() };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const completion = await openai.chat.completions.create({ model: MODEL, messages, tools: TOOLS, tool_choice: 'auto' });
@@ -590,7 +927,7 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
         actions.push({ tool: call.function.name, args, ok: false, summary });
       } else {
         try {
-          const { result, summary } = await executor(args, user);
+          const { result, summary } = await executor(args, user, ctx);
           content = JSON.stringify(result);
           actions.push({ tool: call.function.name, args, ok: true, summary });
         } catch (error: unknown) {

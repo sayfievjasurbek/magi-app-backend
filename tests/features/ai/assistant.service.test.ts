@@ -3,20 +3,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn() }));
 vi.mock('../../../features/modules/module.service.js', () => ({
   listModules: vi.fn(), getRoster: vi.fn(), createModule: vi.fn(), addProfessor: vi.fn(), deleteModule: vi.fn(), addStudent: vi.fn(),
+  removeStudent: vi.fn(), removeProfessor: vi.fn(), updateModule: vi.fn(),
 }));
 vi.mock('../../../features/exams/exam.service.js', () => ({
-  listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(),
+  listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), updateExam: vi.fn(), setExamStatus: vi.fn(),
+  linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(), detachQuestion: vi.fn(),
 }));
-vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn() }));
+vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn(), updateQuestion: vi.fn() }));
 vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttendance: vi.fn(), setAttendance: vi.fn() }));
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
 vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn() }));
+vi.mock('../../../features/attempts/attempt.service.js', () => ({
+  listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(),
+}));
 
 import { runAssistant } from '../../../features/ai/assistant.service.js';
 import { getClient } from '../../../lib/ai.js';
-import { listModules, createModule, addProfessor, deleteModule, addStudent } from '../../../features/modules/module.service.js';
-import { getExam, linkModule, addStudents } from '../../../features/exams/exam.service.js';
+import {
+  listModules, createModule, addProfessor, deleteModule, addStudent, removeStudent, removeProfessor, updateModule,
+} from '../../../features/modules/module.service.js';
+import { getExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
+import { updateQuestion } from '../../../features/questions/question.service.js';
 import { listManagedProfessors, listManagedStudents } from '../../../features/auth/auth.controller.js';
+import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../../../features/attempts/attempt.service.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
 
@@ -157,6 +166,140 @@ describe('runAssistant', () => {
     expect(userMessage.content[0]).toEqual({ type: 'text', text: 'what is this?' });
     expect(userMessage.content[1].type).toBe('image_url');
     expect(userMessage.content[1].image_url.url).toContain('data:image/png;base64,');
+  });
+
+  it('renames a group, removes a student, and removes a professor', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'rename_group', { groupId: 7, name: 'Algorithms II' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'remove_student_from_group', { groupId: 7, studentId: 21 })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_3', 'remove_professor_from_group', { groupId: 7, professorId: 5 })))
+      .mockResolvedValueOnce(finalRound('Done.'));
+    (updateModule as any).mockResolvedValue({ id: 7, name: 'Algorithms II' });
+    (removeStudent as any).mockResolvedValue(undefined);
+    (removeProfessor as any).mockResolvedValue(undefined);
+
+    const { reply, actions } = await runAssistant(USER, { message: 'rename group 7, remove student 21 and professor 5 from it' });
+
+    expect(reply).toBe('Done.');
+    expect(updateModule).toHaveBeenCalledWith(USER.id, '7', { name: 'Algorithms II' });
+    expect(removeStudent).toHaveBeenCalledWith(USER.id, '7', '21');
+    expect(removeProfessor).toHaveBeenCalledWith(USER.id, '7', '5');
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('updates an exam, changes its status, edits a question, and detaches it', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'update_exam', { examId: 12, name: 'Midterm (resit)' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'set_exam_status', { examId: 12, status: 'delayed' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_3', 'update_question', { questionId: 9, title: 'Updated title' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_4', 'remove_question_from_exam', { examId: 12, questionId: 9 })))
+      .mockResolvedValueOnce(finalRound('Done.'));
+    (updateExam as any).mockResolvedValue({ id: 12, name: 'Midterm (resit)' });
+    (setExamStatus as any).mockResolvedValue({ id: 12, status: 'delayed' });
+    (updateQuestion as any).mockResolvedValue({ id: 9, title: 'Updated title' });
+    (detachQuestion as any).mockResolvedValue(undefined);
+
+    const { actions } = await runAssistant(USER, { message: 'update exam 12, delay it, rename question 9, and detach it' });
+
+    expect(updateExam).toHaveBeenCalledWith(USER.id, 12, { examId: 12, name: 'Midterm (resit)' });
+    expect(setExamStatus).toHaveBeenCalledWith(USER.id, 12, { status: 'delayed' });
+    expect(updateQuestion).toHaveBeenCalledWith(USER.id, '9', { questionId: 9, title: 'Updated title' });
+    expect(detachQuestion).toHaveBeenCalledWith(USER.id, 12, 9);
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('lists attempts for an exam, looks one up, and grades it once confirmed', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'list_exam_attempts', { examId: 12, status: 'submitted' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'get_attempt', { attemptId: 77 })))
+      .mockResolvedValueOnce(finalRound("Sue scored 8/10 on question 1 (essay). Confirm a score of 85/100 with feedback 'Good work'?"));
+    (listExamAttempts as any).mockResolvedValue([
+      { id: 77, status: 'submitted', score: null, passed: null, submitted_at: '2026-01-01T00:00:00Z', student: { id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' } },
+    ]);
+    (getAttempt as any).mockResolvedValue({
+      id: 77, status: 'submitted', score: null, feedback: null,
+      exam: { id: 12, name: 'Midterm', max_marks: 100 },
+      student: { id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' },
+      questions: [{ question_id: 9, title: 'Essay', question: 'Explain recursion.', answer: 'It calls itself.', marks: 10, marks_awarded: 8, options: [], selected_option_ids: [] }],
+    });
+
+    const { reply, actions } = await runAssistant(USER, { message: "Midterm testida Sue'ning javoblarini korsat" });
+
+    expect(reply).toContain('Confirm');
+    expect(listExamAttempts).toHaveBeenCalledWith({ id: USER.id, role: 'professor' }, { examId: 12, status: 'submitted' });
+    expect(getAttempt).toHaveBeenCalledWith({ id: USER.id, role: 'professor' }, 77);
+    expect(gradeAttempt).not.toHaveBeenCalled();
+    expect(actions.map((a) => a.tool)).toEqual(['list_exam_attempts', 'get_attempt']);
+  });
+
+  it('grades an attempt once the professor confirms, notifying the student via the service', async () => {
+    // a fresh message only carries its own visible text forward, not the real id behind an earlier
+    // lookup - grade_attempt re-resolves the attempt via get_attempt before grading, same as live
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'get_attempt', { attemptId: 77 })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'grade_attempt', { attemptId: 77, score: 85, feedback: 'Good work' })))
+      .mockResolvedValueOnce(finalRound('Graded.'));
+    (getAttempt as any).mockResolvedValue({
+      id: 77, status: 'submitted', score: null, feedback: null,
+      exam: { id: 12, name: 'Midterm', max_marks: 100 },
+      student: { id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' },
+      questions: [{ question_id: 9, title: 'Essay', question: 'Explain recursion.', answer: 'It calls itself.', marks: 10, marks_awarded: 8, options: [], selected_option_ids: [] }],
+    });
+    (gradeAttempt as any).mockResolvedValue({ score: 85, status: 'graded' });
+
+    const history = [
+      { role: 'user' as const, content: "Midterm testida Sue'ning javoblarini korsat" },
+      { role: 'assistant' as const, content: "Sue scored 8/10 on question 1 (essay). Confirm a score of 85/100 with feedback 'Good work'?" },
+    ];
+    const { reply, actions } = await runAssistant(USER, { message: 'ha', history });
+
+    expect(reply).toBe('Graded.');
+    expect(getAttempt).toHaveBeenCalledWith({ id: USER.id, role: 'professor' }, 77);
+    expect(gradeAttempt).toHaveBeenCalledWith(USER.id, 77, { score: 85, feedback: 'Good work' });
+    expect(actions.map((a) => a.tool)).toEqual(['get_attempt', 'grade_attempt']);
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('refuses to grade an attempt id the model never actually looked up this turn', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'grade_attempt', { attemptId: 9999, score: 85 })))
+      .mockResolvedValueOnce(finalRound("Couldn't confirm that attempt."));
+
+    const { actions } = await runAssistant(USER, { message: 'grade attempt 9999 with 85' });
+
+    expect(gradeAttempt).not.toHaveBeenCalled();
+    expect(actions[0].ok).toBe(false);
+    expect(actions[0].summary).toContain("hasn't been looked up yet this turn");
+  });
+
+  it('runs the AI review on an attempt', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'get_attempt', { attemptId: 77 })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'trigger_ai_review', { attemptId: 77 })))
+      .mockResolvedValueOnce(finalRound('Reviewed.'));
+    (getAttempt as any).mockResolvedValue({
+      id: 77, status: 'submitted', score: null, feedback: null,
+      exam: { id: 12, name: 'Midterm', max_marks: 100 },
+      student: { id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' },
+      questions: [],
+    });
+    (aiReviewAttempt as any).mockResolvedValue({ cheating_likelihood: 'low', cheating_reasoning: 'Nothing unusual.', per_question: [] });
+
+    const { reply } = await runAssistant(USER, { message: "77-attemptni korib chiq, keyin AI review ishga tushir" });
+
+    expect(reply).toBe('Reviewed.');
+    expect(aiReviewAttempt).toHaveBeenCalledWith(USER.id, 77, false);
+  });
+
+  it('lists the grading overview across all exams', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'list_attempts_summary', {})))
+      .mockResolvedValueOnce(finalRound('Here is the overview.'));
+    (listAttemptsSummary as any).mockResolvedValue([{ exam_id: 12, students: 20, awaiting: 3, graded: 17 }]);
+
+    await runAssistant(USER, { message: 'qaysi testlarim baholashni kutmoqda' });
+
+    expect(listAttemptsSummary).toHaveBeenCalledWith(USER.id);
   });
 
   it("turns a tool's HttpError into a {error} tool result instead of throwing", async () => {
