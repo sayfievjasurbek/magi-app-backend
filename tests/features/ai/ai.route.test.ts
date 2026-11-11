@@ -26,7 +26,9 @@ describe('ai routes', () => {
   it('wires each endpoint to the roles that may use it', () => {
     expect(endpoints).toEqual([
       ['GET', '/status', ['professor']],
-      ['GET', '/history', ['professor']],
+      ['GET', '/conversations', ['professor']],
+      ['GET', '/conversations/:id/messages', ['professor']],
+      ['DELETE', '/conversations/:id', ['professor']],
       ['POST', '/chat', ['professor']],
     ]);
   });

@@ -2,9 +2,11 @@
 // Magi AI, the chat assistant embedded in the admin panel (assistant.service.ts). The AI-assisted
 // grading endpoint itself lives on the attempts domain (POST /assignments/{id}/ai-review), since
 // it only makes sense in that context.
-import { authed, envelope, json, ok, errors, ref } from '../../docs/common.js';
+import { authed, envelope, json, ok, errors, ref, pathParam } from '../../docs/common.js';
 
 export const tags = [{ name: 'AI', description: 'AI-assisted grading and the Magi AI chat assistant' }];
+
+const conversationParam = pathParam('id', 'Id of the conversation');
 
 export const schemas = {
   AiAction: {
@@ -14,6 +16,14 @@ export const schemas = {
       args: { type: 'object' },
       ok: { type: 'boolean' },
       summary: { type: 'string', example: 'Scheduled exam 12 to group 5 (18 student(s) rostered)' },
+    },
+  },
+  AiConversation: {
+    type: 'object',
+    properties: {
+      id: { type: 'integer' },
+      title: { type: 'string', nullable: true, example: "Midterm testini 5-guruhga joyla" },
+      updatedAt: { type: 'string', format: 'date-time' },
     },
   },
 };
@@ -28,15 +38,34 @@ export const paths = {
       responses: { '200': ok('Status', envelope({ configured: { type: 'boolean', example: true } })), ...errors(401, 403) },
     },
   },
-  '/api/ai/history': {
+  '/api/ai/conversations': {
     get: {
       tags: ['AI'],
-      summary: "The professor's past Magi AI conversation (professor)",
-      description: 'The most recent messages (both sides) from this conversation, oldest first - lets the chat panel pick up where it left off after closing or reloading.',
+      summary: "The professor's past Magi AI conversations (professor)",
+      description: 'Every conversation this professor has had with Magi AI, most recently active first - the chat panel\'s sidebar, same shape as ChatGPT/Claude.ai.',
       ...authed,
+      responses: { '200': ok('Conversations', envelope({ conversations: { type: 'array', items: ref('AiConversation') } })), ...errors(401, 403) },
+    },
+  },
+  '/api/ai/conversations/{id}': {
+    delete: {
+      tags: ['AI'],
+      summary: 'Delete a conversation (professor)',
+      ...authed,
+      parameters: [conversationParam],
+      responses: { '200': ok('Deleted', envelope({ message: { type: 'string', example: 'Conversation deleted' } })), ...errors(401, 403, 404) },
+    },
+  },
+  '/api/ai/conversations/{id}/messages': {
+    get: {
+      tags: ['AI'],
+      summary: "One conversation's messages (professor)",
+      description: 'Every message in one conversation, oldest first - lets the chat panel load it when the professor switches to it in the sidebar.',
+      ...authed,
+      parameters: [conversationParam],
       responses: {
         '200': ok(
-          'History',
+          'Messages',
           envelope({
             messages: {
               type: 'array',
@@ -53,7 +82,7 @@ export const paths = {
             },
           }),
         ),
-        ...errors(401, 403),
+        ...errors(401, 403, 404),
       },
     },
   },
@@ -64,7 +93,8 @@ export const paths = {
       description:
         "Runs the professor's message through Magi AI, a tool-calling assistant that can answer questions about the system and carry out actions " +
         '(listing groups/exams/questions, scheduling an exam to a group, creating exams/questions, attendance and cheating lookups) using the ' +
-        "same authorization checks the REST endpoints themselves use. `history` is the prior turns of this conversation, kept client-side.",
+        "same authorization checks the REST endpoints themselves use. `conversationId` picks up an existing conversation (its history is loaded " +
+        'server-side, not trusted from the client) - omit it to start a new one; the response always carries the conversation\'s id back.',
       ...authed,
       requestBody: {
         required: true,
@@ -72,13 +102,7 @@ export const paths = {
           type: 'object',
           properties: {
             message: { type: 'string', example: 'Midterm testini 5-guruhga joyla' },
-            history: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: { role: { type: 'string', enum: ['user', 'assistant'] }, content: { type: 'string' } },
-              },
-            },
+            conversationId: { type: 'integer', description: 'Omit to start a new conversation' },
           },
           required: ['message'],
         }),
@@ -86,9 +110,13 @@ export const paths = {
       responses: {
         '200': ok(
           'Reply',
-          envelope({ reply: { type: 'string', example: "Midterm testini 5-guruhga joyladim - 18 talaba qo'shildi." }, actions: { type: 'array', items: ref('AiAction') } }),
+          envelope({
+            reply: { type: 'string', example: "Midterm testini 5-guruhga joyladim - 18 talaba qo'shildi." },
+            actions: { type: 'array', items: ref('AiAction') },
+            conversationId: { type: 'integer' },
+          }),
         ),
-        ...errors(400, 401, 403, 503),
+        ...errors(400, 401, 403, 404, 503),
       },
     },
   },

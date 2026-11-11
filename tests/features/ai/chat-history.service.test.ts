@@ -5,9 +5,11 @@ const { from, builder, results } = vi.hoisted(() => {
   const results: { data: unknown; error: unknown }[] = [];
   const take = () => results.shift() ?? { data: null, error: null };
   const builder: Record<string, any> = {
+    single: vi.fn(() => Promise.resolve(take())),
+    maybeSingle: vi.fn(() => Promise.resolve(take())),
     then: (resolve: (value: unknown) => unknown) => Promise.resolve(take()).then(resolve),
   };
-  for (const method of ['select', 'insert', 'eq', 'order', 'limit']) {
+  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'limit']) {
     builder[method] = vi.fn(() => builder);
   };
   const from = vi.fn(() => builder);
@@ -16,70 +18,138 @@ const { from, builder, results } = vi.hoisted(() => {
 
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 
-import { getChatHistory, saveChatMessage } from '../../../features/ai/chat-history.service.js';
+import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from '../../../features/ai/chat-history.service.js';
+import { HttpError } from '../../../lib/errors.js';
 
 const ok = (data: unknown) => ({ data, error: null });
 const fail = (error: unknown) => ({ data: null, error });
 const queue = (...items: { data: unknown; error: unknown }[]) => results.push(...items);
 
+const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
+
 beforeEach(() => {
   results.length = 0;
   from.mockClear();
-  builder.select.mockClear();
-  builder.insert.mockClear();
-  builder.order.mockClear();
-  builder.limit.mockClear();
+  for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'limit', 'single', 'maybeSingle']) {
+    builder[method].mockClear();
+  };
 });
 
-describe('getChatHistory', () => {
-  it('returns the newest 50 oldest-first, mapping file_name/created_at to camelCase', async () => {
-    queue(
-      ok([
-        { role: 'assistant', content: 'Hi again', actions: [{ tool: 'list_groups', args: {}, ok: true, summary: 'Listed 2 group(s)' }], file_name: null, created_at: '2026-01-02T00:00:00Z' },
-        { role: 'user', content: 'Hello', actions: null, file_name: 'roster.csv', created_at: '2026-01-01T00:00:00Z' },
-      ]),
-    );
+describe('listConversations', () => {
+  it('returns the most recently active first, as given', async () => {
+    queue(ok([{ id: 2, title: 'Recent', updated_at: '2026-01-02T00:00:00Z' }, { id: 1, title: null, updated_at: '2026-01-01T00:00:00Z' }]));
 
-    const history = await getChatHistory(9);
+    const conversations = await listConversations(9);
 
-    // the query fetches newest-first (for the LIMIT to keep the most recent ones) - the service
-    // reverses it back to oldest-first for display
-    expect(history).toEqual([
-      { role: 'user', content: 'Hello', actions: null, fileName: 'roster.csv', createdAt: '2026-01-01T00:00:00Z' },
-      { role: 'assistant', content: 'Hi again', actions: [{ tool: 'list_groups', args: {}, ok: true, summary: 'Listed 2 group(s)' }], fileName: null, createdAt: '2026-01-02T00:00:00Z' },
+    expect(conversations).toEqual([
+      { id: 2, title: 'Recent', updatedAt: '2026-01-02T00:00:00Z' },
+      { id: 1, title: null, updatedAt: '2026-01-01T00:00:00Z' },
     ]);
     expect(builder.eq).toHaveBeenCalledWith('professor_id', 9);
-    expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: false });
+    expect(builder.order).toHaveBeenCalledWith('updated_at', { ascending: false });
     expect(builder.limit).toHaveBeenCalledWith(50);
   });
+});
 
-  it('throws on a query error', async () => {
-    queue(fail({ message: 'boom' }));
-    await expect(getChatHistory(9)).rejects.toThrow('boom');
+describe('createConversation', () => {
+  it('inserts a titleless conversation and returns it', async () => {
+    queue(ok({ id: 5, title: null, updated_at: '2026-01-01T00:00:00Z' }));
+
+    const conversation = await createConversation(9);
+
+    expect(conversation).toEqual({ id: 5, title: null, updatedAt: '2026-01-01T00:00:00Z' });
+    expect(builder.insert).toHaveBeenCalledWith({ professor_id: 9 });
+  });
+});
+
+describe('getConversationMessages', () => {
+  it("404s on a conversation that belongs to someone else", async () => {
+    queue(ok({ id: 5, professor_id: 123 }));
+
+    const error = await rejected(getConversationMessages(9, 5));
+
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error.status).toBe(404);
+  });
+
+  it('returns messages oldest-first once ownership checks out', async () => {
+    queue(ok({ id: 5, professor_id: 9 }));
+    queue(ok([{ role: 'user', content: 'Hi', actions: null, file_name: null, created_at: '2026-01-01T00:00:00Z' }]));
+
+    const messages = await getConversationMessages(9, 5);
+
+    expect(messages).toEqual([{ role: 'user', content: 'Hi', actions: null, fileName: null, createdAt: '2026-01-01T00:00:00Z' }]);
+    expect(builder.eq).toHaveBeenCalledWith('conversation_id', 5);
+    expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true });
+  });
+});
+
+describe('deleteConversation', () => {
+  it("404s on a conversation that doesn't exist", async () => {
+    queue(ok(null));
+
+    const error = await rejected(deleteConversation(9, 5));
+
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error.status).toBe(404);
+  });
+
+  it('deletes once ownership checks out', async () => {
+    queue(ok({ id: 5, professor_id: 9 }));
+    queue(ok(null));
+
+    await deleteConversation(9, 5);
+
+    expect(builder.delete).toHaveBeenCalled();
+    expect(builder.eq).toHaveBeenLastCalledWith('id', 5);
   });
 });
 
 describe('saveChatMessage', () => {
-  it('inserts a row, JSON-stringifying actions for the jsonb column', async () => {
-    queue(ok(null));
+  it('inserts a row, JSON-stringifying actions, and bumps updated_at without a title (assistant turn)', async () => {
+    queue(ok(null)); // insert
 
-    await saveChatMessage(9, 'assistant', 'Done.', [{ tool: 'rename_group', args: {}, ok: true, summary: 'Renamed' }], null);
+    await saveChatMessage(5, 'assistant', 'Done.', [{ tool: 'rename_group', args: {}, ok: true, summary: 'Renamed' }], null);
 
-    expect(builder.insert).toHaveBeenCalledWith({
-      professor_id: 9,
+    expect(builder.insert).toHaveBeenNthCalledWith(1, {
+      conversation_id: 5,
       role: 'assistant',
       content: 'Done.',
       actions: JSON.stringify([{ tool: 'rename_group', args: {}, ok: true, summary: 'Renamed' }]),
       file_name: null,
     });
+    expect(builder.update).toHaveBeenCalledTimes(1);
+    const [patch] = builder.update.mock.calls[0];
+    expect(patch.title).toBeUndefined();
+    expect(typeof patch.updated_at).toBe('string');
+  });
+
+  it("auto-titles the conversation from a user's first message, but not a later one", async () => {
+    queue(ok(null)); // insert
+    queue(ok({ title: null })); // existing title check
+
+    await saveChatMessage(5, 'user', '  Midterm testini 5-guruhga joyla   extra  spaces  ');
+
+    const [patch] = builder.update.mock.calls[0];
+    expect(patch.title).toBe('Midterm testini 5-guruhga joyla extra spaces');
+
+    builder.update.mockClear();
+    queue(ok(null)); // insert
+    queue(ok({ title: 'Already set' })); // existing title check
+
+    await saveChatMessage(5, 'user', 'A follow-up message');
+
+    const [laterPatch] = builder.update.mock.calls[0];
+    expect(laterPatch.title).toBeUndefined();
   });
 
   it('never throws on a write failure - logs and moves on', async () => {
     queue(fail({ message: 'boom' }));
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    await expect(saveChatMessage(9, 'user', 'hi')).resolves.toBeUndefined();
+    await expect(saveChatMessage(5, 'user', 'hi')).resolves.toBeUndefined();
     expect(logSpy).toHaveBeenCalledWith('Error saving AI chat message:', 'boom');
+    expect(builder.update).not.toHaveBeenCalled();
 
     logSpy.mockRestore();
   });
