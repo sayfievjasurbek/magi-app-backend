@@ -1,6 +1,7 @@
 import { type Request, type Response } from 'express';
 import { aiConfigured } from '../../lib/ai.js';
 import { handleControllerError } from '../../lib/utils.js';
+import { HttpError } from '../../lib/errors.js';
 import { runAssistant } from './assistant.service.js';
 import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from './chat-history.service.js';
 
@@ -47,6 +48,29 @@ export const removeAiConversation = async (req: Request, res: Response) => {
   };
 };
 
+type ResolvedConversation = { conversationId: number | null; history: { role: 'user' | 'assistant'; content: string }[] };
+
+// a bad/unowned conversationId (HttpError) is the professor's own mistake and should surface as
+// one - but conversation persistence itself being unavailable (the table not migrated yet, a
+// transient DB error) must not take Magi AI down with it; it falls back to an unsaved exchange
+// instead, the same way grading/attendance already treat their own notification writes as
+// best-effort (see lib/notifications.ts)
+export const resolveConversation = async (professorId: number, requestedId: unknown): Promise<ResolvedConversation> => {
+  try {
+    if (requestedId === undefined || requestedId === null) {
+      const conversation = await createConversation(professorId);
+      return { conversationId: conversation.id, history: [] };
+    };
+    if (!Number.isInteger(requestedId)) throw new HttpError(400, 'Invalid conversation id');
+    const messages = await getConversationMessages(professorId, requestedId as number); // 404s if not owned
+    return { conversationId: requestedId as number, history: messages.map((m) => ({ role: m.role, content: m.content })) };
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    console.log('Error resolving AI conversation, continuing without persistence:', error instanceof Error ? error.message : error);
+    return { conversationId: null, history: [] };
+  };
+};
+
 // Magi AI, talking to a professor and acting on their behalf through assistant.service's tools.
 // conversationId is optional - omitting it (a "new chat") starts one; the DB is the source of
 // truth for that conversation's history from here on, not whatever the client happens to send.
@@ -54,25 +78,16 @@ export const chatWithAssistant = async (req: Request, res: Response) => {
   try {
     if (!aiConfigured()) return res.status(503).json({ success: false, message: 'AI is not configured' });
 
-    const { conversationId: requestedId } = req.body ?? {};
-    let conversationId: number;
-    let history: { role: 'user' | 'assistant'; content: string }[];
-    if (requestedId === undefined || requestedId === null) {
-      conversationId = (await createConversation(req.user!.id)).id;
-      history = [];
-    } else {
-      if (!Number.isInteger(requestedId)) return res.status(400).json({ success: false, message: 'Invalid conversation id' });
-      conversationId = requestedId;
-      const messages = await getConversationMessages(req.user!.id, conversationId); // 404s if not owned
-      history = messages.map((m) => ({ role: m.role, content: m.content }));
-    };
+    const { conversationId, history } = await resolveConversation(req.user!.id, req.body?.conversationId);
 
     const { reply, actions } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
 
-    const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
-    const fileName = typeof req.body?.file?.name === 'string' ? req.body.file.name : null;
-    await saveChatMessage(conversationId, 'user', message, undefined, fileName);
-    await saveChatMessage(conversationId, 'assistant', reply, actions);
+    if (conversationId !== null) {
+      const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
+      const fileName = typeof req.body?.file?.name === 'string' ? req.body.file.name : null;
+      await saveChatMessage(conversationId, 'user', message, undefined, fileName);
+      await saveChatMessage(conversationId, 'assistant', reply, actions);
+    };
 
     return res.status(200).json({ success: true, reply, actions, conversationId });
   } catch (error) {
