@@ -94,7 +94,9 @@ export const paths = {
         "Runs the professor's message through Magi AI, a tool-calling assistant that can answer questions about the system and carry out actions " +
         '(listing groups/exams/questions, scheduling an exam to a group, creating exams/questions, attendance and cheating lookups) using the ' +
         "same authorization checks the REST endpoints themselves use. `conversationId` picks up an existing conversation (its history is loaded " +
-        'server-side, not trusted from the client) - omit it to start a new one; the response always carries the conversation\'s id back.',
+        "server-side, not trusted from the client) - omit it to start a new one; the response always carries the conversation's id back, unless " +
+        'conversation persistence itself is unavailable, in which case it comes back null and `history` (the prior turns of this browser session, ' +
+        "kept client-side) is used instead, so a persistence outage degrades to an unsaved chat rather than one that's lost its own context.",
       ...authed,
       requestBody: {
         required: true,
@@ -102,7 +104,15 @@ export const paths = {
           type: 'object',
           properties: {
             message: { type: 'string', example: 'Midterm testini 5-guruhga joyla' },
-            conversationId: { type: 'integer', description: 'Omit to start a new conversation' },
+            conversationId: { type: 'integer', nullable: true, description: 'Omit to start a new conversation' },
+            history: {
+              type: 'array',
+              description: "Only used as a fallback if conversationId comes back null - ignored otherwise, since the DB is the real source of truth then",
+              items: {
+                type: 'object',
+                properties: { role: { type: 'string', enum: ['user', 'assistant'] }, content: { type: 'string' } },
+              },
+            },
           },
           required: ['message'],
         }),
@@ -113,7 +123,7 @@ export const paths = {
           envelope({
             reply: { type: 'string', example: "Midterm testini 5-guruhga joyladim - 18 talaba qo'shildi." },
             actions: { type: 'array', items: ref('AiAction') },
-            conversationId: { type: 'integer' },
+            conversationId: { type: 'integer', nullable: true },
           }),
         ),
         ...errors(400, 401, 403, 404, 503),

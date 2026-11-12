@@ -16,18 +16,18 @@ describe('resolveConversation', () => {
   it('creates a new conversation when none is given', async () => {
     (createConversation as any).mockResolvedValue({ id: 5, title: null, updatedAt: '2026-01-01T00:00:00Z' });
 
-    const result = await resolveConversation(9, undefined);
+    const result = await resolveConversation(9, undefined, []);
 
     expect(result).toEqual({ conversationId: 5, history: [] });
   });
 
-  it("loads an existing conversation's history, mapped to role/content only", async () => {
+  it("loads an existing conversation's history, mapped to role/content only - ignoring any client history", async () => {
     (getConversationMessages as any).mockResolvedValue([
       { role: 'user', content: 'Hi', actions: null, fileName: null, createdAt: '2026-01-01T00:00:00Z' },
       { role: 'assistant', content: 'Hello', actions: [{ tool: 'list_groups', args: {}, ok: true, summary: 'Listed 1 group(s)' }], fileName: null, createdAt: '2026-01-01T00:00:01Z' },
     ]);
 
-    const result = await resolveConversation(9, 5);
+    const result = await resolveConversation(9, 5, [{ role: 'user', content: 'a client-supplied message that should be ignored' }]);
 
     expect(result).toEqual({
       conversationId: 5,
@@ -36,13 +36,13 @@ describe('resolveConversation', () => {
   });
 
   it('rejects a non-integer conversation id as the professor\'s own mistake', async () => {
-    await expect(resolveConversation(9, 'not-a-number')).rejects.toBeInstanceOf(HttpError);
+    await expect(resolveConversation(9, 'not-a-number', [])).rejects.toBeInstanceOf(HttpError);
   });
 
   it('lets a real 404 (unowned/missing conversation) surface, not swallowed', async () => {
     (getConversationMessages as any).mockRejectedValue(new HttpError(404, 'Conversation not found'));
 
-    const error: any = await resolveConversation(9, 5).catch((e) => e);
+    const error: any = await resolveConversation(9, 5, []).catch((e) => e);
 
     expect(error).toBeInstanceOf(HttpError);
     expect(error.status).toBe(404);
@@ -52,10 +52,22 @@ describe('resolveConversation', () => {
     (createConversation as any).mockRejectedValue(new Error('relation "ai_chat_conversations" does not exist'));
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
-    const result = await resolveConversation(9, undefined);
+    const result = await resolveConversation(9, undefined, []);
 
     expect(result).toEqual({ conversationId: null, history: [] });
     expect(logSpy).toHaveBeenCalled();
+
+    logSpy.mockRestore();
+  });
+
+  it("falls back to the client's own tracked history when persistence is down, so context isn't lost mid-session", async () => {
+    (getConversationMessages as any).mockRejectedValue(new Error('relation "ai_chat_conversations" does not exist'));
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    const clientHistory = [{ role: 'user', content: "men shu guruhni o'chirib yubormoqchiman" }, { role: 'assistant', content: 'Qaysi guruhni?' }];
+    const result = await resolveConversation(9, 5, clientHistory);
+
+    expect(result).toEqual({ conversationId: null, history: clientHistory });
 
     logSpy.mockRestore();
   });

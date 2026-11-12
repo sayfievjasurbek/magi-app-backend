@@ -54,8 +54,16 @@ type ResolvedConversation = { conversationId: number | null; history: { role: 'u
 // one - but conversation persistence itself being unavailable (the table not migrated yet, a
 // transient DB error) must not take Magi AI down with it; it falls back to an unsaved exchange
 // instead, the same way grading/attendance already treat their own notification writes as
-// best-effort (see lib/notifications.ts)
-export const resolveConversation = async (professorId: number, requestedId: unknown): Promise<ResolvedConversation> => {
+// best-effort (see lib/notifications.ts). clientHistory is that fallback's memory: once
+// persistence has failed once, conversationId stays null for the rest of the browser session, so
+// without it every later turn would look like a brand new conversation - the client's own
+// locally-tracked messages are the only thing left that remembers what was actually said. When
+// persistence IS working, this is never touched - the DB stays the only source of truth then.
+export const resolveConversation = async (
+  professorId: number,
+  requestedId: unknown,
+  clientHistory: unknown,
+): Promise<ResolvedConversation> => {
   try {
     if (requestedId === undefined || requestedId === null) {
       const conversation = await createConversation(professorId);
@@ -67,7 +75,7 @@ export const resolveConversation = async (professorId: number, requestedId: unkn
   } catch (error) {
     if (error instanceof HttpError) throw error;
     console.log('Error resolving AI conversation, continuing without persistence:', error instanceof Error ? error.message : error);
-    return { conversationId: null, history: [] };
+    return { conversationId: null, history: (clientHistory ?? []) as ResolvedConversation['history'] };
   };
 };
 
@@ -78,7 +86,7 @@ export const chatWithAssistant = async (req: Request, res: Response) => {
   try {
     if (!aiConfigured()) return res.status(503).json({ success: false, message: 'AI is not configured' });
 
-    const { conversationId, history } = await resolveConversation(req.user!.id, req.body?.conversationId);
+    const { conversationId, history } = await resolveConversation(req.user!.id, req.body?.conversationId, req.body?.history);
 
     const { reply, actions } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
 
