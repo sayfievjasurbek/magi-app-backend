@@ -354,6 +354,14 @@ export const createExam = async (professorId: number, body: any = {}) => {
   return data;
 };
 
+// students already rostered to this exam (exam_student) - who to tell when its schedule or
+// questions change under them, same roster addStudents already notifies on assignment
+const rosteredStudentIds = async (examId: number): Promise<number[]> => {
+  const { data, error } = await database.from('exam_student').select('student_id').eq('exam_id', examId);
+  throwOnError(error);
+  return (data ?? []).map((row) => row.student_id);
+};
+
 export const updateExam = async (professorId: number, examId: number, body: any = {}) => {
   const exam = await loadManagedExam(professorId, examId);
 
@@ -387,6 +395,11 @@ export const updateExam = async (professorId: number, examId: number, body: any 
 
   const { data, error } = await database.from('exams').update(patch).eq('id', examId).select(EXAM_COLUMNS).single();
   throwOnError(error);
+
+  if (patch.scheduled_start !== undefined || patch.scheduled_end !== undefined) {
+    void notifyMany(await rosteredStudentIds(examId), 'exam_updated', 'Exam rescheduled', data.name, examId);
+  };
+
   return data;
 };
 
@@ -611,7 +624,7 @@ export const attachQuestion = async (professorId: number, examId: number, body: 
   const marks = body.marks === undefined ? 1 : requireMarks(body.marks, 'marks');
   const position = body.position === undefined ? null : requireBodyId(body.position, 'position');
 
-  await loadManagedExam(professorId, examId);
+  const exam = await loadManagedExam(professorId, examId);
   await assertNoAttempts(examId);
   await assertQuestionReadable(professorId, questionId);
 
@@ -622,6 +635,9 @@ export const attachQuestion = async (professorId: number, examId: number, body: 
     .select('question_id, position, marks')
     .single();
   throwOnError(error, 'The question is already in this exam or the position is taken');
+
+  void notifyMany(await rosteredStudentIds(examId), 'exam_updated', 'Exam questions updated', exam.name, examId);
+
   return data;
 };
 
@@ -670,7 +686,7 @@ export const reorderQuestions = async (professorId: number, examId: number, body
 };
 
 export const detachQuestion = async (professorId: number, examId: number, questionId: number) => {
-  await loadManagedExam(professorId, examId);
+  const exam = await loadManagedExam(professorId, examId);
   await assertNoAttempts(examId);
 
   const { data, error } = await database
@@ -681,6 +697,8 @@ export const detachQuestion = async (professorId: number, examId: number, questi
     .select('question_id');
   throwOnError(error);
   if (!data?.length) throw new HttpError(404, 'Question not found');
+
+  void notifyMany(await rosteredStudentIds(examId), 'exam_updated', 'Exam questions updated', exam.name, examId);
 };
 
 export const listEventCatalog = async () => {
