@@ -18,6 +18,7 @@ import { getAttendance, setAttendance } from '../attendance/attendance.service.j
 import { examSummary } from '../cheatings/cheating.service.js';
 import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../auth/auth.controller.js';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
+import { uploadChatImage } from '../../lib/storage.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../attempts/attempt.service.js';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
@@ -922,12 +923,38 @@ const parseHistory = (value: unknown): ChatMessage[] => {
   });
 };
 
+// a plain-text marker for an image attached to a chat message, carrying its persisted storage url
+// rather than its base64 bytes - small enough to live happily in a history row, and lets a later
+// turn's reconstructed history hand the model the real image again (see contentForMessage below),
+// not just the memory that one was sent once
+const ATTACHED_IMAGE_RE = /<attached_image url="([^"]+)"\s*\/>/;
+const encodeAttachedImage = (url: string): string => `<attached_image url="${url}" />`;
+
+// turns a message's saved/typed text back into what the model should actually see - a message
+// carrying the marker above becomes real multi-part content (text + the image again), everything
+// else is unaffected plain text (this also covers a document's own <attached_file> tag, which the
+// model is already instructed to just read as inline text)
+const contentForMessage = (text: string): string | OpenAI.ChatCompletionContentPart[] => {
+  const match = text.match(ATTACHED_IMAGE_RE);
+  if (!match) return text;
+  return [
+    { type: 'text', text: text.replace(ATTACHED_IMAGE_RE, '').trim() },
+    { type: 'image_url', image_url: { url: match[1] } },
+  ];
+};
+
 // express 5 leaves req.body undefined when nothing is sent, hence the default, same as createExam
 // an attached file arrives as { name, data } where data is the same data:<mime>;base64,... string
-// used for photo/audio uploads elsewhere in this codebase - returns the user message's content,
-// either plain text (a document's extracted text appended) or multi-part (a real image alongside it)
-const buildUserContent = async (message: string, file: unknown): Promise<string | OpenAI.ChatCompletionContentPart[]> => {
-  if (!file || typeof file !== 'object') return message;
+// used for photo/audio uploads elsewhere in this codebase. modelContent is the same text this turn
+// actually sends the model, minus the live image_url part - it's what gets persisted to chat
+// history, so a later turn can reconstruct the exact same content via contentForMessage above
+// (null when there was no file at all, so a plain message persists exactly as typed)
+const buildUserContent = async (
+  message: string,
+  file: unknown,
+  professorId: number,
+): Promise<{ content: string | OpenAI.ChatCompletionContentPart[]; modelContent: string | null }> => {
+  if (!file || typeof file !== 'object') return { content: message, modelContent: null };
   const { name, data } = file as Record<string, unknown>;
   if (typeof name !== 'string' || !name.trim()) throw new HttpError(400, 'file.name is required');
 
@@ -935,15 +962,16 @@ const buildUserContent = async (message: string, file: unknown): Promise<string 
   const extracted = await extractFile(name, mime, bytes);
 
   if (extracted.kind === 'image') {
-    return [
-      { type: 'text', text: message },
-      { type: 'image_url', image_url: { url: extracted.dataUrl } },
-    ];
+    const url = await uploadChatImage(professorId, extracted.dataUrl);
+    const modelContent = `${message}\n\n${encodeAttachedImage(url)}`;
+    return { content: contentForMessage(modelContent), modelContent };
   };
-  return `${message}\n\n<attached_file name="${name}">\n${extracted.text}\n</attached_file>`;
+
+  const modelContent = `${message}\n\n<attached_file name="${name}">\n${extracted.text}\n</attached_file>`;
+  return { content: modelContent, modelContent };
 };
 
-export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<{ reply: string; actions: ActionTrace[] }> => {
+export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<{ reply: string; actions: ActionTrace[]; modelContent: string | null }> => {
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) throw new HttpError(400, 'message is required');
   const history = parseHistory(body.history);
@@ -951,11 +979,15 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
   const openai = getClient();
   if (!openai) throw new Error('AI is not configured');
 
-  const userContent = await buildUserContent(message, body.file);
+  const { content: userContent, modelContent } = await buildUserContent(message, body.file, user.id);
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt() },
-    ...history.map((m): OpenAI.ChatCompletionMessageParam => ({ role: m.role, content: m.content })),
+    // only a user turn can carry an attached-image marker (contentForMessage's multi-part return) -
+    // OpenAI's own types only allow that content shape for role "user", never "assistant"
+    ...history.map((m): OpenAI.ChatCompletionMessageParam =>
+      m.role === 'user' ? { role: 'user', content: contentForMessage(m.content) } : { role: 'assistant', content: m.content }
+    ),
     { role: 'user', content: userContent },
   ];
   const actions: ActionTrace[] = [];
@@ -968,7 +1000,7 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
 
     const isFunctionCall = (call: OpenAI.ChatCompletionMessageToolCall): call is OpenAI.ChatCompletionMessageFunctionToolCall => call.type === 'function';
     const toolCalls = (choice.tool_calls ?? []).filter(isFunctionCall);
-    if (!toolCalls.length) return { reply: choice.content ?? '', actions };
+    if (!toolCalls.length) return { reply: choice.content ?? '', actions, modelContent };
 
     messages.push({ role: 'assistant', content: choice.content, tool_calls: choice.tool_calls });
 
@@ -1003,5 +1035,5 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
     };
   };
 
-  return { reply: "I wasn't able to finish that - try asking again, maybe in smaller steps.", actions };
+  return { reply: "I wasn't able to finish that - try asking again, maybe in smaller steps.", actions, modelContent };
 };

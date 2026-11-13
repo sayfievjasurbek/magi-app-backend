@@ -9,6 +9,9 @@ export type Conversation = { id: number; title: string | null; updatedAt: string
 export type ChatHistoryMessage = {
   role: 'user' | 'assistant';
   content: string;
+  // what a later turn should actually hand the model for this message - null means content IS
+  // that (no file was attached); see assistant.service.ts's buildUserContent/contentForMessage
+  modelContent: string | null;
   actions: unknown;
   fileName: string | null;
   createdAt: string;
@@ -52,12 +55,19 @@ export const getConversationMessages = async (professorId: number, conversationI
   await requireOwnedConversation(professorId, conversationId);
   const { data, error } = await database
     .from('ai_chat_messages')
-    .select('role, content, actions, file_name, created_at')
+    .select('role, content, model_content, actions, file_name, created_at')
     .eq('conversation_id', conversationId)
     .order('created_at', { ascending: true })
     .limit(MESSAGE_LIMIT);
   if (error) throw new Error(error.message);
-  return (data ?? []).map((row: any) => ({ role: row.role, content: row.content, actions: row.actions, fileName: row.file_name, createdAt: row.created_at }));
+  return (data ?? []).map((row: any) => ({
+    role: row.role,
+    content: row.content,
+    modelContent: row.model_content,
+    actions: row.actions,
+    fileName: row.file_name,
+    createdAt: row.created_at,
+  }));
 };
 
 export const deleteConversation = async (professorId: number, conversationId: number): Promise<void> => {
@@ -80,13 +90,21 @@ export const saveChatMessage = async (
   content: string,
   actions?: unknown,
   fileName?: string | null,
+  modelContent?: string | null,
 ): Promise<void> => {
   // node-postgres sends a plain JS array/object as a Postgres array literal, not JSON text - jsonb
   // columns need the JSON text itself, hence the explicit stringify (reads back already-parsed,
   // via pg's own default jsonb type parser)
   const { error } = await database
     .from('ai_chat_messages')
-    .insert({ conversation_id: conversationId, role, content, actions: actions !== undefined ? JSON.stringify(actions) : null, file_name: fileName ?? null });
+    .insert({
+      conversation_id: conversationId,
+      role,
+      content,
+      model_content: modelContent ?? null,
+      actions: actions !== undefined ? JSON.stringify(actions) : null,
+      file_name: fileName ?? null,
+    });
   if (error) {
     console.log('Error saving AI chat message:', error.message);
     return;

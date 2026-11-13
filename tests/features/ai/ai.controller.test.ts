@@ -35,6 +35,24 @@ describe('resolveConversation', () => {
     });
   });
 
+  it("prefers modelContent over content when building history, so a model can see what's in an attached file/image again", async () => {
+    (getConversationMessages as any).mockResolvedValue([
+      {
+        role: 'user', content: 'what is this?',
+        modelContent: 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />',
+        actions: null, fileName: 'photo.png', createdAt: '2026-01-01T00:00:00Z',
+      },
+      { role: 'assistant', content: "It's a cat.", modelContent: null, actions: null, fileName: null, createdAt: '2026-01-01T00:00:01Z' },
+    ]);
+
+    const result = await resolveConversation(9, 5, []);
+
+    expect(result.history).toEqual([
+      { role: 'user', content: 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />' },
+      { role: 'assistant', content: "It's a cat." },
+    ]);
+  });
+
   it('rejects a non-integer conversation id as the professor\'s own mistake', async () => {
     await expect(resolveConversation(9, 'not-a-number', [])).rejects.toBeInstanceOf(HttpError);
   });

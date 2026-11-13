@@ -16,6 +16,7 @@ vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfess
 vi.mock('../../../features/attempts/attempt.service.js', () => ({
   listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(),
 }));
+vi.mock('../../../lib/storage.js', () => ({ uploadChatImage: vi.fn().mockResolvedValue('https://cdn.example.com/ai-chat/9/photo.png') }));
 
 import { runAssistant } from '../../../features/ai/assistant.service.js';
 import { getClient } from '../../../lib/ai.js';
@@ -26,6 +27,7 @@ import { getExam, linkModule, addStudents, updateExam, setExamStatus, detachQues
 import { updateQuestion } from '../../../features/questions/question.service.js';
 import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.controller.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../../../features/attempts/attempt.service.js';
+import { uploadChatImage } from '../../../lib/storage.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
 
@@ -154,18 +156,37 @@ describe('runAssistant', () => {
     expect(userMessage.content).toContain('What is 2+2?');
   });
 
-  it('hands an attached image to the model as a real image, not extracted text', async () => {
+  it('hands an attached image to the model as a real image, uploaded to persistent storage rather than inlined as base64', async () => {
     create.mockResolvedValueOnce(finalRound('I see it.'));
     const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64').toString('base64');
 
-    await runAssistant(USER, { message: 'what is this?', file: { name: 'photo.png', data: `data:image/png;base64,${png}` } });
+    const { modelContent } = await runAssistant(USER, { message: 'what is this?', file: { name: 'photo.png', data: `data:image/png;base64,${png}` } });
+
+    expect(uploadChatImage).toHaveBeenCalledWith(USER.id, `data:image/png;base64,${png}`);
 
     const sentMessages = create.mock.calls[0][0].messages;
     const userMessage = sentMessages.find((m: any) => m.role === 'user');
     expect(Array.isArray(userMessage.content)).toBe(true);
     expect(userMessage.content[0]).toEqual({ type: 'text', text: 'what is this?' });
-    expect(userMessage.content[1].type).toBe('image_url');
-    expect(userMessage.content[1].image_url.url).toContain('data:image/png;base64,');
+    expect(userMessage.content[1]).toEqual({ type: 'image_url', image_url: { url: 'https://cdn.example.com/ai-chat/9/photo.png' } });
+
+    // persisted so a later turn's reconstructed history can hand the same image back to the model
+    expect(modelContent).toBe('what is this?\n\n<attached_image url="https://cdn.example.com/ai-chat/9/photo.png" />');
+  });
+
+  it("reconstructs a persisted image from an earlier turn's history back into a real image again", async () => {
+    create.mockResolvedValueOnce(finalRound('That earlier one was a cat.'));
+    const history = [
+      { role: 'user' as const, content: 'what is this?\n\n<attached_image url="https://cdn.example.com/ai-chat/9/cat.png" />' },
+      { role: 'assistant' as const, content: "It's a photo." },
+    ];
+
+    await runAssistant(USER, { message: 'was that a cat or a dog?', history });
+
+    const sentMessages = create.mock.calls[0][0].messages;
+    const historicalUserMessage = sentMessages.find((m: any) => m.role === 'user' && Array.isArray(m.content));
+    expect(historicalUserMessage.content[0]).toEqual({ type: 'text', text: 'what is this?' });
+    expect(historicalUserMessage.content[1]).toEqual({ type: 'image_url', image_url: { url: 'https://cdn.example.com/ai-chat/9/cat.png' } });
   });
 
   it('renames a group, removes a student, and removes a professor', async () => {

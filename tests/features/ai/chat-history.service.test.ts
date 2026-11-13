@@ -72,13 +72,27 @@ describe('getConversationMessages', () => {
     expect(error.status).toBe(404);
   });
 
-  it('returns messages oldest-first once ownership checks out', async () => {
+  it('returns messages oldest-first once ownership checks out, including modelContent', async () => {
     queue(ok({ id: 5, professor_id: 9 }));
-    queue(ok([{ role: 'user', content: 'Hi', actions: null, file_name: null, created_at: '2026-01-01T00:00:00Z' }]));
+    queue(ok([
+      { role: 'user', content: 'Hi', model_content: null, actions: null, file_name: null, created_at: '2026-01-01T00:00:00Z' },
+      {
+        role: 'user', content: 'what is this?',
+        model_content: 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />',
+        actions: null, file_name: 'photo.png', created_at: '2026-01-01T00:00:01Z',
+      },
+    ]));
 
     const messages = await getConversationMessages(9, 5);
 
-    expect(messages).toEqual([{ role: 'user', content: 'Hi', actions: null, fileName: null, createdAt: '2026-01-01T00:00:00Z' }]);
+    expect(messages).toEqual([
+      { role: 'user', content: 'Hi', modelContent: null, actions: null, fileName: null, createdAt: '2026-01-01T00:00:00Z' },
+      {
+        role: 'user', content: 'what is this?',
+        modelContent: 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />',
+        actions: null, fileName: 'photo.png', createdAt: '2026-01-01T00:00:01Z',
+      },
+    ]);
     expect(builder.eq).toHaveBeenCalledWith('conversation_id', 5);
     expect(builder.order).toHaveBeenCalledWith('created_at', { ascending: true });
   });
@@ -115,6 +129,7 @@ describe('saveChatMessage', () => {
       conversation_id: 5,
       role: 'assistant',
       content: 'Done.',
+      model_content: null,
       actions: JSON.stringify([{ tool: 'rename_group', args: {}, ok: true, summary: 'Renamed' }]),
       file_name: null,
     });
@@ -122,6 +137,22 @@ describe('saveChatMessage', () => {
     const [patch] = builder.update.mock.calls[0];
     expect(patch.title).toBeUndefined();
     expect(typeof patch.updated_at).toBe('string');
+  });
+
+  it('persists modelContent separately from the displayed content, when given', async () => {
+    queue(ok(null)); // insert
+    queue(ok({ title: 'Already set' })); // existing title check
+
+    await saveChatMessage(5, 'user', 'what is this?', undefined, 'photo.png', 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />');
+
+    expect(builder.insert).toHaveBeenNthCalledWith(1, {
+      conversation_id: 5,
+      role: 'user',
+      content: 'what is this?',
+      model_content: 'what is this?\n\n<attached_image url="https://cdn.example.com/x.png" />',
+      actions: null,
+      file_name: 'photo.png',
+    });
   });
 
   it("auto-titles the conversation from a user's first message, but not a later one", async () => {

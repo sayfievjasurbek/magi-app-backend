@@ -30,7 +30,10 @@ export const getAiConversationMessages = async (req: Request, res: Response) => 
     if (!Number.isInteger(conversationId)) return res.status(400).json({ success: false, message: 'Invalid conversation id' });
 
     const messages = await getConversationMessages(req.user!.id, conversationId);
-    return res.status(200).json({ success: true, messages });
+    // modelContent is an internal reconstruction detail (resolveConversation's own use below) -
+    // the chat panel only ever needs what the professor actually typed and the file's name
+    const publicMessages = messages.map(({ role, content, actions, fileName, createdAt }) => ({ role, content, actions, fileName, createdAt }));
+    return res.status(200).json({ success: true, messages: publicMessages });
   } catch (error) {
     return handleControllerError(res, error, "ai controller");
   };
@@ -71,7 +74,9 @@ export const resolveConversation = async (
     };
     if (!Number.isInteger(requestedId)) throw new HttpError(400, 'Invalid conversation id');
     const messages = await getConversationMessages(professorId, requestedId as number); // 404s if not owned
-    return { conversationId: requestedId as number, history: messages.map((m) => ({ role: m.role, content: m.content })) };
+    // modelContent (not content) is what the model should actually see - it carries forward
+    // whatever was extracted from an attached file, or a persisted image's own marker
+    return { conversationId: requestedId as number, history: messages.map((m) => ({ role: m.role, content: m.modelContent ?? m.content })) };
   } catch (error) {
     if (error instanceof HttpError) throw error;
     console.log('Error resolving AI conversation, continuing without persistence:', error instanceof Error ? error.message : error);
@@ -88,12 +93,12 @@ export const chatWithAssistant = async (req: Request, res: Response) => {
 
     const { conversationId, history } = await resolveConversation(req.user!.id, req.body?.conversationId, req.body?.history);
 
-    const { reply, actions } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
+    const { reply, actions, modelContent } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
 
     if (conversationId !== null) {
       const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
       const fileName = typeof req.body?.file?.name === 'string' ? req.body.file.name : null;
-      await saveChatMessage(conversationId, 'user', message, undefined, fileName);
+      await saveChatMessage(conversationId, 'user', message, undefined, fileName, modelContent);
       await saveChatMessage(conversationId, 'assistant', reply, actions);
     };
 

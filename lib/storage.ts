@@ -4,6 +4,7 @@
 
 import { database } from './db.js';
 import { HttpError } from './errors.js';
+import { decodeFileData as decodeAnyFileData } from './file-extract.js';
 
 const BUCKET = 'proctoring';
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -97,6 +98,20 @@ export const uploadProfilePhoto = async (userId: number, image: unknown): Promis
 
   const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
   if (error) throw new Error(`photo upload failed: ${error.message}`);
+
+  return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+};
+
+/** Uploads an image a professor attached to the Magi AI chat under `ai-chat/{professorId}/{random}.{ext}`,
+ * so a later turn's reconstructed conversation history can hand the model the real image again
+ * instead of just the memory that one was sent (see assistant.service.ts's attached-image marker). */
+export const uploadChatImage = async (professorId: number, dataUrl: string): Promise<string> => {
+  const { bytes, mime } = decodeAnyFileData(dataUrl);
+  const ext = mime === 'image/jpeg' ? 'jpg' : (mime.split('/')[1] ?? 'png');
+  const path = `ai-chat/${professorId}/${randomSuffix()}.${ext}`;
+
+  const { error } = await database.storage.from(BUCKET).upload(path, bytes, { contentType: mime });
+  if (error) throw new Error(`chat image upload failed: ${error.message}`);
 
   return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 };
