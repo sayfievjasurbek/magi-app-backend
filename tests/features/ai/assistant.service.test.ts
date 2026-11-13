@@ -66,6 +66,26 @@ describe('runAssistant', () => {
     await expect(runAssistant(USER, { message: 'hi' })).rejects.toThrow('AI is not configured');
   });
 
+  it('strips <suggest> tags out of the reply and returns them as quick-reply options', async () => {
+    create.mockResolvedValueOnce(finalRound(
+      "Testning nomi va vaqti kerak.<suggest>Matematika, ertaga 10:00-12:00 bilan davom et</suggest><suggest>Boshqa nom va vaqt kiritaman</suggest>"
+    ));
+
+    const { reply, suggestions } = await runAssistant(USER, { message: 'test yarat' });
+
+    expect(reply).toBe('Testning nomi va vaqti kerak.');
+    expect(suggestions).toEqual(['Matematika, ertaga 10:00-12:00 bilan davom et', 'Boshqa nom va vaqt kiritaman']);
+  });
+
+  it('returns an empty suggestions array when the reply has no <suggest> tags', async () => {
+    create.mockResolvedValueOnce(finalRound('Jami 18 ta talaba bor.'));
+
+    const { reply, suggestions } = await runAssistant(USER, { message: 'nechta talaba bor?' });
+
+    expect(reply).toBe('Jami 18 ta talaba bor.');
+    expect(suggestions).toEqual([]);
+  });
+
   it('runs the schedule_exam_to_group tool and reports the trace', async () => {
     create
       .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'schedule_exam_to_group', { examId: 12, groupId: 5 })))

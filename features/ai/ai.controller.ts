@@ -93,7 +93,7 @@ export const chatWithAssistant = async (req: Request, res: Response) => {
 
     const { conversationId, history } = await resolveConversation(req.user!.id, req.body?.conversationId, req.body?.history);
 
-    const { reply, actions, modelContent } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
+    const { reply, actions, modelContent, suggestions } = await runAssistant(req.user!, { message: req.body?.message, history, file: req.body?.file });
 
     if (conversationId !== null) {
       const message = typeof req.body?.message === 'string' ? req.body.message.trim() : '';
@@ -102,7 +102,7 @@ export const chatWithAssistant = async (req: Request, res: Response) => {
       await saveChatMessage(conversationId, 'assistant', reply, actions);
     };
 
-    return res.status(200).json({ success: true, reply, actions, conversationId });
+    return res.status(200).json({ success: true, reply, actions, conversationId, suggestions });
   } catch (error) {
     return handleControllerError(res, error, "ai controller");
   };

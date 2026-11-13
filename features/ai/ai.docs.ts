@@ -124,6 +124,11 @@ export const paths = {
             reply: { type: 'string', example: "Midterm testini 5-guruhga joyladim - 18 talaba qo'shildi." },
             actions: { type: 'array', items: ref('AiAction') },
             conversationId: { type: 'integer', nullable: true },
+            suggestions: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Quick-reply options alongside a clarifying question - each one the exact text tapping it should send',
+            },
           }),
         ),
         ...errors(400, 401, 403, 404, 503),

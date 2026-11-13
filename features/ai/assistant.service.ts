@@ -144,6 +144,16 @@ Rules:
   for both, offering a plausible name (matching whatever group/topic came up earlier in the
   conversation, if anything did) and a nearby date/time as a starting suggestion, rather than calling
   create_exam with guessed-up filler values.
+  Whenever you suggest or ask about a short, concrete thing this way - a name, a date/time, a yes/no,
+  a pick between a few named things - wrap each option the professor could tap instead of typing in
+  its own <suggest>...</suggest> tag, right in your reply (anywhere in it - the end is usually most
+  natural). These are stripped out before the professor ever sees the raw tag and shown as tappable
+  buttons instead, so word each one as the exact, complete reply tapping it should send - not a label
+  or description of the choice.
+  Worked example: asked "bitta test yarat" with nothing else said, reply with something like:
+  "Testning nomi va vaqti kerak - masalan 'Matematikadan Sinov', ertaga soat 10:00 dan 12:00 gacha.
+  Shu bilan roziisizmi?<suggest>Matematikadan Sinov, ertaga 10:00-12:00 bilan davom et</suggest><suggest>Boshqa nom va vaqt kiritaman</suggest>"
+  Only skip the tags for a genuinely open-ended question with no short answer worth offering at all.
 - Every time you look something up (not just when something happens to jump out), actively check it
   for anything worth a sentence: a group with no mentor yet, an exam close to its start time with no
   questions attached, attendance nobody has marked today, a question bank that could use more variety
@@ -960,6 +970,26 @@ const contentForMessage = (text: string): string | OpenAI.ChatCompletionContentP
   ];
 };
 
+// a one-tap quick-reply chip, wrapped around each short option the model offers alongside a
+// clarifying question (a suggested name/date, a yes/no, a pick between named things) - pulled out
+// of the reply text entirely before it reaches the professor, the chat panel renders these as
+// buttons instead. A text marker, not a tool call: asking the model to call a tool purely to
+// decorate a reply it was already writing proved unreliable in practice - embedding it directly in
+// the text it was going to produce anyway (same trick as the attached-image marker above) was not
+const SUGGESTION_RE = /<suggest>([^<]*)<\/suggest>/g;
+
+const extractSuggestions = (text: string): { reply: string; suggestions: string[] } => {
+  const suggestions: string[] = [];
+  const reply = text
+    .replace(SUGGESTION_RE, (_match, option: string) => {
+      const trimmed = option.trim();
+      if (trimmed) suggestions.push(trimmed);
+      return '';
+    })
+    .trim();
+  return { reply, suggestions };
+};
+
 // express 5 leaves req.body undefined when nothing is sent, hence the default, same as createExam
 // an attached file arrives as { name, data } where data is the same data:<mime>;base64,... string
 // used for photo/audio uploads elsewhere in this codebase. modelContent is the same text this turn
@@ -988,7 +1018,10 @@ const buildUserContent = async (
   return { content: modelContent, modelContent };
 };
 
-export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<{ reply: string; actions: ActionTrace[]; modelContent: string | null }> => {
+export const runAssistant = async (
+  user: TokenPayload,
+  body: any = {},
+): Promise<{ reply: string; actions: ActionTrace[]; modelContent: string | null; suggestions: string[] }> => {
   const message = typeof body.message === 'string' ? body.message.trim() : '';
   if (!message) throw new HttpError(400, 'message is required');
   const history = parseHistory(body.history);
@@ -1017,7 +1050,10 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
 
     const isFunctionCall = (call: OpenAI.ChatCompletionMessageToolCall): call is OpenAI.ChatCompletionMessageFunctionToolCall => call.type === 'function';
     const toolCalls = (choice.tool_calls ?? []).filter(isFunctionCall);
-    if (!toolCalls.length) return { reply: choice.content ?? '', actions, modelContent };
+    if (!toolCalls.length) {
+      const { reply, suggestions } = extractSuggestions(choice.content ?? '');
+      return { reply, actions, modelContent, suggestions };
+    };
 
     messages.push({ role: 'assistant', content: choice.content, tool_calls: choice.tool_calls });
 
@@ -1052,5 +1088,5 @@ export const runAssistant = async (user: TokenPayload, body: any = {}): Promise<
     };
   };
 
-  return { reply: "I wasn't able to finish that - try asking again, maybe in smaller steps.", actions, modelContent };
+  return { reply: "I wasn't able to finish that - try asking again, maybe in smaller steps.", actions, modelContent, suggestions: [] };
 };
