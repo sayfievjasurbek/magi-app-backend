@@ -14,7 +14,7 @@ vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttend
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
 vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn(), updateStudentProfile: vi.fn() }));
 vi.mock('../../../features/attempts/attempt.service.js', () => ({
-  listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(),
+  listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(), allowRetake: vi.fn(),
 }));
 vi.mock('../../../lib/storage.js', () => ({ uploadChatImage: vi.fn().mockResolvedValue('https://cdn.example.com/ai-chat/9/photo.png') }));
 
@@ -26,7 +26,7 @@ import {
 import { getExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
 import { updateQuestion } from '../../../features/questions/question.service.js';
 import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.controller.js';
-import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../../../features/attempts/attempt.service.js';
+import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt, allowRetake } from '../../../features/attempts/attempt.service.js';
 import { uploadChatImage } from '../../../lib/storage.js';
 import { HttpError } from '../../../lib/errors.js';
 import { type TokenPayload } from '../../../lib/types.js';
@@ -367,6 +367,39 @@ describe('runAssistant', () => {
 
     expect(reply).toBe('Reviewed.');
     expect(aiReviewAttempt).toHaveBeenCalledWith(USER.id, 77, false);
+  });
+
+  it('reopens an attempt for a retake once the professor confirms', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'get_attempt', { attemptId: 77 })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'allow_retake', { attemptId: 77 })))
+      .mockResolvedValueOnce(finalRound('Reopened.'));
+    (getAttempt as any).mockResolvedValue({
+      id: 77, status: 'submitted', score: 40, feedback: null,
+      exam: { id: 12, name: 'Midterm', max_marks: 100 },
+      student: { id: 21, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' },
+      questions: [],
+    });
+    (allowRetake as any).mockResolvedValue({ status: 'in_progress', unlimited_time: true });
+
+    const { reply, actions } = await runAssistant(USER, { message: "Sue'ning 77-attemptiga qayta topshirishga ruxsat ber" });
+
+    expect(reply).toBe('Reopened.');
+    expect(allowRetake).toHaveBeenCalledWith(USER.id, 77);
+    expect(actions.map((a) => a.tool)).toEqual(['get_attempt', 'allow_retake']);
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('refuses to reopen an attempt id the model never actually looked up this turn', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'allow_retake', { attemptId: 9999 })))
+      .mockResolvedValueOnce(finalRound("Couldn't confirm that attempt."));
+
+    const { actions } = await runAssistant(USER, { message: 'attempt 9999ga qayta topshirishga ruxsat ber' });
+
+    expect(allowRetake).not.toHaveBeenCalled();
+    expect(actions[0].ok).toBe(false);
+    expect(actions[0].summary).toContain("hasn't been looked up yet this turn");
   });
 
   it('lists the grading overview across all exams', async () => {

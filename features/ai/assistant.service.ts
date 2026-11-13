@@ -19,7 +19,7 @@ import { examSummary } from '../cheatings/cheating.service.js';
 import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../auth/auth.controller.js';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
 import { uploadChatImage } from '../../lib/storage.js';
-import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt } from '../attempts/attempt.service.js';
+import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt, allowRetake } from '../attempts/attempt.service.js';
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 export type ActionTrace = { tool: string; args: Record<string, unknown>; ok: boolean; summary: string };
@@ -80,9 +80,9 @@ summary counts the kinds of incidents logged across an exam's attempts. A new gr
 mentor other than its creator (or nobody, for a professor whose position manages every group
 directly already) - adding another professor as its mentor is a separate step. An "attempt" is one
 student's run at one exam - its id (not the exam's, not the student's) is what get_attempt,
-grade_attempt and trigger_ai_review need; list_exam_attempts or list_attempts_summary is how you find
-it. A short_answer/essay/file_upload question has to be graded by hand (per-question marks via
-grade_attempt's marks field); multiple_choice/true_false grade themselves.
+grade_attempt, trigger_ai_review and allow_retake need; list_exam_attempts or list_attempts_summary
+is how you find it. A short_answer/essay/file_upload question has to be graded by hand (per-question
+marks via grade_attempt's marks field); multiple_choice/true_false grade themselves.
 
 Rules:
 - Never invent an id. When the professor names a group/exam/question/professor/student instead of
@@ -91,7 +91,8 @@ Rules:
   resolve it from list_exam_attempts (by student name) or list_attempts_summary instead.
   Earlier turns only leave behind their visible reply text, never the real ids behind them - an
   attempt's id almost never appears written out in your own earlier reply, so if you discussed one a
-  turn or two ago and are now asked to act on it (grade_attempt, trigger_ai_review, get_attempt), you
+  turn or two ago and are now asked to act on it (grade_attempt, trigger_ai_review, allow_retake,
+  get_attempt), you
   do NOT actually have its id yet, no matter how clearly you remember which student/exam it was.
   Call list_exam_attempts or get_attempt again - right now, in this same turn, before the tool that
   acts - to fetch the real id, then immediately call the acting tool with it. This means grading
@@ -101,11 +102,12 @@ Rules:
   When you write out a numbered list for the professor to read (1. Aisinf, 2. class3, ...), those
   numbers are display positions, not ids - never reuse one as an id in a later tool call. Go back to
   the actual tool result and use the real id field for whichever one they picked.
-- delete_group is irreversible, and grade_attempt notifies the student immediately once it runs -
-  before calling either, state plainly what you're about to do (which group to delete; what score
-  and/or feedback you're about to give, and to whom) and ask the professor to confirm. Only proceed
-  once they clearly have - a short "ha"/"yes" to that specific question counts; a vague or unrelated
-  reply does not.
+- delete_group and allow_retake are both irreversible, and grade_attempt notifies the student
+  immediately once it runs - before calling any of the three, state plainly what you're about to do
+  (which group to delete; what score and/or feedback you're about to give, and to whom; whose attempt
+  you're reopening for a retake, and that it clears their previous answers/score and gives them no
+  time limit) and ask the professor to confirm. Only proceed once they clearly have - a short
+  "ha"/"yes" to that specific question counts; a vague or unrelated reply does not.
   But if the professor's own message already gives the exact score/feedback, that message IS the
   confirmation - call the tool right away, don't restate the plan and ask "tasdiqlaysizmi?"/"confirm?"
   again. Example: they're told Sue's attempt is ungraded and asked how many points, and they reply
@@ -689,6 +691,19 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'allow_retake',
+      description: "Reopen a finished attempt (submitted, auto_submitted, graded or flagged) so the student can resubmit it - with no time limit this time, not even the exam's own schedule window. Clears its previous answers, score and feedback, since they belonged to the submission being redone. Irreversible, so confirm with the professor first, same as delete_group.",
+      parameters: {
+        type: 'object',
+        properties: { attemptId: { type: 'integer' } },
+        required: ['attemptId'],
+        additionalProperties: false,
+      },
+    },
+  },
 ];
 
 type ToolResult = { result: unknown; summary: string };
@@ -954,6 +969,15 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     const force = args.force === true;
     const review = await aiReviewAttempt(user.id, attemptId, force);
     return { result: review, summary: `Ran AI review on attempt ${attemptId} - cheating likelihood: ${review.cheating_likelihood}` };
+  },
+
+  allow_retake: async (args, user, ctx) => {
+    const attemptId = toId(args.attemptId, 'attemptId');
+    if (!ctx.seenAttemptIds.has(attemptId)) {
+      throw new HttpError(400, `attempt ${attemptId} hasn't been looked up yet this turn - call list_exam_attempts or get_attempt first to confirm it's real`);
+    };
+    const reopened = (await allowRetake(user.id, attemptId)) as any;
+    return { result: { status: reopened.status, unlimited_time: reopened.unlimited_time }, summary: `Reopened attempt ${attemptId} for a retake, no time limit` };
   },
 };
 

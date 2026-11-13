@@ -92,6 +92,15 @@ export const aiReviewAttempt = async (req: Request, res: Response) => {
   };
 };
 
+export const allowRetake = async (req: Request, res: Response) => {
+  try {
+    const attempt = await attempts.allowRetake(req.user!.id, parseId(req.params.id));
+    return res.status(200).json({ success: true, attempt });
+  } catch (error) {
+    return handleControllerError(res, error, "attempt controller");
+  };
+};
+
 export const setCheatingDisclosure = async (req: Request, res: Response) => {
   try {
     const attempt = await attempts.setCheatingDisclosure(req.user!.id, parseId(req.params.id), req.body?.disclosed === true);

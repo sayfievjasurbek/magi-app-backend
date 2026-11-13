@@ -13,10 +13,11 @@ type Attempt = {
   session_duration: number;
   session_duration_unit: TimeUnit;
   started_at: string | null;
+  unlimited_time: boolean;
 };
 type Cheating = { id: number; name: string; explanation: string; created_at: string };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, session_duration_unit, started_at';
+const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, session_duration_unit, started_at, unlimited_time';
 
 // an earlier incident turns in_progress into flagged in the same column, so the attempt is
 // still running as long as it has not been submitted

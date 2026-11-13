@@ -23,7 +23,9 @@ type Exam = {
   created_by: number | null;
 };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback, cheating_disclosed, typing_timeline';
+const ATTEMPT_COLUMNS = 'id, exam_id, session_duration, session_duration_unit, started_at, submitted_at, auto_submitted, status, score, feedback, cheating_disclosed, typing_timeline, unlimited_time';
+// a finished attempt a professor can reopen for resubmission - see allowRetake
+const RETAKEABLE_STATUSES: AttemptStatus[] = ['submitted', 'auto_submitted', 'graded', 'flagged'];
 // created_by is never answered with, it is what says whether a professor manages the exam
 const EXAM_COLUMNS = 'id, name, scheduled_start, scheduled_end, status, max_marks, passing_marks, created_by';
 const ANSWER_COLUMNS = 'question_id, position, answer, typing_duration, typing_duration_unit, text_typed, text_edited, text_pasted, paste_events, text_deleted, freeze_count, longest_freeze, last_synced_at, started_at, answered_at, marks_awarded';
@@ -111,6 +113,7 @@ const studentSummary = (attempt: Attempt, exam: Exam) => ({
   session_duration_unit: attempt.session_duration_unit,
   expires_at: new Date(deadline(attempt, exam)).toISOString(),
   remaining_seconds: remainingSeconds(attempt, exam),
+  unlimited_time: attempt.unlimited_time,
   exam: {
     id: exam.id,
     name: exam.name,
@@ -322,15 +325,18 @@ export const startAttempt = async (studentId: number, body: { examId?: unknown }
   const exam = await loadExam(examId);
   if (!(await sitsExam(exam, studentId))) throw new HttpError(404, 'Exam not found');
 
+  // one attempt per student per exam is a unique constraint; an existing attempt is resumed as-is,
+  // before the exam-window checks below - a professor-granted retake (allowRetake) reopens an
+  // attempt whose exam window may since have closed, and resumeAttempt judges it by the attempt's
+  // own deadline (unlimited for a retake), not the exam's
+  const existing = unwrap(await database.from('student_assignment').select('assignment_id').eq('student_id', studentId).eq('exam_id', examId).maybeSingle()) as { assignment_id: number } | null;
+  if (existing) return resumeAttempt(studentId, existing.assignment_id);
+
   if (!STARTABLE_EXAM_STATUSES.includes(exam.status)) throw new HttpError(400, `This exam is ${exam.status} and cannot be taken`);
 
   const now = Date.now();
   if (now < Date.parse(exam.scheduled_start)) throw new HttpError(400, 'This exam has not started yet');
   if (now >= Date.parse(exam.scheduled_end)) throw new HttpError(400, 'This exam is over');
-
-  // one attempt per student per exam is a unique constraint; checking first avoids creating a row for nothing
-  const existing = unwrap(await database.from('student_assignment').select('assignment_id').eq('student_id', studentId).eq('exam_id', examId).maybeSingle()) as { assignment_id: number } | null;
-  if (existing) return resumeAttempt(studentId, existing.assignment_id);
 
   const examQuestions = unwrap(await database
     .from('exam_question')
@@ -823,6 +829,62 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
 
   if (studentId) void notify(studentId, 'exam_graded', 'Exam graded', `${exam.name}: ${graded.score}/${exam.max_marks}`, exam.id);
   return staffSummary(graded, exam, await loadStudent(studentId));
+};
+
+// Reopens a finished attempt so the student can resubmit it - e.g. they ran out of time or the
+// professor wants another shot after a dispute. Unlimited time, not just "resumed": a retake that
+// still raced the clock would defeat the point of granting one. Reused answers/timeline are
+// cleared since they belonged to the submission being redone, same as a fresh attempt would start.
+export const allowRetake = async (professorId: number, attemptId: number | null) => {
+  if (!attemptId) throw new HttpError(404, 'Attempt not found');
+
+  const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
+  const current = await ensureCurrent(attempt, exam);
+  if (!RETAKEABLE_STATUSES.includes(current.status) || !current.submitted_at) {
+    throw new HttpError(409, 'Only a submitted attempt can be reopened for a retake');
+  }
+
+  const { error: clearError } = await database
+    .from('question_assignment')
+    .update({
+      answer: '',
+      started_at: null,
+      answered_at: null,
+      last_synced_at: null,
+      marks_awarded: 0,
+      text_typed: 0,
+      text_edited: 0,
+      text_pasted: 0,
+      paste_events: 0,
+      text_deleted: 0,
+      freeze_count: 0,
+      longest_freeze: 0,
+      typing_duration: 0,
+    })
+    .eq('assignment_id', current.id);
+  if (clearError) throw new Error(clearError.message);
+
+  const { error: clearOptionsError } = await database.from('question_assignment_option').delete().eq('assignment_id', current.id);
+  if (clearOptionsError) throw new Error(clearOptionsError.message);
+
+  const reopened = unwrap(await database
+    .from('assignments')
+    .update({
+      status: 'in_progress',
+      started_at: new Date().toISOString(),
+      submitted_at: null,
+      auto_submitted: false,
+      unlimited_time: true,
+      score: 0,
+      feedback: null,
+      typing_timeline: [],
+    })
+    .eq('id', current.id)
+    .select(ATTEMPT_COLUMNS)
+    .single()) as Attempt;
+
+  if (studentId) void notify(studentId, 'retake_allowed', 'Retake allowed', `${exam.name}: you can resubmit this exam, with no time limit`, exam.id);
+  return staffSummary(reopened, exam, await loadStudent(studentId));
 };
 
 // A student is never told an attempt was flagged, let alone shown the incidents behind it -

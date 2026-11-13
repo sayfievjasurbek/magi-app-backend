@@ -15,6 +15,7 @@ vi.mock('../../../features/attempts/attempt.controller.js', () => ({
   gradeAttempt: vi.fn(),
   aiReviewAttempt: vi.fn(),
   setCheatingDisclosure: vi.fn(),
+  allowRetake: vi.fn(),
 }));
 
 import router from '../../../features/attempts/attempt.route.js';
@@ -67,6 +68,7 @@ describe('attempt routes', () => {
     expect(route('put', '/:id/grade').handlers.at(-1)).toBe(controller.gradeAttempt);
     expect(route('post', '/:id/ai-review').handlers.at(-1)).toBe(controller.aiReviewAttempt);
     expect(route('put', '/:id/cheating-disclosure').handlers.at(-1)).toBe(controller.setCheatingDisclosure);
+    expect(route('put', '/:id/allow-retake').handlers.at(-1)).toBe(controller.allowRetake);
   });
 
   it('matches /my and /summary before /:id', () => {
@@ -111,5 +113,11 @@ describe('attempt routes', () => {
     expect(guard('post', '/:id/ai-review', 'professor').allowed).toBe(true);
     expect(guard('post', '/:id/ai-review', 'examiner')).toEqual({ allowed: false, status: 403 });
     expect(guard('post', '/:id/ai-review', 'student')).toEqual({ allowed: false, status: 403 });
+  });
+
+  it('lets only professors allow a retake', () => {
+    expect(guard('put', '/:id/allow-retake', 'professor').allowed).toBe(true);
+    expect(guard('put', '/:id/allow-retake', 'examiner')).toEqual({ allowed: false, status: 403 });
+    expect(guard('put', '/:id/allow-retake', 'student')).toEqual({ allowed: false, status: 403 });
   });
 });

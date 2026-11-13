@@ -8,7 +8,7 @@ export const schemas = {
     type: 'object',
     properties: {
       id,
-      type: { type: 'string', enum: ['exam_assigned', 'module_enrolled', 'exam_graded', 'password_changed', 'exam_updated'], example: 'exam_assigned' },
+      type: { type: 'string', enum: ['exam_assigned', 'module_enrolled', 'exam_graded', 'password_changed', 'exam_updated', 'retake_allowed'], example: 'exam_assigned' },
       title: { type: 'string', example: 'New exam assigned' },
       body: nullable({ type: 'string', example: 'Algorithms Midterm, in Algorithms' }),
       related_id: nullable(id),

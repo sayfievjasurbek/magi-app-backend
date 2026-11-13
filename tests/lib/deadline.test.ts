@@ -14,7 +14,7 @@ import { attemptExpired, deadline, toSeconds } from '../../lib/deadline.js';
 
 const NOW = new Date('2026-09-21T10:00:00.000Z');
 const exam = { scheduled_start: '2026-09-21T09:00:00.000Z', scheduled_end: '2026-09-21T12:00:00.000Z' };
-const attempt = { exam_id: 5, session_duration: 30, session_duration_unit: 'minutes' as const, started_at: '2026-09-21T09:30:00.000Z' };
+const attempt = { exam_id: 5, session_duration: 30, session_duration_unit: 'minutes' as const, started_at: '2026-09-21T09:30:00.000Z', unlimited_time: false };
 
 beforeEach(() => {
   results.length = 0;
@@ -40,6 +40,10 @@ describe('deadline', () => {
 
   it('counts from the start of the exam when the attempt never started', () => {
     expect(new Date(deadline({ ...attempt, started_at: null }, exam)).toISOString()).toBe('2026-09-21T09:30:00.000Z');
+  });
+
+  it('ignores both the session limit and the exam window once unlimited_time is set', () => {
+    expect(deadline({ ...attempt, unlimited_time: true }, exam)).toBeGreaterThan(Date.parse(exam.scheduled_end));
   });
 });
 

@@ -84,6 +84,7 @@ import {
   submitAttempt,
   gradeAttempt,
   aiReviewAttempt,
+  allowRetake,
 } from '../../../features/attempts/attempt.service.js';
 
 const NOW = new Date('2026-09-21T10:00:00.000Z');
@@ -205,6 +206,20 @@ describe('startAttempt', () => {
     expect(attempt.id).toBe(9);
     expect(attempt.status).toBe('in_progress');
     expect(called('assignments', 'insert')).toHaveLength(0);
+  });
+
+  it('resumes a retake-reopened attempt even after the exam\'s own window has closed', async () => {
+    queue('exams', { ...EXAM, scheduled_end: '2026-09-21T09:59:00.000Z' }); // already over
+    queue('exam_student', { exam_id: 5 });
+    queue('student_assignment', { assignment_id: 9 });
+    queueOwnAttempt(attemptRow({ status: 'in_progress', unlimited_time: true, started_at: NOW.toISOString() }));
+    queue('question_assignment', []);
+    queue('assignment_permitted_url', []);
+
+    const attempt = await startAttempt(STUDENT.id, { examId: 5 }) as any;
+
+    expect(attempt.status).toBe('in_progress');
+    expect(attempt.unlimited_time).toBe(true);
   });
 
   it('409s resuming an attempt that is already finished', async () => {
@@ -1257,5 +1272,52 @@ describe('aiReviewAttempt', () => {
 
     expect(review.cheating_likelihood).toBe('high');
     expect(review.cheating_reasoning).toBe('High paste ratio.');
+  });
+});
+
+describe('allowRetake', () => {
+  const SUBMITTED = attemptRow({ status: 'submitted', submitted_at: '2026-09-21T09:50:00.000Z' });
+
+  it('404s an attempt id that is not a number', async () => {
+    await expect(allowRetake(PROFESSOR.id, null)).rejects.toMatchObject({ status: 404 });
+    expect(from).not.toHaveBeenCalled();
+  });
+
+  it('404s an attempt of an exam the professor does not manage', async () => {
+    queue('assignments', SUBMITTED);
+    queue('exams', EXAM);
+    queue('exam_module', [{ module_id: 2 }]);
+    queue('module_professor', []);
+
+    await expect(allowRetake(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('refuses to reopen an attempt that was never submitted', async () => {
+    queueStaffAttempt(attemptRow());
+
+    await expect(allowRetake(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 409, message: 'Only a submitted attempt can be reopened for a retake' });
+  });
+
+  it('reopens a submitted attempt with unlimited time and clears its previous answers', async () => {
+    queueStaffAttempt(SUBMITTED);
+    queue('question_assignment', null);
+    queue('question_assignment_option', null);
+    queue('assignments', attemptRow({ status: 'in_progress', started_at: NOW.toISOString(), unlimited_time: true }));
+    queue('users', { id: 3, first_name: 'Sam', last_name: 'Lee', email: 'sam@magi.edu' });
+
+    const attempt = await allowRetake(PROFESSOR.id, 9) as any;
+
+    expect(called('question_assignment', 'update')[0].payload).toMatchObject({ answer: '', marks_awarded: 0 });
+    expect(called('question_assignment_option', 'delete')).toHaveLength(1);
+    expect(called('assignments', 'update')[0].payload).toMatchObject({
+      status: 'in_progress',
+      submitted_at: null,
+      auto_submitted: false,
+      unlimited_time: true,
+      score: 0,
+      feedback: null,
+    });
+    expect(attempt.unlimited_time).toBe(true);
+    expect(attempt.status).toBe('in_progress');
   });
 });

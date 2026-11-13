@@ -6,7 +6,7 @@
 
 import { database } from './db.js';
 
-export type NotificationType = 'exam_assigned' | 'module_enrolled' | 'exam_graded' | 'password_changed' | 'exam_updated';
+export type NotificationType = 'exam_assigned' | 'module_enrolled' | 'exam_graded' | 'password_changed' | 'exam_updated' | 'retake_allowed';
 
 // best-effort: a notification failing to write must never break the action that triggered it
 export const notify = async (userId: number, type: NotificationType, title: string, body: string | null, relatedId?: number) => {

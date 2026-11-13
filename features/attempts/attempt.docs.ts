@@ -47,6 +47,7 @@ const attemptFields = (status: object) => ({
   session_duration_unit: timeUnit,
   expires_at: dateTime,
   remaining_seconds: { type: 'integer', example: 2700, description: '0 once the attempt is closed' },
+  unlimited_time: { type: 'boolean', example: false, description: 'Set by PUT .../allow-retake - no time limit while true, session_duration and the exam window are both ignored' },
   exam: ref('AttemptExam'),
 });
 
@@ -435,6 +436,20 @@ export const paths = {
         content: json({ type: 'object', required: ['disclosed'], properties: { disclosed: { type: 'boolean', example: true } } }),
       },
       responses: { '200': ok('Updated', envelope({ attempt: ref('StaffAttempt') })), ...errors(400, 401, 403, 404) },
+    },
+  },
+  '/api/assignments/{id}/allow-retake': {
+    put: {
+      tags: ['Attempts'],
+      summary: 'Reopen a finished attempt for resubmission, with no time limit (professor)',
+      description:
+        'For an attempt that has already been submitted (submitted, auto_submitted, graded or flagged) - puts it back to in_progress, clears its answers, ' +
+        'score and feedback, and sets unlimited_time so neither session_duration nor the exam\'s own scheduled_end can close it again. The student resumes ' +
+        'it the same way as any other open attempt (POST /api/assignments with the same examId, or GET/PUT on this attempt id) - the exam no longer needs ' +
+        'to still be within its own scheduled window for that to work. A still-open (never submitted) attempt is a 409.',
+      ...authed,
+      parameters: [attemptId],
+      responses: { '200': ok('Reopened', envelope({ attempt: ref('StaffAttempt') })), ...errors(401, 403, 404, 409) },
     },
   },
 };

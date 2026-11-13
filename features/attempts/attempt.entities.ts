@@ -23,6 +23,7 @@ export type Assignment = {
   feedback: string | null;
   cheating_disclosed: boolean;
   typing_timeline: TypingTimelinePoint[];
+  unlimited_time: boolean;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
