@@ -42,11 +42,12 @@ const attemptFields = (status: object) => ({
   status,
   started_at: nullable(dateTime),
   submitted_at: nullable(dateTime),
-  auto_submitted: { type: 'boolean', example: false, description: 'The time ran out and the attempt was closed by the server' },
+  auto_submitted: { type: 'boolean', example: false, description: 'Historical: whether the server closed this attempt by itself. Nothing does that anymore - an attempt is only ever closed by an explicit submit - so this is always false on a new submission' },
   session_duration: { type: 'integer', example: 5400 },
   session_duration_unit: timeUnit,
   expires_at: dateTime,
-  remaining_seconds: { type: 'integer', example: 2700, description: '0 once the attempt is closed' },
+  remaining_seconds: { type: 'integer', example: 2700, description: '0 once the attempt is closed, or once its deadline has passed while still open' },
+  late_seconds: { type: 'integer', example: 0, description: 'How far past its deadline this attempt is - 0 while on time, growing live while it is open past its deadline, frozen at submission once closed. Always 0 for an unlimited_time attempt' },
   unlimited_time: { type: 'boolean', example: false, description: 'Set by PUT .../allow-retake - no time limit while true, session_duration and the exam window are both ignored' },
   exam: ref('AttemptExam'),
 });
@@ -312,7 +313,7 @@ export const paths = {
       tags: ['Attempts'],
       summary: 'Sync answers (student)',
       description:
-        'Writes a batch of answers, chosen options and typing metrics. Only while the attempt is open and inside its time limit: an attempt past its limit is submitted automatically and the call answers 409. ' +
+        'Writes a batch of answers, chosen options and typing metrics. Only while the attempt is still open (not yet submitted) - its deadline passing does not close it, so this keeps working past that point; `remaining_seconds` just stays at 0. ' +
         'The whole batch is validated before anything is written; a question that is not part of the attempt or an option that does not belong to its question is a 400.',
       ...authed,
       parameters: [attemptId],
@@ -321,7 +322,7 @@ export const paths = {
         content: json({ type: 'object', required: ['answers'], properties: { answers: { type: 'array', minItems: 1, items: ref('AnswerSync') } } }),
       },
       responses: {
-        '200': ok('Answers written', envelope({ synced: { type: 'integer', example: 12 }, remaining_seconds: { type: 'integer', example: 2700 } })),
+        '200': ok('Answers written', envelope({ synced: { type: 'integer', example: 12 }, remaining_seconds: { type: 'integer', example: 2700 }, late_seconds: { type: 'integer', example: 0 } })),
         ...errors(400, 401, 403, 404, 409),
       },
     },
@@ -332,7 +333,7 @@ export const paths = {
       summary: 'Upload a file as the answer to a file_upload question (student)',
       description:
         'Only for a question of type file_upload that is part of this attempt. Uploads the file to storage and writes its public URL as the answer, same as ' +
-        'PUT .../answers would for a typed one. Only while the attempt is open and inside its time limit.',
+        'PUT .../answers would for a typed one. Only while the attempt is still open (not yet submitted) - its deadline passing does not close it.',
       ...authed,
       parameters: [attemptId],
       requestBody: {
@@ -359,7 +360,8 @@ export const paths = {
       summary: 'Submit an attempt (student)',
       description:
         'Stamps `submitted_at`, grades the multiple choice and true/false answers (all or nothing on the option set) and stores the total. ' +
-        'The status becomes `graded` right away when the exam has no question to grade by hand, `submitted` otherwise, and `auto_submitted` when the time had already run out (`auto_submitted` is then true). ' +
+        'The status becomes `graded` right away when the exam has no question to grade by hand, `submitted` otherwise - always by this explicit call, never automatically: an attempt whose deadline has passed stays open and answerable until the student submits it themselves, however late. ' +
+        '`late_seconds` on the returned attempt says by how much, and the `message` notes it too. ' +
         'A flagged attempt keeps the status `flagged` in the database until a professor grades it, but the student is answered with `submitted` or `auto_submitted`. Submitting twice is a 409.',
       ...authed,
       parameters: [attemptId],

@@ -348,6 +348,7 @@ describe('getAttempt as a student', () => {
     expect(attempt.questions[0]).not.toHaveProperty('paste_ratio');
     expect(attempt).not.toHaveProperty('score');
     expect(attempt.remaining_seconds).toBe(1800);
+    expect(attempt.late_seconds).toBe(0);
     expect(attempt.permitted_urls).toEqual([{ id: 11, url: 'https://docs.magi.edu' }]);
   });
 
@@ -377,17 +378,31 @@ describe('getAttempt as a student', () => {
     expect(attempt.questions[0].marks_awarded).toBe(10);
   });
 
-  it('auto submits an attempt whose time ran out before answering', async () => {
+  it('stays in_progress and keeps reporting how late it is, instead of auto-closing once its deadline passes', async () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
-    queue('exam_question', [{ question_id: 7, marks: 30 }]);
-    queue('questions', [{ id: 7, question_type: 'essay' }]);
-    queue('assignments', [attemptRow({ started_at: '2026-09-21T08:30:00.000Z', status: 'auto_submitted', submitted_at: NOW.toISOString(), auto_submitted: true })]);
+    queue('question_assignment', []);
+    queue('assignment_permitted_url', []);
+    queue('assignment_permitted_app', []);
 
     const attempt = await getAttempt(STUDENT, 9);
 
-    expect(called('assignments', 'update')[0].payload).toMatchObject({ status: 'auto_submitted', auto_submitted: true, score: 0 });
-    expect(attempt.status).toBe('auto_submitted');
+    expect(called('assignments', 'update')).toHaveLength(0);
+    expect(attempt.status).toBe('in_progress');
     expect(attempt.remaining_seconds).toBe(0);
+    // started 08:30 + 1h session = deadline 09:30; NOW is 10:00, so 30 minutes late
+    expect(attempt.late_seconds).toBe(1800);
+  });
+
+  it('is never late on a professor-granted retake, no matter how long it has been open', async () => {
+    queueOwnAttempt(attemptRow({ started_at: '2020-01-01T00:00:00.000Z', unlimited_time: true }));
+    queue('question_assignment', []);
+    queue('assignment_permitted_url', []);
+    queue('assignment_permitted_app', []);
+
+    const attempt = await getAttempt(STUDENT, 9);
+
+    expect(attempt.status).toBe('in_progress');
+    expect(attempt.late_seconds).toBe(0);
   });
 });
 
@@ -607,15 +622,15 @@ describe('syncAnswers', () => {
     expect(called('question_assignment', 'update')).toHaveLength(0);
   });
 
-  it('auto submits an attempt that ran out of time and says so', async () => {
+  it('keeps accepting answers past the deadline, since nothing closes the attempt by itself anymore', async () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
-    queue('exam_question', []);
-    queue('assignments', [attemptRow({ status: 'graded', submitted_at: NOW.toISOString(), auto_submitted: true })]);
+    queue('question_assignment', [{ question_id: 7 }]);
 
-    await expect(syncAnswers(STUDENT.id, 9, { answers: [{ questionId: 7, answer: 'x' }] })).rejects.toMatchObject({
-      status: 409,
-      message: 'Time is up: this attempt has been submitted automatically',
-    });
+    const result = await syncAnswers(STUDENT.id, 9, { answers: [{ questionId: 7, answer: 'x' }] });
+
+    expect(called('question_assignment', 'update')[0].payload).toMatchObject({ answer: 'x' });
+    // started 08:30 + 1h session = deadline 09:30; NOW is 10:00, remaining clamps to 0
+    expect(result.remaining_seconds).toBe(0);
   });
 
   it('needs a non-empty array of answers', async () => {
@@ -695,7 +710,7 @@ describe('syncAnswers', () => {
       { assignment_id: 9, question_id: 8, option_id: 21 },
       { assignment_id: 9, question_id: 8, option_id: 22 },
     ]);
-    expect(result).toEqual({ synced: 2, remaining_seconds: 1800 });
+    expect(result).toEqual({ synced: 2, remaining_seconds: 1800, late_seconds: 0 });
   });
 
   it('clears the chosen options when an empty list is sent', async () => {
@@ -878,15 +893,17 @@ describe('submitAttempt', () => {
     expect(called('assignments', 'update')[0].payload.score).toBe(15);
   });
 
-  it('submits a late attempt automatically', async () => {
+  it('accepts a manual submit past the deadline as a normal (not auto) submission, and says how late it was', async () => {
     queueOwnAttempt(attemptRow({ started_at: '2026-09-21T08:30:00.000Z' }));
     queue('exam_question', []);
-    queue('assignments', [attemptRow({ status: 'graded', auto_submitted: true, submitted_at: NOW.toISOString() })]);
+    queue('assignments', [attemptRow({ status: 'graded', auto_submitted: false, submitted_at: NOW.toISOString(), started_at: '2026-09-21T08:30:00.000Z' })]);
 
-    const { message } = await submitAttempt(STUDENT.id, 9);
+    const { attempt, message } = await submitAttempt(STUDENT.id, 9);
 
-    expect(called('assignments', 'update')[0].payload).toMatchObject({ auto_submitted: true });
-    expect(message).toBe('Time was up: this attempt has been submitted automatically');
+    expect(called('assignments', 'update')[0].payload).toMatchObject({ auto_submitted: false });
+    // started 08:30 + 1h session = deadline 09:30; submitted at NOW (10:00) is 30 minutes late
+    expect(attempt.late_seconds).toBe(1800);
+    expect(message).toBe('Your answers have been submitted, about 30 minute(s) late');
   });
 
   it('answers the student of a flagged attempt with submitted while the row stays flagged', async () => {

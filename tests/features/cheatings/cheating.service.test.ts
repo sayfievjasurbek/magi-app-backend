@@ -38,11 +38,7 @@ const callsOf = (method: string) => calls.filter(([name]) => name === method);
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
 
-// an attempt of an exam that runs until 2099: nothing here is ever out of time by the clock
-const timing = { session_duration: 3600, session_duration_unit: 'seconds', started_at: null };
-const running = row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null, ...timing });
-const openWindow = row({ scheduled_start: '2099-01-01T00:00:00Z', scheduled_end: '2099-01-01T02:00:00Z' });
-const closedWindow = row({ scheduled_start: '2020-01-01T00:00:00Z', scheduled_end: '2020-01-01T02:00:00Z' });
+const running = row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null });
 const owner = row({ assignment_id: 7 });
 // the live exam behind the attempt, then the module join: what lib/exam-access.ts reads for a professor
 const someoneElsesExam = row({ id: 3, created_by: 4 });
@@ -61,12 +57,12 @@ beforeEach(() => {
 
 describe('createIncident', () => {
   it('writes the incident, its link and flags the attempt for the student who owns it', async () => {
-    queue(running, owner, openWindow, incident, none, none);
+    queue(running, owner, incident, none, none);
 
     const cheating = await createIncident('7', student, 'copy_paste', 'pasted 400 characters');
 
     expect(cheating.id).toBe(31);
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'cheatings', 'cheating_reason', 'assignments']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'cheatings', 'cheating_reason', 'assignments']);
     expect(callsOf('insert')).toEqual([
       ['insert', { name: 'copy_paste', explanation: 'pasted 400 characters' }],
       ['insert', { assignment_id: 7, cheating_id: 31 }],
@@ -76,7 +72,7 @@ describe('createIncident', () => {
   });
 
   it('never flags a graded attempt: the update filters on the status itself', async () => {
-    queue(running, owner, openWindow, incident, none, none);
+    queue(running, owner, incident, none, none);
 
     await createIncident('7', student, 'copy_paste', 'pasted');
 
@@ -86,7 +82,7 @@ describe('createIncident', () => {
   });
 
   it('lets a professor of the exam record a manual review on a submitted attempt', async () => {
-    queue(row({ id: 7, exam_id: 3, status: 'submitted', submitted_at: 'yesterday', ...timing }), ...teaches, incident, none, none);
+    queue(row({ id: 7, exam_id: 3, status: 'submitted', submitted_at: 'yesterday' }), ...teaches, incident, none, none);
 
     const cheating = await createIncident('7', professor, 'manual_review', 'reviewed the recording');
 
@@ -164,7 +160,7 @@ describe('createIncident', () => {
   it('409s when a student reports on an attempt that is not running', async () => {
     for (const status of ['pending', 'submitted', 'auto_submitted', 'graded']) {
       calls.length = 0;
-      queue(row({ id: 7, exam_id: 3, status, submitted_at: null, ...timing }), owner);
+      queue(row({ id: 7, exam_id: 3, status, submitted_at: null }), owner);
 
       const error = await rejected(createIncident('7', student, 'copy_paste', 'because'));
 
@@ -172,48 +168,38 @@ describe('createIncident', () => {
     }
   });
 
-  it('409s a student report once the time of the attempt is over', async () => {
-    queue(running, owner, closedWindow);
+  it('still lets a student report an incident on an attempt that is running late', async () => {
+    queue(running, owner, incident, none, none);
 
-    const error = await rejected(createIncident('7', student, 'copy_paste', 'because'));
-
-    expect(error.status).toBe(409);
-    expect(error.message).toBe('Time is up: this attempt is over');
-    expect(callsOf('insert')).toEqual([]);
-  });
-
-  it('still lets an examiner record an incident on an attempt whose time is over', async () => {
-    queue(running, someoneElsesExam, row({ exam_id: 3 }), incident, none, none);
-
-    expect((await createIncident('7', examiner, 'manual_review', 'reviewed later')).id).toBe(31);
+    expect((await createIncident('7', student, 'copy_paste', 'past the deadline')).id).toBe(31);
   });
 
   it('lets the client of a student report a second incident on an already flagged attempt', async () => {
-    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: null, ...timing }), owner, openWindow, incident, none, none);
+    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: null }), owner, incident, none, none);
 
     expect((await createIncident('7', student, 'devtools', 'opened devtools')).id).toBe(31);
   });
 
   it('drops the incident again when the link cannot be written', async () => {
-    queue(running, owner, openWindow, incident, fails('link exploded'), none);
+    queue(running, owner, incident, fails('link exploded'), none);
 
     const error = await rejected(createIncident('7', student, 'copy_paste', 'because'));
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toBe('link exploded');
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'cheatings', 'cheating_reason', 'cheatings']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'cheatings', 'cheating_reason', 'cheatings']);
     expect(callsOf('delete')).toEqual([['delete']]);
     expect(calls.at(-1)).toEqual(['eq', 'id', 31]);
   });
 
   it('keeps the incident even when the attempt cannot be flagged, and logs the failure instead', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    queue(running, owner, openWindow, incident, none, fails('status exploded'));
+    queue(running, owner, incident, none, fails('status exploded'));
 
     const cheating = await createIncident('7', student, 'copy_paste', 'because');
 
     expect(cheating.id).toBe(31);
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'cheatings', 'cheating_reason', 'assignments']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'cheatings', 'cheating_reason', 'assignments']);
     expect(callsOf('delete')).toEqual([]);
     expect(consoleError).toHaveBeenCalledWith('Error flagging attempt after recording a cheating incident:', 'status exploded');
     consoleError.mockRestore();

@@ -1,5 +1,4 @@
 import { database } from '../../lib/db.js';
-import { attemptExpired, type TimeUnit } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
 import { compareFaces } from '../../lib/faceMatch.js';
 import { type Caller, findVisibleExam } from '../../lib/exam-access.js';
@@ -11,14 +10,10 @@ type Attempt = {
   exam_id: number;
   status: string;
   submitted_at: string | null;
-  session_duration: number;
-  session_duration_unit: TimeUnit;
-  started_at: string | null;
-  unlimited_time: boolean;
 };
 type Media = { id: number; url: string; label: string | null; created_at: string };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, session_duration_unit, started_at, unlimited_time';
+const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at';
 
 // a cheating incident turns in_progress into flagged in the same column, so the attempt is
 // still running as long as it has not been submitted
@@ -146,8 +141,6 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
   const attempt = await findAttempt(attemptId);
   if (!(await ownsAttempt(attemptId, studentId))) throw new HttpError(404, 'Attempt not found');
   if (!isRunning(attempt)) throw new HttpError(409, 'Media can only be added while the attempt is in progress');
-  // the attempt is only auto submitted by the attempts domain, so the clock is checked here as well
-  if (await attemptExpired(attempt)) throw new HttpError(409, 'Time is up: this attempt is over');
 
   const mediaUrl = kind === 'audio-recordings' ? await uploadAudio(attemptId, kind, payload) : await uploadPhoto(attemptId, kind, payload);
 

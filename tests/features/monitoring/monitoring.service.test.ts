@@ -50,11 +50,7 @@ const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then
 // promise chain a tick to finish before asserting on what it did
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
-// an attempt of an exam that runs until 2099: nothing here is ever out of time by the clock
-const timing = { session_duration: 3600, session_duration_unit: 'seconds', started_at: null };
-const inProgress = row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null, ...timing });
-const openWindow = row({ scheduled_start: '2099-01-01T00:00:00Z', scheduled_end: '2099-01-01T02:00:00Z' });
-const closedWindow = row({ scheduled_start: '2020-01-01T00:00:00Z', scheduled_end: '2020-01-01T02:00:00Z' });
+const inProgress = row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null });
 const owner = row({ assignment_id: 7 });
 const professor = { id: 9, role: 'professor' } as const;
 const examiner = { id: 9, role: 'examiner' } as const;
@@ -76,13 +72,13 @@ beforeEach(() => {
 
 describe('addMedia', () => {
   it('uploads the photo and stores the resulting url, with the label, linked to the attempt', async () => {
-    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', label: 'ID number 12', created_at: 'now' }), none);
+    queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a', label: 'ID number 12', created_at: 'now' }), none);
 
     const media = await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', 'ID number 12');
 
     expect(uploadPhoto).toHaveBeenCalledWith(7, 'snapshots', 'data:image/jpeg;base64,AAA');
     expect(media).toEqual({ id: 21, url: 'https://x.test/a', label: 'ID number 12', created_at: 'now' });
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'snapshots', 'assignment_snapshot']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'snapshots', 'assignment_snapshot']);
     expect(callsOf('insert')).toEqual([
       ['insert', { url: 'https://x.test/a', label: 'ID number 12' }],
       ['insert', { assignment_id: 7, snapshot_id: 21 }],
@@ -99,13 +95,13 @@ describe('addMedia', () => {
 
     for (const [kind, table, join, column] of pairs) {
       calls.length = 0;
-      queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
+      queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
 
       await addMedia(kind, '7', 5, 'data:image/jpeg;base64,AAA', undefined);
 
       // face-snapshots also kicks off a (fire-and-forget) face match check, which reads the
       // student's profile_photo_url first - its own synchronous prefix lands in the same tick
-      const expectedTables = ['assignments', 'student_assignment', 'exams', table, join];
+      const expectedTables = ['assignments', 'student_assignment', table, join];
       if (kind === 'face-snapshots') expectedTables.push('students');
       expect(tables()).toEqual(expectedTables);
       expect(callsOf('insert')[1]).toEqual(['insert', { assignment_id: 7, [column]: 21 }]);
@@ -113,14 +109,14 @@ describe('addMedia', () => {
   });
 
   it('uploads audio-recordings through uploadAudio instead of uploadPhoto', async () => {
-    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a.webm', label: null, created_at: 'now' }), none);
+    queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a.webm', label: null, created_at: 'now' }), none);
 
     const media = await addMedia('audio-recordings', '7', 5, 'data:audio/webm;base64,AAA', undefined);
 
     expect(uploadAudio).toHaveBeenCalledWith(7, 'audio-recordings', 'data:audio/webm;base64,AAA');
     expect(uploadPhoto).not.toHaveBeenCalled();
     expect(media).toEqual({ id: 21, url: 'https://x.test/a.webm', label: null, created_at: 'now' });
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'audio_recordings', 'assignment_audio_recording']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'audio_recordings', 'assignment_audio_recording']);
     expect(callsOf('insert')).toEqual([
       ['insert', { url: 'https://x.test/a.webm', label: null }],
       ['insert', { assignment_id: 7, audio_recording_id: 21 }],
@@ -130,7 +126,7 @@ describe('addMedia', () => {
   it('defaults an empty or missing label to null', async () => {
     for (const label of [undefined, '', '   ']) {
       calls.length = 0;
-      queue(inProgress, owner, openWindow, row({ id: 21 }), none);
+      queue(inProgress, owner, row({ id: 21 }), none);
 
       await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', label);
 
@@ -139,7 +135,7 @@ describe('addMedia', () => {
   });
 
   it('trims the label and 400s past 200 characters', async () => {
-    queue(inProgress, owner, openWindow, row({ id: 21 }), none);
+    queue(inProgress, owner, row({ id: 21 }), none);
     await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', '  Phone seen  ');
     expect(callsOf('insert')[0]).toEqual(['insert', { url: 'https://x.test/a', label: 'Phone seen' }]);
 
@@ -184,7 +180,7 @@ describe('addMedia', () => {
   it('409s when the attempt is not running', async () => {
     for (const status of ['pending', 'submitted', 'auto_submitted', 'graded']) {
       calls.length = 0;
-      queue(row({ id: 7, exam_id: 3, status, submitted_at: null, ...timing }), owner);
+      queue(row({ id: 7, exam_id: 3, status, submitted_at: null }), owner);
 
       const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
@@ -193,36 +189,24 @@ describe('addMedia', () => {
     }
   });
 
+  it('keeps taking media of an attempt past its deadline, same as any other open one', async () => {
+    queue(row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null }), owner, row({ id: 21 }), none);
+
+    expect(await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined)).toEqual({ id: 21 });
+  });
+
   it('keeps taking media of an attempt that a cheating incident has flagged', async () => {
-    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: null, ...timing }), owner, openWindow, row({ id: 21 }), none);
+    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: null }), owner, row({ id: 21 }), none);
 
     expect(await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined)).toEqual({ id: 21 });
   });
 
   it('409s on a flagged attempt that has been submitted', async () => {
-    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: '2026-09-21T10:00:00Z', ...timing }), owner);
+    queue(row({ id: 7, exam_id: 3, status: 'flagged', submitted_at: '2026-09-21T10:00:00Z' }), owner);
 
     const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error.status).toBe(409);
-  });
-
-  it('409s once the time of the attempt is over, even while it still says in_progress', async () => {
-    queue(inProgress, owner, closedWindow);
-
-    const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
-
-    expect(error.status).toBe(409);
-    expect(error.message).toBe('Time is up: this attempt is over');
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams']);
-    expect(callsOf('insert')).toEqual([]);
-    expect(uploadPhoto).not.toHaveBeenCalled();
-  });
-
-  it('409s when the exam behind the attempt is gone', async () => {
-    queue(inProgress, owner, none);
-
-    expect((await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined))).status).toBe(409);
   });
 
   it('does not upload anything once a 400/404/409 check has already failed', async () => {
@@ -232,7 +216,7 @@ describe('addMedia', () => {
   });
 
   it('propagates a storage upload failure as a plain error, without writing any row', async () => {
-    queue(inProgress, owner, openWindow);
+    queue(inProgress, owner);
     uploadPhoto.mockRejectedValue(new Error('bucket not found'));
 
     const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
@@ -242,13 +226,13 @@ describe('addMedia', () => {
   });
 
   it('drops the media row again when the link cannot be written', async () => {
-    queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a' }), fails('link exploded'), none);
+    queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a' }), fails('link exploded'), none);
 
     const error = await rejected(addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined));
 
     expect(error).not.toBeInstanceOf(HttpError);
     expect(error.message).toBe('link exploded');
-    expect(tables()).toEqual(['assignments', 'student_assignment', 'exams', 'snapshots', 'assignment_snapshot', 'snapshots']);
+    expect(tables()).toEqual(['assignments', 'student_assignment', 'snapshots', 'assignment_snapshot', 'snapshots']);
     expect(callsOf('delete')).toEqual([['delete']]);
     expect(calls.at(-1)).toEqual(['eq', 'id', 21]);
   });
@@ -264,7 +248,7 @@ describe('addMedia', () => {
 
   describe('face match check (face-snapshots only)', () => {
     it('does nothing when the student has no reference photo set', async () => {
-      queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none, none);
+      queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none, none);
 
       await addMedia('face-snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
       await flush();
@@ -273,7 +257,7 @@ describe('addMedia', () => {
     });
 
     it('skips the check entirely for kinds other than face-snapshots', async () => {
-      queue(inProgress, owner, openWindow, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
+      queue(inProgress, owner, row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none);
 
       await addMedia('snapshots', '7', 5, 'data:image/jpeg;base64,AAA', undefined);
       await flush();
@@ -283,7 +267,7 @@ describe('addMedia', () => {
 
     it('flags the attempt with a face_mismatch incident when the faces do not match', async () => {
       queue(
-        inProgress, owner, openWindow,
+        inProgress, owner,
         row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
         row({ profile_photo_url: 'https://x.test/reference.jpg' }),
         row({ id: 99 }), none, none,
@@ -301,7 +285,7 @@ describe('addMedia', () => {
 
     it('does not flag anything when the faces match', async () => {
       queue(
-        inProgress, owner, openWindow,
+        inProgress, owner,
         row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
         row({ profile_photo_url: 'https://x.test/reference.jpg' }),
       );
@@ -316,7 +300,7 @@ describe('addMedia', () => {
 
     it('never lets a face match failure affect the upload itself', async () => {
       queue(
-        inProgress, owner, openWindow,
+        inProgress, owner,
         row({ id: 21, url: 'https://x.test/a', created_at: 'now' }), none,
         row({ profile_photo_url: 'https://x.test/reference.jpg' }),
       );

@@ -1,5 +1,4 @@
 import { database } from '../../lib/db.js';
-import { attemptExpired, type TimeUnit } from '../../lib/deadline.js';
 import { HttpError } from '../../lib/errors.js';
 import { type Caller, findVisibleExam } from '../../lib/exam-access.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
@@ -10,14 +9,10 @@ type Attempt = {
   exam_id: number;
   status: string;
   submitted_at: string | null;
-  session_duration: number;
-  session_duration_unit: TimeUnit;
-  started_at: string | null;
-  unlimited_time: boolean;
 };
 type Cheating = { id: number; name: string; explanation: string; created_at: string };
 
-const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at, session_duration, session_duration_unit, started_at, unlimited_time';
+const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at';
 
 // an earlier incident turns in_progress into flagged in the same column, so the attempt is
 // still running as long as it has not been submitted
@@ -109,8 +104,6 @@ export const createIncident = async (attemptIdParam: string, user: Caller, name:
   if (user.role === 'student') {
     if (!(await ownsAttempt(attemptId, user.id))) throw new HttpError(404, 'Attempt not found');
     if (!isRunning(attempt)) throw new HttpError(409, 'Incidents can only be reported while the attempt is in progress');
-    // the attempt is only auto submitted by the attempts domain, so the clock is checked here as well
-    if (await attemptExpired(attempt)) throw new HttpError(409, 'Time is up: this attempt is over');
   } else if (!(await findVisibleExam(attempt.exam_id, user))) {
     throw new HttpError(404, 'Attempt not found');
   };

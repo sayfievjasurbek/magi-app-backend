@@ -52,6 +52,15 @@ const isOpen = (attempt: Attempt) =>
 const remainingSeconds = (attempt: Attempt, exam: Exam) =>
   isOpen(attempt) ? Math.max(0, Math.floor((deadline(attempt, exam) - Date.now()) / 1000)) : 0;
 
+// how far past its deadline an attempt is - live while it's still open and overdue (nothing closes
+// it anymore, see finishAttempt below), frozen at the lateness it was actually submitted with once
+// closed. Always 0 on time, and always 0 for an unlimited_time retake (its deadline never arrives).
+const lateSeconds = (attempt: Attempt, exam: Exam) => {
+  const dl = deadline(attempt, exam);
+  const at = isOpen(attempt) ? Date.now() : attempt.submitted_at ? Date.parse(attempt.submitted_at) : dl;
+  return Math.max(0, Math.floor((at - dl) / 1000));
+};
+
 const pasteRatio = (typed: number, pasted: number) =>
   typed + pasted ? Math.round((pasted / (typed + pasted)) * 100) / 100 : null;
 
@@ -113,6 +122,7 @@ const studentSummary = (attempt: Attempt, exam: Exam) => ({
   session_duration_unit: attempt.session_duration_unit,
   expires_at: new Date(deadline(attempt, exam)).toISOString(),
   remaining_seconds: remainingSeconds(attempt, exam),
+  late_seconds: lateSeconds(attempt, exam),
   unlimited_time: attempt.unlimited_time,
   exam: {
     id: exam.id,
@@ -233,7 +243,9 @@ const attemptPermittedApps = async (attemptId: number) => {
 
 // Closes an attempt: marks every objective answer, stores the total and moves the status on.
 // A flagged attempt keeps its status until a professor grades it, so the flag is not lost.
-const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
+// Only ever called from an explicit student submit now - nothing closes an attempt on its behalf
+// just because its deadline passed, so there is no "auto" path left here anymore.
+const finishAttempt = async (attempt: Attempt, exam: Exam) => {
   const examQuestions = unwrap(await database.from('exam_question').select('question_id, marks').eq('exam_id', attempt.exam_id)) ?? [];
   const questionIds = examQuestions.map((row: { question_id: number }) => row.question_id);
 
@@ -276,8 +288,8 @@ const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
     }
   }
 
-  const naturalStatus: AttemptStatus = hasManual ? (auto ? 'auto_submitted' : 'submitted') : 'graded';
-  const submissionFields = { submitted_at: new Date().toISOString(), auto_submitted: auto, score: Math.min(awarded, exam.max_marks) };
+  const naturalStatus: AttemptStatus = hasManual ? 'submitted' : 'graded';
+  const submissionFields = { submitted_at: new Date().toISOString(), auto_submitted: false, score: Math.min(awarded, exam.max_marks) };
 
   // guarded on the attempt's *current* DB status, not the possibly-stale `attempt` passed in - a
   // cheating/face-mismatch incident can flag the row in the window between when the caller first
@@ -299,15 +311,11 @@ const finishAttempt = async (attempt: Attempt, exam: Exam, auto: boolean) => {
     .single()) as Attempt;
 };
 
-// there is no cron: an attempt that ran out of time is closed by the next request that touches it
-const ensureCurrent = async (attempt: Attempt, exam: Exam) =>
-  isOpen(attempt) && Date.now() >= deadline(attempt, exam) ? finishAttempt(attempt, exam, true) : attempt;
-
 // starting an exam whose attempt is still open picks it up where it was left (the app was
 // closed, the connection dropped) instead of refusing a student who never got to submit
 const resumeAttempt = async (studentId: number, attemptId: number) => {
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!isOpen(current)) throw new HttpError(409, 'You have already completed this exam');
 
   return {
@@ -472,7 +480,7 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
 
   if (caller.role === 'student') {
     const { attempt, exam } = await loadOwnAttempt(caller.id, attemptId);
-    const current = await ensureCurrent(attempt, exam);
+    const current = attempt;
 
     return {
       ...studentSummary(current, exam),
@@ -486,7 +494,7 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
   }
 
   const { attempt, exam, studentId } = await loadStaffAttempt(caller, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   const questions = await attemptQuestions(current, true);
   const cachedReview = await loadCachedAiReview(current.id);
 
@@ -554,7 +562,7 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!isOpen(current)) {
     throw new HttpError(409, current.auto_submitted
       ? 'Time is up: this attempt has been submitted automatically'
@@ -647,7 +655,7 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
     if (optionError) throw new Error(optionError.message);
   }
 
-  return { synced: patches.length, remaining_seconds: remainingSeconds(current, exam) };
+  return { synced: patches.length, remaining_seconds: remainingSeconds(current, exam), late_seconds: lateSeconds(current, exam) };
 };
 
 // a `file_upload` question is answered by uploading a file instead of typing - the file's
@@ -660,7 +668,7 @@ export const uploadAnswerFile = async (
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!isOpen(current)) {
     throw new HttpError(409, current.auto_submitted
       ? 'Time is up: this attempt has been submitted automatically'
@@ -714,8 +722,7 @@ export const submitAttempt = async (studentId: number, attemptId: number | null,
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
   if (!isOpen(attempt)) throw new HttpError(409, 'This attempt has already been submitted');
 
-  const auto = Date.now() >= deadline(attempt, exam);
-  let submitted = await finishAttempt(attempt, exam, auto);
+  let submitted = await finishAttempt(attempt, exam);
 
   if (body.typingTimeline !== undefined) {
     const timeline = parseTypingTimeline(body.typingTimeline);
@@ -739,9 +746,10 @@ export const submitAttempt = async (studentId: number, attemptId: number | null,
     });
   };
 
+  const late = lateSeconds(submitted, exam);
   return {
     attempt: studentSummary(submitted, exam),
-    message: auto ? 'Time was up: this attempt has been submitted automatically' : 'Your answers have been submitted',
+    message: late > 0 ? `Your answers have been submitted, about ${Math.max(1, Math.round(late / 60))} minute(s) late` : 'Your answers have been submitted',
   };
 };
 
@@ -749,7 +757,7 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
 
   if (body.feedback !== undefined && body.feedback !== null && typeof body.feedback !== 'string') throw new HttpError(400, 'feedback must be a string');
@@ -839,7 +847,7 @@ export const allowRetake = async (professorId: number, attemptId: number | null)
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!RETAKEABLE_STATUSES.includes(current.status) || !current.submitted_at) {
     throw new HttpError(409, 'Only a submitted attempt can be reopened for a retake');
   }
@@ -895,7 +903,7 @@ export const setCheatingDisclosure = async (professorId: number, attemptId: numb
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
   const { attempt, exam, studentId } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
 
   const updated = unwrap(await database
     .from('assignments')
@@ -1024,7 +1032,7 @@ export const aiReviewAttempt = async (professorId: number, attemptId: number | n
   if (!aiConfigured()) throw new HttpError(503, 'AI review is not configured');
 
   const { attempt, exam } = await loadStaffAttempt({ id: professorId, role: 'professor' }, attemptId);
-  const current = await ensureCurrent(attempt, exam);
+  const current = attempt;
   if (!current.submitted_at) throw new HttpError(409, 'This attempt has not been submitted yet');
 
   return runAiReview(current, exam, force);
