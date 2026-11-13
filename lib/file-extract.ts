@@ -4,6 +4,7 @@
 // hands it proctoring photos (see lib/ai.ts).
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { HttpError } from './errors.js';
 
@@ -47,6 +48,34 @@ const SPREADSHEET_MIMES = [
 ];
 const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
+// mammoth.extractRawText only reads word/document.xml (the body) - it never looks at
+// word/header*.xml or word/footer*.xml, so a name/title living in a header (common in resume
+// templates, where the body starts straight into "Experience") was silently dropped entirely.
+// A .docx is a zip, and a header/footer part's own XML is simple enough that reading its <w:t>
+// runs directly is enough - no need for mammoth's own (header-blind) parser here.
+const runsToText = (xml: string): string =>
+  xml
+    .split(/<\/w:p>/)
+    .map((paragraph) => [...paragraph.matchAll(/<w:t[^>]*>([\s\S]*?)<\/w:t>/g)].map((m) => m[1]).join(''))
+    .map((line) => line.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&'))
+    .filter((line) => line.trim())
+    .join('\n');
+
+const extractHeadersAndFooters = async (bytes: Buffer): Promise<string> => {
+  try {
+    const zip = await JSZip.loadAsync(bytes);
+    const parts = Object.keys(zip.files).filter((name) => /^word\/(header|footer)\d*\.xml$/.test(name)).sort();
+    const texts: string[] = [];
+    for (const part of parts) {
+      const text = runsToText(await zip.files[part].async('text'));
+      if (text) texts.push(text);
+    };
+    return texts.join('\n');
+  } catch {
+    return ''; // not a real zip, or no header/footer parts - the body text is still worth returning
+  };
+};
+
 export const extractFile = async (name: string, mime: string, bytes: Buffer): Promise<ExtractedFile> => {
   const lowerName = name.toLowerCase();
 
@@ -73,8 +102,12 @@ export const extractFile = async (name: string, mime: string, bytes: Buffer): Pr
   };
 
   if (mime === DOCX_MIME || lowerName.endsWith('.docx')) {
-    const { value } = await mammoth.extractRawText({ buffer: bytes });
-    return { kind: 'text', text: truncate(value) };
+    const [{ value }, headerFooterText] = await Promise.all([
+      mammoth.extractRawText({ buffer: bytes }),
+      extractHeadersAndFooters(bytes),
+    ]);
+    const text = headerFooterText ? `${headerFooterText}\n\n${value}` : value;
+    return { kind: 'text', text: truncate(text) };
   };
 
   if (SPREADSHEET_MIMES.includes(mime) || SPREADSHEET_EXTENSIONS.some((ext) => lowerName.endsWith(ext))) {

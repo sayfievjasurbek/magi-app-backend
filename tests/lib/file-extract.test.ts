@@ -1,8 +1,40 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import * as XLSX from 'xlsx';
+import JSZip from 'jszip';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
 import { HttpError } from '../../lib/errors.js';
+
+// a minimal but real docx, built by hand rather than taken from a fixture, specifically to put
+// text in a header - this is exactly the shape of a resume template, where the candidate's name
+// sits in a header while the body starts straight into "Experience: ..."
+const docxWithHeader = async (headerLines: string[], bodyText: string): Promise<Buffer> => {
+  const zip = new JSZip();
+  zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+<Override PartName="/word/header1.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>
+</Types>`);
+  zip.file('_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`);
+  zip.file('word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:body><w:p><w:r><w:t>${bodyText}</w:t></w:r></w:p></w:body>
+</w:document>`);
+  zip.file('word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="header1.xml"/>
+</Relationships>`);
+  zip.file('word/header1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+${headerLines.map((line) => `<w:p><w:r><w:t>${line}</w:t></w:r></w:p>`).join('\n')}
+</w:hdr>`);
+  return zip.generateAsync({ type: 'nodebuffer' });
+};
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
 
@@ -55,6 +87,16 @@ describe('extractFile', () => {
 
     expect(result.kind).toBe('text');
     expect((result as { text: string }).text.length).toBeGreaterThan(0);
+  });
+
+  it('reads the name out of a resume whose header mammoth itself never looks at', async () => {
+    const buf = await docxWithHeader(['John Smith', 'Senior Backend Engineer'], 'Experience: 5 years in software engineering.');
+
+    const result = await extractFile('resume.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buf);
+
+    expect(result.kind).toBe('text');
+    expect((result as { text: string }).text).toContain('John Smith');
+    expect((result as { text: string }).text).toContain('Experience: 5 years in software engineering.');
   });
 
   it('extracts text from a PDF that has real embedded text', async () => {
