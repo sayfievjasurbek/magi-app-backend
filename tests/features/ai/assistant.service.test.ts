@@ -1,4 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import * as XLSX from 'xlsx';
 
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn() }));
 vi.mock('../../../features/modules/module.service.js', () => ({
@@ -47,6 +48,8 @@ beforeEach(() => {
   create.mockReset();
   (getClient as any).mockReset().mockReturnValue({ chat: { completions: { create } } });
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe('runAssistant', () => {
   it('400s when message is missing or blank, without calling OpenAI at all', async () => {
@@ -231,6 +234,26 @@ describe('runAssistant', () => {
     const historicalUserMessage = sentMessages.find((m: any) => m.role === 'user' && Array.isArray(m.content));
     expect(historicalUserMessage.content[0]).toEqual({ type: 'text', text: 'what is this?' });
     expect(historicalUserMessage.content[1]).toEqual({ type: 'image_url', image_url: { url: 'https://cdn.example.com/ai-chat/9/cat.png' } });
+  });
+
+  it('resolves a pasted Google Docs link the same way an attached file would, without a file being attached at all', async () => {
+    create.mockResolvedValueOnce(finalRound('Added both questions.'));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['title', 'question'], ['Q1', 'What is 2+2?']]), 'Sheet1');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      headers: { get: () => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+      arrayBuffer: () => Promise.resolve(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength)),
+    }));
+
+    const { modelContent } = await runAssistant(USER, {
+      message: "shu jadvaldagi savollarni qo'sh: https://docs.google.com/spreadsheets/d/1Sheet99/edit",
+    });
+
+    expect(globalThis.fetch).toHaveBeenCalledWith('https://docs.google.com/spreadsheets/d/1Sheet99/export?format=xlsx', { redirect: 'follow' });
+    expect(modelContent).toContain('<attached_file name="google-sheet.xlsx">');
+    expect(modelContent).toContain('What is 2+2?');
   });
 
   it('renames a group, removes a student, and removes a professor', async () => {

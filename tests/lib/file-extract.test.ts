@@ -36,6 +36,19 @@ ${headerLines.map((line) => `<w:p><w:r><w:t>${line}</w:t></w:r></w:p>`).join('\n
   return zip.generateAsync({ type: 'nodebuffer' });
 };
 
+// one slide's own OOXML part - just enough for a DrawingML text run to parse, same minimal-but-real
+// approach as docxWithHeader above
+const pptxSlideXml = (text: string): string => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
+</p:sld>`;
+
+const pptxWithSlides = async (slides: string[]): Promise<Buffer> => {
+  const zip = new JSZip();
+  slides.forEach((text, i) => zip.file(`ppt/slides/slide${i + 1}.xml`, pptxSlideXml(text)));
+  return zip.generateAsync({ type: 'nodebuffer' });
+};
+
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
 
 describe('decodeFileData', () => {
@@ -97,6 +110,46 @@ describe('extractFile', () => {
     expect(result.kind).toBe('text');
     expect((result as { text: string }).text).toContain('John Smith');
     expect((result as { text: string }).text).toContain('Experience: 5 years in software engineering.');
+  });
+
+  it('reads a .pptx slide by slide, in numeric order (slide10 after slide2, not before)', async () => {
+    const buf = await pptxWithSlides(['Welcome to the course', 'Topic: Databases']);
+    // a slide numbered 10 would sort before slide2 alphabetically - append it after building the
+    // first two normally, to prove the reader sorts by the actual slide number instead
+    const zip = await JSZip.loadAsync(buf);
+    zip.file('ppt/slides/slide10.xml', pptxSlideXml('Thank you'));
+    const withTenthSlide = await zip.generateAsync({ type: 'nodebuffer' });
+
+    const result = await extractFile('deck.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', withTenthSlide);
+
+    expect(result.kind).toBe('text');
+    const text = (result as { text: string }).text;
+    expect(text.indexOf('Welcome to the course')).toBeLessThan(text.indexOf('Topic: Databases'));
+    expect(text.indexOf('Topic: Databases')).toBeLessThan(text.indexOf('Thank you'));
+  });
+
+  it('rejects a .pptx with no slides', async () => {
+    const buf = await pptxWithSlides([]);
+    const error = await rejected(extractFile('empty.pptx', 'application/vnd.openxmlformats-officedocument.presentationml.presentation', buf));
+    expect(error.status).toBe(400);
+  });
+
+  it('strips RTF control words and destination groups, keeping the plain text', async () => {
+    const rtf = String.raw`{\rtf1\ansi\deff0 {\fonttbl{\f0 Times New Roman;}}
+{\colortbl;\red0\green0\blue0;}
+John Smith\par
+Senior Backend Engineer\par
+Skills: Node.js, Postgres\par
+}`;
+
+    const result = await extractFile('resume.rtf', 'application/rtf', Buffer.from(rtf, 'latin1'));
+
+    expect(result.kind).toBe('text');
+    const text = (result as { text: string }).text;
+    expect(text).toContain('John Smith');
+    expect(text).toContain('Senior Backend Engineer');
+    expect(text).toContain('Skills: Node.js, Postgres');
+    expect(text).not.toContain('Times New Roman');
   });
 
   it('extracts text from a PDF that has real embedded text', async () => {
