@@ -3,6 +3,7 @@
 // survives closing the panel or reloading the page.
 import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
+import { getClient, MODEL } from '../../lib/ai.js';
 
 export type Conversation = { id: number; title: string | null; updatedAt: string };
 
@@ -82,6 +83,37 @@ const autoTitle = (content: string): string => {
   return trimmed.length > TITLE_LENGTH ? `${trimmed.slice(0, TITLE_LENGTH)}...` : trimmed;
 };
 
+// the sidebar needs a title the instant the conversation exists, so saveChatMessage sets autoTitle
+// (a plain truncation) synchronously first - this replaces it moments later with a real summary of
+// what the professor actually asked, same idea as ChatGPT/Claude.ai's own title generation.
+// best-effort: a title stuck at the truncated fallback is a cosmetic issue, never worth failing over
+const generateConversationTitle = async (conversationId: number, firstMessage: string): Promise<void> => {
+  try {
+    const openai = getClient();
+    if (!openai) return;
+    const completion = await openai.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: 'system',
+          content:
+            "Summarize the user's message into a short chat title (3-6 words), in the same language " +
+            'they wrote in. Reply with the title text only - no quotes, no punctuation at the end, nothing else.',
+        },
+        { role: 'user', content: firstMessage },
+      ],
+      max_tokens: 20,
+    });
+    const title = completion.choices[0]?.message?.content?.trim();
+    if (!title) return;
+
+    const { error } = await database.from('ai_chat_conversations').update({ title }).eq('id', conversationId);
+    if (error) console.log('Error saving AI-generated conversation title:', error.message);
+  } catch (error) {
+    console.log('Error generating conversation title:', error instanceof Error ? error.message : error);
+  };
+};
+
 // best-effort, same as lib/notifications.ts's notify: a history row failing to save must never
 // break the chat reply that already went back to the professor
 export const saveChatMessage = async (
@@ -111,11 +143,17 @@ export const saveChatMessage = async (
   };
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  let needsGeneratedTitle = false;
   if (role === 'user') {
     // only ever set once - a later message in the same conversation shouldn't rename it
     const { data: existing } = await database.from('ai_chat_conversations').select('title').eq('id', conversationId).maybeSingle();
-    if (existing && !existing.title) patch.title = autoTitle(content);
+    if (existing && !existing.title) {
+      patch.title = autoTitle(content);
+      needsGeneratedTitle = Boolean(content.trim());
+    };
   };
   const { error: convError } = await database.from('ai_chat_conversations').update(patch).eq('id', conversationId);
   if (convError) console.log('Error updating AI conversation:', convError.message);
+
+  if (needsGeneratedTitle) void generateConversationTitle(conversationId, content);
 };

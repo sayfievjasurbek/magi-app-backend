@@ -17,9 +17,13 @@ const { from, builder, results } = vi.hoisted(() => {
 });
 
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
+vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-4o-mini' }));
 
 import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from '../../../features/ai/chat-history.service.js';
+import { getClient } from '../../../lib/ai.js';
 import { HttpError } from '../../../lib/errors.js';
+
+const createCompletion = vi.fn();
 
 const ok = (data: unknown) => ({ data, error: null });
 const fail = (error: unknown) => ({ data: null, error });
@@ -33,6 +37,10 @@ beforeEach(() => {
   for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'limit', 'single', 'maybeSingle']) {
     builder[method].mockClear();
   };
+  // AI not configured by default - title generation then stays at the synchronous autoTitle
+  // fallback, same as a real deployment missing OPENAI_API_KEY would
+  createCompletion.mockReset();
+  (getClient as any).mockReset().mockReturnValue(null);
 });
 
 describe('listConversations', () => {
@@ -172,6 +180,29 @@ describe('saveChatMessage', () => {
 
     const [laterPatch] = builder.update.mock.calls[0];
     expect(laterPatch.title).toBeUndefined();
+  });
+
+  it('replaces the synchronous fallback title with an AI-generated one, once it resolves', async () => {
+    (getClient as any).mockReturnValue({ chat: { completions: { create: createCompletion } } });
+    createCompletion.mockResolvedValue({ choices: [{ message: { content: 'Student headcount question' } }] });
+    queue(ok(null)); // insert
+    queue(ok({ title: null })); // existing title check
+
+    await saveChatMessage(5, 'user', 'men oquvchilarni jami nechtaligini bilmoqchiman');
+
+    expect(builder.update.mock.calls[0][0].title).toBe('men oquvchilarni jami nechtaligini bilmoqchiman');
+    await vi.waitFor(() => expect(builder.update).toHaveBeenCalledTimes(2));
+    expect(builder.update.mock.calls[1][0]).toEqual({ title: 'Student headcount question' });
+  });
+
+  it('skips AI title generation entirely for a file-only message with no typed text', async () => {
+    (getClient as any).mockReturnValue({ chat: { completions: { create: createCompletion } } });
+    queue(ok(null)); // insert
+    queue(ok({ title: null })); // existing title check
+
+    await saveChatMessage(5, 'user', '   ');
+
+    expect(createCompletion).not.toHaveBeenCalled();
   });
 
   it('never throws on a write failure - logs and moves on', async () => {
