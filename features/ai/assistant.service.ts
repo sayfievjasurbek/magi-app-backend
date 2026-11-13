@@ -98,6 +98,9 @@ Rules:
   routinely takes two tool calls back to back in the turn where you finally grade: one to re-resolve
   the attempt id, one to call grade_attempt - never skip straight to grade_attempt with a number you
   can't point to in a tool result from this turn.
+  When you write out a numbered list for the professor to read (1. Aisinf, 2. class3, ...), those
+  numbers are display positions, not ids - never reuse one as an id in a later tool call. Go back to
+  the actual tool result and use the real id field for whichever one they picked.
 - delete_group is irreversible, and grade_attempt notifies the student immediately once it runs -
   before calling either, state plainly what you're about to do (which group to delete; what score
   and/or feedback you're about to give, and to whom) and ask the professor to confirm. Only proceed
@@ -689,15 +692,17 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
 ];
 
 type ToolResult = { result: unknown; summary: string };
-// attempt ids the model has actually seen via list_exam_attempts/get_attempt this request - grade_attempt
-// and trigger_ai_review check against it so a fabricated id (one the model never really looked up)
-// gets rejected before it reaches the real service, rather than trusting the model's arithmetic/memory
-type ToolCtx = { seenAttemptIds: Set<number> };
+// ids the model has actually seen via a real list_*/get_* call this request - delete_group,
+// grade_attempt and trigger_ai_review check against these before acting, so a fabricated id (one
+// the model never really looked up - including a list POSITION like "1." mistaken for the real id
+// in a numbered display) gets rejected before it reaches the real service
+type ToolCtx = { seenAttemptIds: Set<number>; seenGroupIds: Set<number> };
 type ToolExecutor = (args: Record<string, any>, user: TokenPayload, ctx: ToolCtx) => Promise<ToolResult>;
 
 const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
-  list_groups: async (_args, user) => {
+  list_groups: async (_args, user, ctx) => {
     const groups = (await listModules(user.id, 'professor') as any[]).map((m) => ({ id: m.id, name: m.name, student_count: m.student_count }));
+    groups.forEach((g) => ctx.seenGroupIds.add(g.id));
     return { result: groups, summary: `Listed ${groups.length} group(s)` };
   },
 
@@ -721,8 +726,11 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
     return { result: professor, summary: `Added ${name} as a mentor of group ${groupId}` };
   },
 
-  delete_group: async (args, user) => {
+  delete_group: async (args, user, ctx) => {
     const groupId = toId(args.groupId, 'groupId');
+    if (!ctx.seenGroupIds.has(groupId)) {
+      throw new HttpError(400, `group ${groupId} hasn't been looked up yet this turn - call list_groups first to confirm it's real (not just its position in a numbered list)`);
+    };
     const reason = typeof args.reason === 'string' ? args.reason : undefined;
     await deleteModule(user.id, String(groupId), { reason });
     return { result: { deleted: true }, summary: `Deleted group ${groupId}` };
@@ -990,13 +998,15 @@ const SUGGESTION_RE = /<suggest>([^<]*)<\/suggest>/g;
 
 const extractSuggestions = (text: string): { reply: string; suggestions: string[] } => {
   const suggestions: string[] = [];
-  const reply = text
-    .replace(SUGGESTION_RE, (_match, option: string) => {
-      const trimmed = option.trim();
-      if (trimmed) suggestions.push(trimmed);
-      return '';
-    })
-    .trim();
+  let reply = text.replace(SUGGESTION_RE, (_match, option: string) => {
+    const trimmed = option.trim();
+    if (trimmed) suggestions.push(trimmed);
+    return '';
+  });
+  // the model is told not to make a tag the entire content of a markdown list item, but that
+  // instruction proved unreliable in practice - a tag placed that way leaves an empty bullet
+  // ("- ") behind once it's gone, so clean that up mechanically instead of trusting the prompt alone
+  reply = reply.replace(/^[ \t]*[-*•][ \t]*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
   return { reply, suggestions };
 };
 
@@ -1051,7 +1061,7 @@ export const runAssistant = async (
     { role: 'user', content: userContent },
   ];
   const actions: ActionTrace[] = [];
-  const ctx: ToolCtx = { seenAttemptIds: new Set() };
+  const ctx: ToolCtx = { seenAttemptIds: new Set(), seenGroupIds: new Set() };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
     const completion = await openai.chat.completions.create({ model: MODEL, messages, tools: TOOLS, tool_choice: 'auto' });

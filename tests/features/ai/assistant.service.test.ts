@@ -77,6 +77,17 @@ describe('runAssistant', () => {
     expect(suggestions).toEqual(['Matematika, ertaga 10:00-12:00 bilan davom et', 'Boshqa nom va vaqt kiritaman']);
   });
 
+  it('cleans up an orphaned bullet left behind when a <suggest> tag was placed as a whole list item', async () => {
+    create.mockResolvedValueOnce(finalRound(
+      "Qaysi birini o'chirmoqchisiz? Iltimos, tasdiqlang.\n-<suggest>Aisinf</suggest>\n-<suggest>class3</suggest>"
+    ));
+
+    const { reply, suggestions } = await runAssistant(USER, { message: "studentlari yo'q sinflarni ko'rsat" });
+
+    expect(reply).toBe("Qaysi birini o'chirmoqchisiz? Iltimos, tasdiqlang.");
+    expect(suggestions).toEqual(['Aisinf', 'class3']);
+  });
+
   it('returns an empty suggestions array when the reply has no <suggest> tags', async () => {
     create.mockResolvedValueOnce(finalRound('Jami 18 ta talaba bor.'));
 
@@ -124,17 +135,30 @@ describe('runAssistant', () => {
 
   it('deletes a group once confirmed, passing the reason through', async () => {
     create
-      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'delete_group', { groupId: 18, reason: 'requested by the professor' })))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'list_groups', {})))
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'delete_group', { groupId: 18, reason: 'requested by the professor' })))
       .mockResolvedValueOnce(finalRound('Deleted.'));
+    (listModules as any).mockResolvedValue([{ id: 18, name: 'AI class', student_count: 0 }]);
     (deleteModule as any).mockResolvedValue(undefined);
 
     const { reply, actions } = await runAssistant(USER, { message: 'ha, AI class guruhini ochir' });
 
     expect(reply).toBe('Deleted.');
     expect(deleteModule).toHaveBeenCalledWith(USER.id, '18', { reason: 'requested by the professor' });
-    expect(actions).toEqual([
-      { tool: 'delete_group', args: { groupId: 18, reason: 'requested by the professor' }, ok: true, summary: 'Deleted group 18' },
-    ]);
+    expect(actions.map((a) => a.tool)).toEqual(['list_groups', 'delete_group']);
+    expect(actions.every((a) => a.ok)).toBe(true);
+  });
+
+  it('refuses to delete a group id the model never actually looked up this turn', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'delete_group', { groupId: 1 })))
+      .mockResolvedValueOnce(finalRound("Couldn't confirm that group."));
+
+    const { actions } = await runAssistant(USER, { message: 'ha, 1-guruhni ochir' });
+
+    expect(deleteModule).not.toHaveBeenCalled();
+    expect(actions[0].ok).toBe(false);
+    expect(actions[0].summary).toContain("hasn't been looked up yet this turn");
   });
 
   it('resolves a student by name before enrolling them in a group', async () => {
