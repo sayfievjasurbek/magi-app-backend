@@ -38,6 +38,34 @@ const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o';
 // bilingual so it's understood either way, and fixed rather than left to the model to phrase
 export const UNSUPPORTED_LANGUAGE_MESSAGE = "Men faqat o'zbek va ingliz tillarida javob bera olaman. / I can only reply in Uzbek or English.";
 
+// OpenAI's own errors (expired/invalid key, no credits left, rate limited, a slow response past
+// REQUEST_TIMEOUT_MS) were reaching the professor as the generic "Something went wrong" 500
+// handleControllerError falls back to for any plain Error - leaving an account problem (a dead
+// key, an empty billing balance) looking identical to an actual bug. Each gets its own clear,
+// actionable message instead; anything else still falls through to that same generic fallback.
+const askModel = async (openai: OpenAI, messages: OpenAI.ChatCompletionMessageParam[]): Promise<OpenAI.ChatCompletion> => {
+  try {
+    return await openai.chat.completions.create({ model: MODEL, messages, tools: TOOLS, tool_choice: 'auto' });
+  } catch (error) {
+    if (error instanceof OpenAI.AuthenticationError) {
+      throw new HttpError(503, 'Magi AI is not configured correctly (OpenAI rejected the API key) - check OPENAI_API_KEY.');
+    };
+    if (error instanceof OpenAI.RateLimitError) {
+      const outOfCredits = (error as any).code === 'credit_balance_exhausted' || (error as any).error?.type === 'insufficient_quota';
+      throw new HttpError(503, outOfCredits
+        ? 'Magi AI has no OpenAI credits left - add funds at platform.openai.com/settings/organization/billing.'
+        : 'Magi AI is getting too many requests right now - try again in a moment.');
+    };
+    if (error instanceof OpenAI.APIConnectionTimeoutError) {
+      throw new HttpError(503, 'Magi AI is taking too long to respond right now - try again, maybe with fewer things at once.');
+    };
+    if (error instanceof OpenAI.APIError) {
+      throw new HttpError(503, "Magi AI couldn't be reached right now - try again in a moment.");
+    };
+    throw error;
+  };
+};
+
 const toId = (value: unknown, field: string): number => {
   const id = typeof value === 'number' ? value : Number(value);
   if (!Number.isSafeInteger(id) || id <= 0) throw new HttpError(400, `${field} must be a positive whole number`);
@@ -1120,7 +1148,7 @@ export const runAssistant = async (
   const ctx: ToolCtx = { seenAttemptIds: new Set(), seenGroupIds: new Set() };
 
   for (let round = 0; round < MAX_ROUNDS; round++) {
-    const completion = await openai.chat.completions.create({ model: MODEL, messages, tools: TOOLS, tool_choice: 'auto' });
+    const completion = await askModel(openai, messages);
     const choice = completion.choices[0]?.message;
     if (!choice) throw new Error('AI did not return a response');
 

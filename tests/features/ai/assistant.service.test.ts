@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as XLSX from 'xlsx';
+import OpenAI from 'openai';
 
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn() }));
 vi.mock('../../../features/modules/module.service.js', () => ({
@@ -67,6 +68,59 @@ describe('runAssistant', () => {
   it('throws when AI is not configured', async () => {
     (getClient as any).mockReturnValue(null);
     await expect(runAssistant(USER, { message: 'hi' })).rejects.toThrow('AI is not configured');
+  });
+
+  describe('when OpenAI itself fails', () => {
+    // each of these used to reach the professor as the same generic "Something went wrong" 500 -
+    // a dead key and an empty billing balance looked identical to an actual bug
+    it('reports a clear, actionable message for an invalid/expired API key', async () => {
+      create.mockRejectedValueOnce(new OpenAI.AuthenticationError(401, { message: 'Your API key has been invalidated.' }, 'Your API key has been invalidated.', new Headers()));
+
+      const error = await runAssistant(USER, { message: 'hi' }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(HttpError);
+      expect(error.status).toBe(503);
+      expect(error.message).toContain('OpenAI rejected the API key');
+    });
+
+    it('tells the professor to add OpenAI credits when the account balance is exhausted', async () => {
+      create.mockRejectedValueOnce(new OpenAI.RateLimitError(429, { code: 'credit_balance_exhausted', type: 'insufficient_quota', message: 'You have no credits remaining.' }, 'You have no credits remaining.', new Headers()));
+
+      const error = await runAssistant(USER, { message: 'hi' }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(HttpError);
+      expect(error.status).toBe(503);
+      expect(error.message).toContain('no OpenAI credits left');
+    });
+
+    it('reports plain rate limiting separately from an exhausted balance', async () => {
+      create.mockRejectedValueOnce(new OpenAI.RateLimitError(429, { message: 'Rate limit reached.' }, 'Rate limit reached.', new Headers()));
+
+      const error = await runAssistant(USER, { message: 'hi' }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(HttpError);
+      expect(error.status).toBe(503);
+      expect(error.message).toContain('too many requests');
+    });
+
+    it('reports a timeout plainly', async () => {
+      create.mockRejectedValueOnce(new OpenAI.APIConnectionTimeoutError());
+
+      const error = await runAssistant(USER, { message: 'hi' }).catch((e) => e);
+
+      expect(error).toBeInstanceOf(HttpError);
+      expect(error.status).toBe(503);
+      expect(error.message).toContain('taking too long');
+    });
+
+    it('still turns a completely unrelated error into the generic fallback', async () => {
+      create.mockRejectedValueOnce(new Error('boom'));
+
+      const error = await runAssistant(USER, { message: 'hi' }).catch((e) => e);
+
+      expect(error).not.toBeInstanceOf(HttpError);
+      expect(error.message).toBe('boom');
+    });
   });
 
   it('strips <suggest> tags out of the reply and returns them as quick-reply options', async () => {
