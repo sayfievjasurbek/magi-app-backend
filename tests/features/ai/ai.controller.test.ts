@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 
-vi.mock('../../../features/ai/chat-history.service.js', () => ({
+vi.mock('../../../features/ai/ai.service.js', () => ({
+  runAssistant: vi.fn(),
   createConversation: vi.fn(),
   getConversationMessages: vi.fn(),
   listConversations: vi.fn(),
@@ -9,7 +10,7 @@ vi.mock('../../../features/ai/chat-history.service.js', () => ({
 }));
 
 import { resolveConversation } from '../../../features/ai/ai.controller.js';
-import { createConversation, getConversationMessages } from '../../../features/ai/chat-history.service.js';
+import { createConversation, getConversationMessages } from '../../../features/ai/ai.service.js';
 import { HttpError } from '../../../lib/errors.js';
 
 describe('resolveConversation', () => {

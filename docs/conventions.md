@@ -1,6 +1,6 @@
 # Backend conventions
 
-Express 5 + TypeScript ESM (run with tsx), Supabase with the service_role key, vitest.
+Express 5 + TypeScript ESM (run with tsx), PostgreSQL through `lib/db.ts` (a PostgREST-style query builder over `pg`), Supabase Storage for files, vitest.
 Imports always carry the `.js` extension. `legacy/` is the replaced academic code: never import from it.
 
 ## Where files go
@@ -12,8 +12,10 @@ Five files per domain in `features/<domain>/`; `lib/` and `middleware/` are shar
 2. `<domain>.controller.ts` — thin: read `req.params`/`req.body`/`req.user`, call the service, answer
    `{ success: true, ... }`, `catch (error) { return handleControllerError(res, error, "<name> controller"); }`.
 3. `<domain>.service.ts` — all business logic and every database call. Expected failures are
-   `throw new HttpError(status, message)`; anything else becomes a 500. `auth` has no service,
-   its logic sits in the controller.
+   `throw new HttpError(status, message)`; anything else becomes a 500. Another domain only ever
+   imports a domain's **service** (never its controller or route). `auth` is the one exception
+   still in progress: what other code calls (`listManagedStudents`, `updateStudentProfile`, ...)
+   lives in `auth.service.ts`, the login/signup/password handlers still query in the controller.
 4. `<domain>.entities.ts` — one exported type per table the domain owns, PascalCase singular after
    the table (`module_professor` → `ModuleProfessor`), fields straight from `migrations/`.
 5. `<domain>.docs.ts` — the endpoints and their schemas in one file (`tags`, `paths`, `schemas`), written in
@@ -31,7 +33,7 @@ Five files per domain in `features/<domain>/`; `lib/` and `middleware/` are shar
   errors are `{ success: false, message }`.
 - Something that exists but belongs to someone else answers **404**, never 403, so its existence is
   not leaked. 403 is only for the wrong role, which `requireRole` already handles.
-- Supabase errors: unique violation (`error.code === '23505'`) maps to 409, anything unexpected is
+- Database errors: unique violation (`error.code === '23505'`) maps to 409, anything unexpected is
   rethrown as `new Error(error.message)`. Never trust a role or an id coming from the body.
 
 ## Soft delete
@@ -54,9 +56,9 @@ Read them through `activeOnly(query)` (adds `.is('deleted_at', null)`) and delet
   (`exams.created_by`) **plus** the exams linked to a module they teach, an examiner is assigned
   through `exam_examiner`, a student through `exam_student`. `findVisibleExam(examId, user, columns)`
   answers `null` when the caller may not see the live exam, a 404 for whatever hangs off it.
-- An attempt is over at `min(started_at + session_duration, exams.scheduled_end)` (`deadline`,
-  `lib/deadline.ts`). Only the attempts domain auto submits a late attempt; the others ask
-  `attemptExpired(attempt)` and answer 409 on a student side write past it. Staff writes are not.
+- An attempt's deadline is `min(started_at + session_duration, exams.scheduled_end)` (`deadline`,
+  `lib/deadline.ts`), far in the future for an `unlimited_time` retake. Nothing closes an attempt
+  on the clock: the student submits, however late, and `late_seconds` (derived, not stored) says by how much.
 - `assignments.status` `flagged` is staff business: the attempts service answers a student with the
   status the attempt would have without the flag (`in_progress`, `submitted`, `auto_submitted`).
 - One attempt per student per exam is enforced by the database (`student_assignment` unique
@@ -68,7 +70,7 @@ New numbered, idempotent file in `migrations/` (`005_...sql`), applied in name o
 `npm run migrate`. Never edit an applied migration. Keep RLS enabled on every new table, index every
 FK used for lookups, and keep check constraints in sync with the validation in the service.
 
-Writes that have to succeed together are one database function, not a chain of PostgREST calls.
+Writes that have to succeed together are one database function, not a chain of separate calls.
 `start_attempt` (`008_start_attempt.sql`) is the one there is: one transaction writing the
 `assignments` row, the `student_assignment` link, one `question_assignment` per live exam question
 (shuffled when `exams.shuffle_questions`, `exam_question.position` order otherwise) and the copy of
@@ -98,6 +100,6 @@ assert on the calls (`expect(from).toHaveBeenCalledWith('exams')`). A service th
 function mocks `database.rpc` next to `from`, as `tests/features/attempts/attempt.service.test.ts` does.
 
 `e2e/smoke.ts` (`npm run e2e`) is not part of `npm test`: it starts the real server on port 8011 and drives it over HTTP
-against the Supabase project in `.env`. It seeds its own users with the service client (no endpoint that sends mail),
+against the database in `.env`. It seeds its own users with the service client (no endpoint that sends mail),
 tracks what it creates and deletes it again in a `finally`, then counts the rows of every public table through
-`DATABASE_DIRECT_URL` (`psql` has to be installed). Only run it against a sandbox project.
+`DATABASE_DIRECT_URL` (`psql` has to be installed). Only run it against a sandbox database.

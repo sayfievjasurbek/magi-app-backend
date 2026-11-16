@@ -2,8 +2,7 @@ import { type Request, type Response } from 'express';
 import { aiConfigured } from '../../lib/ai.js';
 import { handleControllerError } from '../../lib/utils.js';
 import { HttpError } from '../../lib/errors.js';
-import { runAssistant } from './assistant.service.js';
-import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from './chat-history.service.js';
+import { runAssistant, listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from './ai.service.js';
 
 // the admin panel's "AI online" indicator - whether OPENAI_API_KEY is set, not a live ping
 export const getAiStatus = async (req: Request, res: Response) => {

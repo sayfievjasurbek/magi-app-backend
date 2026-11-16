@@ -15,7 +15,7 @@ const { from, builder, results } = vi.hoisted(() => {
 
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 
-import { listManagedProfessors } from '../../../features/auth/auth.controller.js';
+import { listManagedProfessors } from '../../../features/auth/auth.service.js';
 
 const ok = (data: unknown) => ({ data, error: null });
 const queue = (...items: { data: unknown; error: unknown }[]) => results.push(...items);

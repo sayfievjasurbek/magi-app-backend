@@ -51,3 +51,22 @@ export type QuestionAssignmentOption = { assignment_id: number; question_id: num
 
 export type AssignmentPermittedUrl = { assignment_id: number; permitted_url_id: number };
 export type AssignmentPermittedApp = { assignment_id: number; permitted_app_id: number };
+
+export type AiLikelihood = 'low' | 'medium' | 'high';
+
+export type AssignmentAiReview = {
+  assignment_id: number;
+  cheating_likelihood: AiLikelihood;
+  cheating_reasoning: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type QuestionAiReview = {
+  assignment_id: number;
+  question_id: number;
+  percent_correct: number;
+  reasoning: string;
+  writing_notes: string | null;
+  created_at: string;
+};

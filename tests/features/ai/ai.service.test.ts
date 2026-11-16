@@ -14,20 +14,20 @@ vi.mock('../../../features/exams/exam.service.js', () => ({
 vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn(), updateQuestion: vi.fn() }));
 vi.mock('../../../features/attendance/attendance.service.js', () => ({ getAttendance: vi.fn(), setAttendance: vi.fn() }));
 vi.mock('../../../features/cheatings/cheating.service.js', () => ({ examSummary: vi.fn() }));
-vi.mock('../../../features/auth/auth.controller.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn(), updateStudentProfile: vi.fn() }));
+vi.mock('../../../features/auth/auth.service.js', () => ({ listManagedProfessors: vi.fn(), listManagedStudents: vi.fn(), updateStudentProfile: vi.fn() }));
 vi.mock('../../../features/attempts/attempt.service.js', () => ({
   listExamAttempts: vi.fn(), listAttemptsSummary: vi.fn(), getAttempt: vi.fn(), gradeAttempt: vi.fn(), aiReviewAttempt: vi.fn(), allowRetake: vi.fn(),
 }));
 vi.mock('../../../lib/storage.js', () => ({ uploadChatImage: vi.fn().mockResolvedValue('https://cdn.example.com/ai-chat/9/photo.png') }));
 
-import { runAssistant } from '../../../features/ai/assistant.service.js';
+import { runAssistant } from '../../../features/ai/ai.service.js';
 import { getClient } from '../../../lib/ai.js';
 import {
   listModules, createModule, addProfessor, deleteModule, addStudent, removeStudent, removeProfessor, updateModule,
 } from '../../../features/modules/module.service.js';
 import { getExam, createExam, deleteExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
 import { updateQuestion } from '../../../features/questions/question.service.js';
-import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.controller.js';
+import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.service.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt, allowRetake } from '../../../features/attempts/attempt.service.js';
 import { uploadChatImage } from '../../../lib/storage.js';
 import { HttpError } from '../../../lib/errors.js';

@@ -19,7 +19,7 @@ const { from, builder, results } = vi.hoisted(() => {
 vi.mock('../../../lib/db.js', () => ({ database: { from } }));
 vi.mock('../../../lib/ai.js', () => ({ getClient: vi.fn(), MODEL: 'gpt-4o-mini' }));
 
-import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from '../../../features/ai/chat-history.service.js';
+import { listConversations, createConversation, getConversationMessages, deleteConversation, saveChatMessage } from '../../../features/ai/ai.service.js';
 import { getClient } from '../../../lib/ai.js';
 import { HttpError } from '../../../lib/errors.js';
 
