@@ -313,7 +313,19 @@ describe('updateExam', () => {
       rows([{ id: 4 }]),
     );
 
-    await expect(updateExam(7, 1, { scheduledEnd: '2026-01-10T12:00:00Z' })).rejects.toMatchObject({ status: 409 });
+    await expect(updateExam(7, 1, { scheduledEnd: '2026-01-10T10:30:00Z' })).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('still lets the deadline be pushed later once the exam has attempts', async () => {
+    queue.push(
+      rows({ id: 1, created_by: 7, scheduled_start: '2026-01-10T09:00:00Z', scheduled_end: '2026-01-10T11:00:00Z', max_marks: 100, passing_marks: 0 }),
+      rows({ position: 'professor' }),
+      rows({ id: 1, name: 'Essay', scheduled_end: '2026-01-12T11:00:00Z' }),
+    );
+
+    await updateExam(7, 1, { scheduledStart: '2026-01-10T09:00:00Z', scheduledEnd: '2026-01-12T11:00:00Z' });
+
+    expect(from).not.toHaveBeenCalledWith('assignments');
   });
 
   it('still renames an exam that has attempts', async () => {

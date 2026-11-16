@@ -45,7 +45,8 @@ const AUDIO_MAX_BYTES = 8 * 1024 * 1024;
 export const decodeAudioData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
   if (typeof value !== 'string' || !value) throw new HttpError(400, 'audio is required');
 
-  const match = value.match(/^data:audio\/([a-zA-Z0-9.+-]+);base64,([\s\S]*)$/);
+  // chromium's MediaRecorder gives audio/webm;codecs=opus
+  const match = value.match(/^data:audio\/([a-zA-Z0-9.+-]+)(?:;[^;,]+=[^;,]+)*;base64,([\s\S]*)$/);
   if (!match) throw new HttpError(400, 'audio must be a data:audio/...;base64,... string');
   const [, subtype, raw] = match;
 

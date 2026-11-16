@@ -368,8 +368,10 @@ export const updateExam = async (professorId: number, examId: number, body: any 
   const passing = (patch.passing_marks ?? exam.passing_marks) as number;
   if (passing > max) throw new HttpError(400, 'passingMarks cannot be above maxMarks');
 
-  // the schedule is part of what the students already started on
-  if (patch.scheduled_start !== undefined || patch.scheduled_end !== undefined) await assertNoAttempts(examId);
+  // the schedule is part of what the students already started on, only pushing the end later is fine
+  const movedStart = patch.scheduled_start !== undefined && start.getTime() !== new Date(exam.scheduled_start).getTime();
+  const shortened = patch.scheduled_end !== undefined && end < new Date(exam.scheduled_end);
+  if (movedStart || shortened) await assertNoAttempts(examId);
 
   if (patch.name !== undefined) {
     await requireUniqueExamNameInModules(patch.name as string, await linkedModuleIds(examId), examId);

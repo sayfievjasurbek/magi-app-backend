@@ -87,6 +87,16 @@ describe('uploadAudio', () => {
     expect(options).toEqual({ contentType: 'audio/webm' });
   });
 
+  it('takes the codecs parameter the desktop app recorder adds', async () => {
+    getPublicUrl.mockReturnValue({ data: { publicUrl: 'https://supabase.test/proctoring/7/audio-recordings/x.webm' } });
+
+    await uploadAudio(7, 'audio-recordings', `data:audio/webm;codecs=opus;base64,${ONE_FRAME_WEBM}`);
+
+    const [path, , options] = upload.mock.calls[0];
+    expect(path).toMatch(/\.webm$/);
+    expect(options).toEqual({ contentType: 'audio/webm' });
+  });
+
   it('400s without a data:audio/...;base64,... prefix', async () => {
     for (const audio of [undefined, '', 42, null, ONE_FRAME_WEBM, 'data:image/jpeg;base64,AAA']) {
       const error = await rejected(uploadAudio(7, 'audio-recordings', audio));
