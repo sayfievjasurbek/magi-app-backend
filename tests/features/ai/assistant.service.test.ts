@@ -290,6 +290,26 @@ describe('runAssistant', () => {
     expect(historicalUserMessage.content[1]).toEqual({ type: 'image_url', image_url: { url: 'https://cdn.example.com/ai-chat/9/cat.png' } });
   });
 
+  it("collapses an earlier turn's attached file text to a short note, instead of re-sending it on every later message", async () => {
+    create.mockResolvedValueOnce(finalRound('Noted.'));
+    const bigDocument = 'x'.repeat(20_000);
+    const history = [
+      {
+        role: 'user' as const,
+        content: `shu ro'yxatdagi savollarni qo'sh\n\n<attached_file name="questions.csv">\n${bigDocument}\n</attached_file>`,
+      },
+      { role: 'assistant' as const, content: "Qo'shdim, 20 ta savol yaratildi." },
+    ];
+
+    await runAssistant(USER, { message: 'yana nechta savol qoldi?', history });
+
+    const sentMessages = create.mock.calls[0][0].messages;
+    const historicalUserMessage = sentMessages.find((m: any) => m.role === 'user' && typeof m.content === 'string' && m.content.includes('attached_file'));
+    expect(historicalUserMessage.content).not.toContain(bigDocument);
+    expect(historicalUserMessage.content).toContain('<attached_file name="questions.csv">[content omitted from history to save tokens');
+    expect(historicalUserMessage.content.length).toBeLessThan(300);
+  });
+
   it('resolves a pasted Google Docs link the same way an attached file would, without a file being attached at all', async () => {
     create.mockResolvedValueOnce(finalRound('Added both questions.'));
     const wb = XLSX.utils.book_new();

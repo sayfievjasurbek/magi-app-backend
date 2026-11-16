@@ -257,7 +257,10 @@ Rules:
   create_question, a roster of students to enroll one by one with add_student_to_group/
   list_students, or just reference material) and act accordingly; ask the professor what they want
   done with it if that is not obvious from their message. An image is given to you directly as a
-  real image - look at it.`;
+  real image - look at it. A file from an *earlier* turn reads as "[content omitted from history
+  to save tokens...]" instead of the real text - that's expected, not an error; if the professor's
+  current message needs you to see it again, ask them to re-attach it rather than guessing at what
+  it said.`;
 
 const TOOLS: OpenAI.ChatCompletionTool[] = [
   {
@@ -1057,6 +1060,19 @@ const contentForMessage = (text: string): string | OpenAI.ChatCompletionContentP
   ];
 };
 
+// an <attached_file name="...">...</attached_file> block can carry up to MAX_EXTRACTED_CHARS
+// (30,000 characters, several thousand tokens) of a document's text - fine for the turn it was
+// actually attached in, but every later turn of the same conversation re-sent that same block in
+// full as part of history, forever: attach a few documents over a long-running chat and every
+// following message's token cost (and bill) keeps climbing with no bound. The turn that just
+// attached something builds its own content separately (buildUserContent, appended after history
+// below) and is never touched by this - only a *past* turn's file text collapses down to a short
+// note once something newer has been said since.
+const ATTACHED_FILE_RE = /<attached_file name="([^"]*)">[\s\S]*?<\/attached_file>/g;
+const stripOldAttachedFiles = (text: string): string =>
+  text.replace(ATTACHED_FILE_RE, (_match, name: string) =>
+    `<attached_file name="${name}">[content omitted from history to save tokens - ask the professor to re-attach it if you need to read it again]</attached_file>`);
+
 // a one-tap quick-reply chip, wrapped around each short option the model offers alongside a
 // clarifying question (a suggested name/date, a yes/no, a pick between named things) - pulled out
 // of the reply text entirely before it reaches the professor, the chat panel renders these as
@@ -1140,7 +1156,7 @@ export const runAssistant = async (
     // only a user turn can carry an attached-image marker (contentForMessage's multi-part return) -
     // OpenAI's own types only allow that content shape for role "user", never "assistant"
     ...history.map((m): OpenAI.ChatCompletionMessageParam =>
-      m.role === 'user' ? { role: 'user', content: contentForMessage(m.content) } : { role: 'assistant', content: m.content }
+      m.role === 'user' ? { role: 'user', content: contentForMessage(stripOldAttachedFiles(m.content)) } : { role: 'assistant', content: m.content }
     ),
     { role: 'user', content: userContent },
   ];
