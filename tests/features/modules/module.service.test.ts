@@ -423,6 +423,29 @@ describe('addStudent', () => {
     expect(builder.eq).toHaveBeenCalledWith('id', 5);
   });
 
+  it('gives a student who joins late the class exams that are not over yet', async () => {
+    managedAsAdmin();
+    isAdmin();
+    const future = new Date(Date.now() + 3600_000).toISOString();
+    const past = new Date(Date.now() - 3600_000).toISOString();
+    queue(
+      ok(SUE), ok({ user_id: 5 }), ok(null),
+      ok(null), // the 'Added to a group' notification
+      ok([{ exam_id: 1 }, { exam_id: 2 }, { exam_id: 3 }]),
+      ok([
+        { id: 1, name: 'Open', status: 'scheduled', scheduled_end: future },
+        { id: 2, name: 'Over', status: 'scheduled', scheduled_end: past },
+        { id: 3, name: 'Cancelled', status: 'cancelled', scheduled_end: future },
+      ]),
+      ok([]),
+      ok(null),
+    );
+
+    await moduleService.addStudent(3, '7', { studentId: 5 });
+
+    expect(builder.insert).toHaveBeenCalledWith([{ exam_id: 1, student_id: 5 }]);
+  });
+
   it('turns a duplicate enrollment into 409', async () => {
     managedAsAdmin();
     isAdmin();

@@ -498,6 +498,39 @@ export const removeProfessor = async (professorId: number, moduleIdParam: string
   if (!removed?.length) throw notInModule();
 };
 
+// a student who joins late still gets the class's exams that aren't over yet
+const assignOpenExams = async (moduleId: number, studentId: number) => {
+  const { data: links, error } = await database.from('exam_module').select('exam_id').eq('module_id', moduleId);
+  if (error) throw new Error(error.message);
+  const examIds = (links ?? []).map((row) => row.exam_id);
+  if (!examIds.length) return;
+
+  const { data: exams, error: examsError } = await activeOnly(
+    database.from('exams').select('id, name, status, scheduled_end').in('id', examIds)
+  );
+  if (examsError) throw new Error(examsError.message);
+  const open = (exams ?? []).filter(
+    (exam) => exam.status !== 'completed' && exam.status !== 'cancelled' && new Date(exam.scheduled_end).getTime() > Date.now(),
+  );
+  if (!open.length) return;
+
+  const { data: already, error: alreadyError } = await database
+    .from('exam_student')
+    .select('exam_id')
+    .eq('student_id', studentId)
+    .in('exam_id', open.map((exam) => exam.id));
+  if (alreadyError) throw new Error(alreadyError.message);
+  const assigned = new Set((already ?? []).map((row) => row.exam_id));
+  const missing = open.filter((exam) => !assigned.has(exam.id));
+  if (!missing.length) return;
+
+  const { error: insertError } = await database
+    .from('exam_student')
+    .insert(missing.map((exam) => ({ exam_id: exam.id, student_id: studentId })));
+  if (insertError) throw new Error(insertError.message);
+  for (const exam of missing) void notify(studentId, 'exam_assigned', 'New exam assigned', exam.name, exam.id);
+};
+
 export const addStudent = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
   await requireAdministrator(professorId, 'add a student to a class');
@@ -513,6 +546,7 @@ export const addStudent = async (professorId: number, moduleIdParam: string, bod
   };
 
   void notify(student.id, 'module_enrolled', 'Added to a group', managed.name, managed.id);
+  await assignOpenExams(managed.id, student.id);
   return student;
 };
 
