@@ -4,7 +4,7 @@ import { managedExamIds, managesExam, seesExam } from '../../lib/exam-access.js'
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
 import { type TokenPayload } from '../../lib/types.js';
 import { notifyMany } from '../../lib/notifications.js';
-import { requireNotAdministrator } from '../../lib/position-access.js';
+import { requireNotAdministrator, seesAllModules } from '../../lib/position-access.js';
 import {
   requireUrl,
   requireAppName,
@@ -434,7 +434,8 @@ export const linkModule = async (professorId: number, examId: number, body: any 
     .eq('module_id', moduleId)
     .maybeSingle();
   throwOnError(taughtError);
-  if (!taught) throw new HttpError(404, 'Module not found');
+  // directors see every class, so they can link any of them
+  if (!taught && !(await seesAllModules(professorId))) throw new HttpError(404, 'Module not found');
 
   await requireUniqueExamNameInModules(exam.name, [moduleId], examId);
 

@@ -477,9 +477,15 @@ describe('linkModule', () => {
   });
 
   it('404s a module the professor does not teach', async () => {
-    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows(null));
+    queue.push(rows({ id: 1, created_by: 7 }), rows({ position: 'professor' }), rows([]), rows(null), rows({ position: 'professor' }));
 
     await expect(linkModule(7, 1, { moduleId: 5 })).rejects.toMatchObject({ status: 404, message: 'Module not found' });
+  });
+
+  it('lets a director link a class someone else teaches', async () => {
+    queue.push(rows({ id: 1, created_by: 7, name: 'Quiz' }), rows({ position: 'director' }), rows([]), rows(null), rows({ position: 'director' }), rows([]), rows(null));
+
+    await expect(linkModule(7, 1, { moduleId: 5 })).resolves.toEqual({ exam_id: 1, module_id: 5 });
   });
 
   it('409s a module that is already linked', async () => {
