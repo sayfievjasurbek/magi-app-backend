@@ -7,7 +7,7 @@ import {
   listModules, getRoster, createModule, addProfessor, deleteModule, addStudent, removeStudent, removeProfessor, updateModule,
 } from '../modules/module.service.js';
 import {
-  listExams, getExam, createExam, updateExam, setExamStatus, linkModule, addStudents, attachQuestion, detachQuestion,
+  listExams, getExam, createExam, updateExam, deleteExam, setExamStatus, linkModule, addStudents, attachQuestion, detachQuestion,
 } from '../exams/exam.service.js';
 import { listQuestions, createQuestion, updateQuestion } from '../questions/question.service.js';
 import { getAttendance, setAttendance } from '../attendance/attendance.service.js';
@@ -441,7 +441,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'create_exam',
-      description: 'Create a new exam or homework. It starts unlinked to any group - use schedule_exam_to_group to assign it.',
+      description: 'Create a new exam or homework. Pass groupId when the group is known, so it is created and assigned to that group in one step - if assigning fails nothing is left behind. Without groupId it starts unlinked; use schedule_exam_to_group later.',
       parameters: {
         type: 'object',
         properties: {
@@ -451,6 +451,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
           scheduledEnd: { type: 'string', description: 'ISO 8601 date-time, after scheduledStart' },
           maxMarks: { type: 'integer', description: 'Defaults to 100' },
           passingMarks: { type: 'integer', description: 'Defaults to 0' },
+          groupId: { type: 'integer', description: 'The group to assign it to right away' },
         },
         required: ['name', 'scheduledStart', 'scheduledEnd'],
         additionalProperties: false,
@@ -848,7 +849,7 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
 
   list_exams: async (args, user) => {
-    const groupId = args.groupId === undefined ? undefined : toId(args.groupId, 'groupId');
+    const groupId = args.groupId == null ? undefined : toId(args.groupId, 'groupId');
     const kind = typeof args.kind === 'string' ? args.kind : undefined;
     const exams = await listExams(user, groupId, kind);
     return { result: exams, summary: `Listed ${exams.length} exam(s)` };
@@ -861,8 +862,19 @@ const TOOL_EXECUTORS: Record<string, ToolExecutor> = {
   },
 
   create_exam: async (args, user) => {
+    const groupId = args.groupId == null ? undefined : toId(args.groupId, 'groupId');
     const exam = await createExam(user.id, args);
-    return { result: exam, summary: `Created exam "${exam.name}" (id ${exam.id})` };
+    if (groupId === undefined) return { result: exam, summary: `Created exam "${exam.name}" (id ${exam.id})` };
+
+    try {
+      await linkModule(user.id, exam.id, { moduleId: groupId });
+      const { added } = await addStudents(user.id, exam.id, { moduleId: groupId });
+      return { result: { ...exam, added }, summary: `Created exam "${exam.name}" (id ${exam.id}) for group ${groupId} (${added.length} student(s) rostered)` };
+    } catch (error) {
+      // don't leave an exam with no group behind
+      await deleteExam(user.id, exam.id, { reason: 'Could not be assigned to its group' }).catch(() => undefined);
+      throw error;
+    }
   },
 
   update_exam: async (args, user) => {

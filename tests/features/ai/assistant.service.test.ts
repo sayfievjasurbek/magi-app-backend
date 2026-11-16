@@ -8,7 +8,7 @@ vi.mock('../../../features/modules/module.service.js', () => ({
   removeStudent: vi.fn(), removeProfessor: vi.fn(), updateModule: vi.fn(),
 }));
 vi.mock('../../../features/exams/exam.service.js', () => ({
-  listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), updateExam: vi.fn(), setExamStatus: vi.fn(),
+  listExams: vi.fn(), getExam: vi.fn(), createExam: vi.fn(), updateExam: vi.fn(), deleteExam: vi.fn(), setExamStatus: vi.fn(),
   linkModule: vi.fn(), addStudents: vi.fn(), attachQuestion: vi.fn(), detachQuestion: vi.fn(),
 }));
 vi.mock('../../../features/questions/question.service.js', () => ({ listQuestions: vi.fn(), createQuestion: vi.fn(), updateQuestion: vi.fn() }));
@@ -25,7 +25,7 @@ import { getClient } from '../../../lib/ai.js';
 import {
   listModules, createModule, addProfessor, deleteModule, addStudent, removeStudent, removeProfessor, updateModule,
 } from '../../../features/modules/module.service.js';
-import { getExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
+import { getExam, createExam, deleteExam, linkModule, addStudents, updateExam, setExamStatus, detachQuestion } from '../../../features/exams/exam.service.js';
 import { updateQuestion } from '../../../features/questions/question.service.js';
 import { listManagedProfessors, listManagedStudents, updateStudentProfile } from '../../../features/auth/auth.controller.js';
 import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiReviewAttempt, allowRetake } from '../../../features/attempts/attempt.service.js';
@@ -167,6 +167,35 @@ describe('runAssistant', () => {
     expect(actions).toEqual([
       { tool: 'schedule_exam_to_group', args: { examId: 12, groupId: 5 }, ok: true, summary: expect.stringContaining('Scheduled exam 12 to group 5') },
     ]);
+  });
+
+  it('creates an exam straight into a group', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'create_exam', { name: 'Quiz', scheduledStart: '2026-12-01T09:00:00Z', scheduledEnd: '2026-12-01T10:00:00Z', groupId: 5 })))
+      .mockResolvedValueOnce(finalRound('Done.'));
+    (createExam as any).mockResolvedValue({ id: 30, name: 'Quiz' });
+    (linkModule as any).mockResolvedValue({ exam_id: 30, module_id: 5 });
+    (addStudents as any).mockResolvedValue({ added: [1, 2] });
+
+    const { actions } = await runAssistant(USER, { message: '5-guruhga Quiz yarat' });
+
+    expect(linkModule).toHaveBeenCalledWith(USER.id, 30, { moduleId: 5 });
+    expect(deleteExam).not.toHaveBeenCalled();
+    expect(actions[0]).toMatchObject({ tool: 'create_exam', ok: true, summary: expect.stringContaining('for group 5 (2 student(s) rostered)') });
+  });
+
+  it('removes the exam it just made when it cannot be assigned to the group', async () => {
+    create
+      .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'create_exam', { name: 'Matematika', scheduledStart: '2026-12-01T09:00:00Z', scheduledEnd: '2026-12-01T10:00:00Z', groupId: 5 })))
+      .mockResolvedValueOnce(finalRound('That name is taken.'));
+    (createExam as any).mockResolvedValue({ id: 31, name: 'Matematika' });
+    (linkModule as any).mockRejectedValue(Object.assign(new Error('An exam named "Matematika" already exists in this class'), { status: 409 }));
+    (deleteExam as any).mockResolvedValue(undefined);
+
+    const { actions } = await runAssistant(USER, { message: '5-guruhga Matematika yarat' });
+
+    expect(deleteExam).toHaveBeenCalledWith(USER.id, 31, { reason: expect.any(String) });
+    expect(actions[0]).toMatchObject({ tool: 'create_exam', ok: false });
   });
 
   it('creates a group, then resolves a professor by name before adding them as its mentor', async () => {
