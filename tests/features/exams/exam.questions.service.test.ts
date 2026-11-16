@@ -110,6 +110,7 @@ describe('attachQuestion', () => {
       rows({ id: 11, created_by: 99 }),
       rows([{ exam_id: 4 }]),
       rows([{ id: 4 }]),
+      rows({ position: 'professor' }),
       rows([]),
       rows([{ position: 2 }]),
       rows({ question_id: 11, position: 3, marks: 1 })

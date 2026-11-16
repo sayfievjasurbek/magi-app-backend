@@ -1,6 +1,7 @@
 import { database } from './db.js';
 import { activeOnly } from './utils.js';
 import { type Role } from './types.js';
+import { seesAllModules } from './position-access.js';
 
 // who can see an exam and everything under it
 
@@ -25,7 +26,9 @@ export const managesExam = async (exam: ExamRow, professorId: number): Promise<b
     .eq('professor_id', professorId)
     .in('module_id', links.map((link: { module_id: number }) => link.module_id))
     .limit(1)) ?? [];
-  return taught.length > 0;
+  if (taught.length) return true;
+  // whoever sees every class sees the exams in them too
+  return seesAllModules(professorId);
 };
 
 export const examinesExam = async (exam: ExamRow, examinerId: number): Promise<boolean> => {
@@ -65,6 +68,11 @@ export const findVisibleExam = async (examId: number, user: Caller, columns: str
 export const managedExamIds = async (professorId: number): Promise<number[]> => {
   const created = unwrap(await activeOnly(database.from('exams').select('id').eq('created_by', professorId))) ?? [];
   const ids = new Set<number>(created.map((exam: { id: number }) => exam.id));
+
+  if (await seesAllModules(professorId)) {
+    const all = unwrap(await activeOnly(database.from('exams').select('id'))) ?? [];
+    return all.map((exam: { id: number }) => exam.id);
+  }
 
   const taught = unwrap(await database.from('module_professor').select('module_id').eq('professor_id', professorId)) ?? [];
   if (!taught.length) return [...ids];

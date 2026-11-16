@@ -1,7 +1,7 @@
 import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { activeOnly, parseId, softDelete } from '../../lib/utils.js';
-import { requireNotAdministrator } from '../../lib/position-access.js';
+import { requireNotAdministrator, seesAllModules } from '../../lib/position-access.js';
 
 const QUESTION_TYPES = ['multiple_choice', 'true_false', 'short_answer', 'essay', 'file_upload'];
 const TIME_UNITS = ['seconds', 'minutes', 'hours', 'days'];
@@ -147,7 +147,7 @@ const managesAnyExam = async (examIds: number[], professorId: number) => {
   if (modulesError) throw new Error(modulesError.message);
 
   const moduleIds = (modules ?? []).map((row) => row.module_id);
-  if (!moduleIds.length) return false;
+  if (!moduleIds.length) return seesAllModules(professorId);
 
   const { data: linked, error: linkedError } = await database
     .from('exam_module')
@@ -157,7 +157,8 @@ const managesAnyExam = async (examIds: number[], professorId: number) => {
     .limit(1);
 
   if (linkedError) throw new Error(linkedError.message);
-  return Boolean(linked?.length);
+  if (linked?.length) return true;
+  return seesAllModules(professorId);
 };
 
 // a question the professor does not own is readable when an exam they manage asks it

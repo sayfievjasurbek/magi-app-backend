@@ -420,6 +420,7 @@ describe('getAttempt as staff', () => {
     queue('exams', EXAM);
     queue('exam_module', [{ module_id: 2 }]);
     queue('module_professor', []);
+    queue('professors', { position: 'professor' });
 
     await expect(getAttempt(PROFESSOR, 9)).rejects.toMatchObject({ status: 404 });
   });
@@ -561,6 +562,7 @@ describe('listExamAttempts', () => {
 describe('listAttemptsSummary', () => {
   it('counts attempts per exam the professor manages, across both created and module-linked exams', async () => {
     queue('exams', [{ id: 5 }]); // created_by
+    queue('professors', { position: 'professor' });
     queue('module_professor', [{ module_id: 2 }]); // taught
     queue('exam_module', [{ exam_id: 7 }]); // linked via a taught module
     queue('exams', [{ id: 7 }]); // live check on the linked-but-not-created exam
@@ -597,6 +599,7 @@ describe('listAttemptsSummary', () => {
 
   it('counts an exam with zero attempts as zero, not missing', async () => {
     queue('exams', [{ id: 5 }]);
+    queue('professors', { position: 'professor' });
     queue('module_professor', []);
     queue('exam_student', []);
     queue('assignments', []);
@@ -967,6 +970,7 @@ describe('gradeAttempt', () => {
     queue('exams', EXAM);
     queue('exam_module', [{ module_id: 2 }]);
     queue('module_professor', []);
+    queue('professors', { position: 'professor' });
 
     await expect(gradeAttempt(PROFESSOR.id, 9, { marks: [] })).rejects.toMatchObject({ status: 404 });
   });
@@ -1124,6 +1128,7 @@ describe('aiReviewAttempt', () => {
     queue('exams', EXAM);
     queue('exam_module', [{ module_id: 2 }]);
     queue('module_professor', []);
+    queue('professors', { position: 'professor' });
 
     await expect(aiReviewAttempt(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 404 });
   });
@@ -1300,6 +1305,7 @@ describe('allowRetake', () => {
     queue('exams', EXAM);
     queue('exam_module', [{ module_id: 2 }]);
     queue('module_professor', []);
+    queue('professors', { position: 'professor' });
 
     await expect(allowRetake(PROFESSOR.id, 9)).rejects.toMatchObject({ status: 404 });
   });

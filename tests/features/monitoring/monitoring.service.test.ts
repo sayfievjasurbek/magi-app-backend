@@ -355,12 +355,12 @@ describe('listMedia', () => {
   });
 
   it('404s for a professor who teaches none of the modules of the exam', async () => {
-    queue(inProgress, someoneElsesExam, row([{ module_id: 2 }]), row([]));
+    queue(inProgress, someoneElsesExam, row([{ module_id: 2 }]), row([]), row({ position: 'professor' }));
 
     const error = await rejected(listMedia('snapshots', '7', professor));
 
     expect(error.status).toBe(404);
-    expect(tables()).toEqual(['assignments', 'exams', 'exam_module', 'module_professor']);
+    expect(tables()).toEqual(['assignments', 'exams', 'exam_module', 'module_professor', 'professors']);
   });
 
   it('404s when the exam belongs to no module at all', async () => {
@@ -463,7 +463,7 @@ describe('deleteMedia', () => {
   });
 
   it('404s for a professor who does not manage the exam', async () => {
-    queue(row({ assignment_id: 7 }), inProgress, someoneElsesExam, row([{ module_id: 2 }]), row([]));
+    queue(row({ assignment_id: 7 }), inProgress, someoneElsesExam, row([{ module_id: 2 }]), row([]), row({ position: 'professor' }));
 
     const error = await rejected(deleteMedia('snapshots', '21', 9, 'blurred'));
 

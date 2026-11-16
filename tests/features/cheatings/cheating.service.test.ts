@@ -149,7 +149,7 @@ describe('createIncident', () => {
   });
 
   it('404s for a professor who teaches none of the modules of the exam', async () => {
-    queue(running, someoneElsesExam, row([{ module_id: 2 }]), row([]));
+    queue(running, someoneElsesExam, row([{ module_id: 2 }]), row([]), row({ position: 'professor' }));
 
     const error = await rejected(createIncident('7', professor, 'manual_review', 'because'));
 
@@ -315,7 +315,7 @@ describe('dismissIncident', () => {
   });
 
   it('404s for a professor who does not manage the exam', async () => {
-    queue(row({ assignment_id: 7 }), running, someoneElsesExam, row([{ module_id: 2 }]), row([]));
+    queue(row({ assignment_id: 7 }), running, someoneElsesExam, row([{ module_id: 2 }]), row([]), row({ position: 'professor' }));
 
     const error = await rejected(dismissIncident('31', 9, 'false positive'));
 

@@ -53,7 +53,7 @@ beforeEach(() => {
 describe('listExams', () => {
   it('gives a professor the exams they created and the exams of the modules they teach', async () => {
     // the created ones, the modules taught, the exams linked to them, the live ones among those, the answer
-    queue.push(rows([{ id: 1 }]), rows([{ module_id: 5 }]), rows([{ exam_id: 2 }]), rows([{ id: 2 }]), rows([{ id: 1 }, { id: 2 }]));
+    queue.push(rows([{ id: 1 }]), rows({ position: 'professor' }), rows([{ module_id: 5 }]), rows([{ exam_id: 2 }]), rows([{ id: 2 }]), rows([{ id: 1 }, { id: 2 }]));
 
     const exams = await listExams(asUser(7, 'professor'));
 
@@ -204,9 +204,15 @@ describe('getExam', () => {
   });
 
   it('404s an exam of a professor who neither owns it nor teaches its modules', async () => {
-    queue.push(rows({ id: 1, created_by: 99 }), rows([{ module_id: 5 }]), rows([]));
+    queue.push(rows({ id: 1, created_by: 99 }), rows([{ module_id: 5 }]), rows([]), rows({ position: 'professor' }));
 
     await expect(getExam(asUser(7, 'professor'), 1)).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('lets a director open an exam in a class someone else teaches', async () => {
+    queue.push(rows({ id: 1, created_by: 99 }), rows([{ module_id: 5 }]), rows([]), rows({ position: 'director' }));
+
+    await expect(getExam(asUser(7, 'professor'), 1)).resolves.toMatchObject({ id: 1 });
   });
 
   it('drops a question its owner soft deleted', async () => {
