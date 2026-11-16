@@ -2,8 +2,7 @@ import { database } from './db.js';
 import { activeOnly } from './utils.js';
 import { type Role } from './types.js';
 
-// Who gets at an exam, and at everything hanging off it (attempts, media, incidents).
-// The exams, attempts, monitoring and cheatings services all ask here, so the rule is written once.
+// who can see an exam and everything under it
 
 export type Caller = { id: number; role: Role };
 type ExamRow = { id: number; created_by?: number | null };

@@ -10,8 +10,7 @@ vi.hoisted(() => {
   process.env.JWT_SECRET = 'exam-route-test-secret';
 });
 
-// the fake answers every query with nothing, so a service that is reached stops at its first lookup;
-// 'tokens' is special-cased so protectRoute's session-revocation check finds a live, unrevoked session
+// everything returns empty except tokens, so the session check passes
 vi.mock('../../../lib/db.js', () => {
   const makeBuilder = (resolved: unknown) => {
     const builder: any = { then: (resolve: (value: unknown) => unknown) => resolve(resolved) };

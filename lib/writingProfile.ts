@@ -1,8 +1,4 @@
-// Turns the raw per-question typing counters (attempt.service.ts's ANSWER_COLUMNS) into the
-// summary a professor actually wants to glance at on an attempt: how much of the answer was
-// typed vs pasted, how natural the typing rhythm looked, and how much the student revised as
-// they went - the same shape of signal a "human authorship" writing certificate shows, but
-// computed from this app's own data instead of taken on faith from a third-party badge.
+// typing counters -> the scores shown on an attempt (typed vs pasted, rhythm, revisions)
 
 export type WritingCounters = {
   text_typed: number;
@@ -31,29 +27,22 @@ export type WritingProfile = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
-// Characters typed by hand vs pasted in - a wall of pasted text with almost no typing is the
-// single strongest "this wasn't written here" signal.
+// big paste with barely any typing is the strongest signal
 const volumeScore = (typed: number, pasted: number): number | null =>
   typed + pasted > 0 ? Math.round((typed / (typed + pasted)) * 100) : null;
 
-// Long silent gaps followed by a sudden run of text reads as switching away to write (or copy)
-// the answer elsewhere; each freeze costs points, a long one costs more.
+// long pauses then a burst of text = probably wrote it somewhere else
 const rhythmScore = (freezeCount: number, longestFreeze: number, typingSeconds: number): number | null => {
   if (typingSeconds <= 0 && freezeCount === 0) return null;
   const longestPenalty = typingSeconds > 0 ? Math.min(40, (longestFreeze / typingSeconds) * 100) : Math.min(40, longestFreeze);
   return Math.round(clamp(100 - freezeCount * 8 - longestPenalty, 0, 100));
 };
 
-// Real writing gets revised - backspaces, rewordings, mid-sentence fixes. A long answer with
-// close to zero corrections is as suspicious as one with constant chaotic rewriting is normal;
-// this rewards corrections up to a natural ceiling rather than penalizing them.
+// people fix things as they write, zero corrections is suspicious
 const editScore = (corrections: number, typed: number): number | null =>
   typed > 0 ? Math.round(clamp((corrections / typed) * 500, 0, 100)) : null;
 
-// A single overall number, but scaled down for short sessions: a handful of characters can look
-// "perfect" by accident, so confidence in the other three scores only reaches 1.0 once there's
-// a real amount of typed text to judge them from (this is the same reason the certificate
-// labels a thin session "Developing" instead of trusting a high sub-score outright).
+// short sessions get less confidence
 const CONFIDENT_AT_CHARACTERS = 400;
 const processStrength = (scores: Array<number | null>, charactersTyped: number): number | null => {
   const present = scores.filter((s): s is number => s !== null);
@@ -90,9 +79,7 @@ export const computeWritingProfile = (questions: WritingCounters[]): WritingProf
   };
 };
 
-// Turns the AI review's coarse low/medium/high into the same 0-100 scale as the other scores,
-// so the UI can show one number instead of three different units. Null (not a 0) when no AI
-// review has been run yet - that's "not analyzed", not "0% likely".
+// null = no ai review yet, not 0
 export const aiProbabilityOf = (cheatingLikelihood: 'low' | 'medium' | 'high' | null | undefined): number | null => {
   if (!cheatingLikelihood) return null;
   return { low: 15, medium: 50, high: 85 }[cheatingLikelihood];

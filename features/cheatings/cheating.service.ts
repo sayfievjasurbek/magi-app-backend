@@ -14,8 +14,7 @@ type Cheating = { id: number; name: string; explanation: string; created_at: str
 
 const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at';
 
-// an earlier incident turns in_progress into flagged in the same column, so the attempt is
-// still running as long as it has not been submitted
+// flagged attempts are still running
 const isRunning = (attempt: Attempt) =>
   (attempt.status === 'in_progress' || attempt.status === 'flagged') && !attempt.submitted_at;
 
@@ -30,7 +29,6 @@ const automaticTypes = cheatingTypes.filter((name) => name !== 'manual_review');
 // a flagged attempt can still be graded, a graded one is never flagged again
 const flaggableStatuses = ['in_progress', 'submitted', 'auto_submitted'];
 
-// reads are not paginated: an attempt answers with its newest incidents, a summary counts up to this many rows per step
 const INCIDENT_LIMIT = 200;
 const SUMMARY_LIMIT = 1000;
 const MAX_TEXT = 1000;
@@ -117,8 +115,7 @@ export const createIncident = async (attemptIdParam: string, user: Caller, name:
   if (error) throw new Error(error.message);
   if (!incident) throw new Error('Cheating row is null after insertion');
 
-  // PostgREST has no transaction over these writes: cheating_reason cascades from cheatings,
-  // so dropping the incident again undoes the whole thing
+  // no transaction - cheating_reason cascades, so deleting the incident undoes it
   const { error: linkError } = await database
     .from('cheating_reason')
     .insert({ assignment_id: attemptId, cheating_id: incident.id });
@@ -128,8 +125,7 @@ export const createIncident = async (attemptIdParam: string, user: Caller, name:
     throw new Error(linkError.message);
   };
 
-  // one conditional update, so a concurrently graded attempt is never flagged afterwards;
-  // the incident is already recorded at this point, so a hiccup here must not undo it
+  // conditional update so a graded attempt doesn't get flagged
   const { error: statusError } = await database
     .from('assignments')
     .update({ status: 'flagged' })
@@ -162,8 +158,7 @@ export const listIncidents = async (attemptIdParam: string, user: Caller): Promi
   return fetchIncidents(attemptId);
 };
 
-// No access check here - the caller (attempts domain) has already decided this attempt's
-// incidents may be shown, e.g. because a professor explicitly disclosed them to the student.
+// caller checks access
 export const incidentsForAttempt = (attemptId: number): Promise<Cheating[]> => fetchIncidents(attemptId);
 
 export const getIncident = async (cheatingIdParam: string, user: Caller) => {

@@ -1,8 +1,4 @@
-// "Magi AI" - the admin panel's chat assistant. A tool-calling loop over OpenAI's chat completions
-// API: every tool below is a thin wrapper around an existing, already-authorization-checked service
-// function (module/exam/question/attendance/cheating), so the assistant can only ever do what the
-// signed-in professor could already do through the REST API - the same requireManagedModule /
-// loadManagedExam / requireOwnedQuestion checks still run underneath every call.
+// Magi AI - every tool just calls the existing service, so the same permission checks apply
 import OpenAI from 'openai';
 import { getClient } from '../../lib/ai.js';
 import { HttpError } from '../../lib/errors.js';
@@ -25,24 +21,14 @@ import { listExamAttempts, listAttemptsSummary, getAttempt, gradeAttempt, aiRevi
 export type ChatMessage = { role: 'user' | 'assistant'; content: string };
 export type ActionTrace = { tool: string; args: Record<string, unknown>; ok: boolean; summary: string };
 
-// a runaway back-and-forth (the model never settling on a plain reply) stops here rather than
-// holding the request open indefinitely - same spirit as lib/ai.ts's REQUEST_TIMEOUT_MS
 const MAX_ROUNDS = 6;
 
-// its own model, separate from lib/ai.ts's grading MODEL (gpt-4o-mini, picked there for cost on a
-// high-volume per-answer call) - this is a lower-volume, higher-stakes chat that reasons about
-// actions and resolves names to ids, where the stronger model is worth the extra cost per message
+// stronger model than grading uses, worth it here
 const MODEL = process.env.OPENAI_ASSISTANT_MODEL || 'gpt-4o';
 
-// the one reply the assistant is allowed to give in any language other than Uzbek/English -
-// bilingual so it's understood either way, and fixed rather than left to the model to phrase
 export const UNSUPPORTED_LANGUAGE_MESSAGE = "Men faqat o'zbek va ingliz tillarida javob bera olaman. / I can only reply in Uzbek or English.";
 
-// OpenAI's own errors (expired/invalid key, no credits left, rate limited, a slow response past
-// REQUEST_TIMEOUT_MS) were reaching the professor as the generic "Something went wrong" 500
-// handleControllerError falls back to for any plain Error - leaving an account problem (a dead
-// key, an empty billing balance) looking identical to an actual bug. Each gets its own clear,
-// actionable message instead; anything else still falls through to that same generic fallback.
+// give openai errors a real message instead of the generic 500
 const askModel = async (openai: OpenAI, messages: OpenAI.ChatCompletionMessageParam[]): Promise<OpenAI.ChatCompletion> => {
   try {
     return await openai.chat.completions.create({ model: MODEL, messages, tools: TOOLS, tool_choice: 'auto' });
@@ -755,10 +741,7 @@ const TOOLS: OpenAI.ChatCompletionTool[] = [
 ];
 
 type ToolResult = { result: unknown; summary: string };
-// ids the model has actually seen via a real list_*/get_* call this request - delete_group,
-// grade_attempt and trigger_ai_review check against these before acting, so a fabricated id (one
-// the model never really looked up - including a list POSITION like "1." mistaken for the real id
-// in a numbered display) gets rejected before it reaches the real service
+// ids actually returned by a list/get call this turn - stops the model making one up
 type ToolCtx = { seenAttemptIds: Set<number>; seenGroupIds: Set<number> };
 type ToolExecutor = (args: Record<string, any>, user: TokenPayload, ctx: ToolCtx) => Promise<ToolResult>;
 
@@ -1040,17 +1023,10 @@ const parseHistory = (value: unknown): ChatMessage[] => {
   });
 };
 
-// a plain-text marker for an image attached to a chat message, carrying its persisted storage url
-// rather than its base64 bytes - small enough to live happily in a history row, and lets a later
-// turn's reconstructed history hand the model the real image again (see contentForMessage below),
-// not just the memory that one was sent once
+// image is stored, only the url goes into history
 const ATTACHED_IMAGE_RE = /<attached_image url="([^"]+)"\s*\/>/;
 const encodeAttachedImage = (url: string): string => `<attached_image url="${url}" />`;
 
-// turns a message's saved/typed text back into what the model should actually see - a message
-// carrying the marker above becomes real multi-part content (text + the image again), everything
-// else is unaffected plain text (this also covers a document's own <attached_file> tag, which the
-// model is already instructed to just read as inline text)
 const contentForMessage = (text: string): string | OpenAI.ChatCompletionContentPart[] => {
   const match = text.match(ATTACHED_IMAGE_RE);
   if (!match) return text;
@@ -1060,25 +1036,13 @@ const contentForMessage = (text: string): string | OpenAI.ChatCompletionContentP
   ];
 };
 
-// an <attached_file name="...">...</attached_file> block can carry up to MAX_EXTRACTED_CHARS
-// (30,000 characters, several thousand tokens) of a document's text - fine for the turn it was
-// actually attached in, but every later turn of the same conversation re-sent that same block in
-// full as part of history, forever: attach a few documents over a long-running chat and every
-// following message's token cost (and bill) keeps climbing with no bound. The turn that just
-// attached something builds its own content separately (buildUserContent, appended after history
-// below) and is never touched by this - only a *past* turn's file text collapses down to a short
-// note once something newer has been said since.
+// old file text was being resent every turn, only the current turn needs it
 const ATTACHED_FILE_RE = /<attached_file name="([^"]*)">[\s\S]*?<\/attached_file>/g;
 const stripOldAttachedFiles = (text: string): string =>
   text.replace(ATTACHED_FILE_RE, (_match, name: string) =>
     `<attached_file name="${name}">[content omitted from history to save tokens - ask the professor to re-attach it if you need to read it again]</attached_file>`);
 
-// a one-tap quick-reply chip, wrapped around each short option the model offers alongside a
-// clarifying question (a suggested name/date, a yes/no, a pick between named things) - pulled out
-// of the reply text entirely before it reaches the professor, the chat panel renders these as
-// buttons instead. A text marker, not a tool call: asking the model to call a tool purely to
-// decorate a reply it was already writing proved unreliable in practice - embedding it directly in
-// the text it was going to produce anyway (same trick as the attached-image marker above) was not
+// quick reply chips. tried a tool for this first, model wouldn't call it reliably
 const SUGGESTION_RE = /<suggest>([^<]*)<\/suggest>/g;
 
 const extractSuggestions = (text: string): { reply: string; suggestions: string[] } => {
@@ -1088,19 +1052,12 @@ const extractSuggestions = (text: string): { reply: string; suggestions: string[
     if (trimmed) suggestions.push(trimmed);
     return '';
   });
-  // the model is told not to make a tag the entire content of a markdown list item, but that
-  // instruction proved unreliable in practice - a tag placed that way leaves an empty bullet
-  // ("- ") behind once it's gone, so clean that up mechanically instead of trusting the prompt alone
+  // leftover empty bullets
   reply = reply.replace(/^[ \t]*[-*•][ \t]*$/gm, '').replace(/\n{3,}/g, '\n\n').trim();
   return { reply, suggestions };
 };
 
-// express 5 leaves req.body undefined when nothing is sent, hence the default, same as createExam
-// an attached file arrives as { name, data } where data is the same data:<mime>;base64,... string
-// used for photo/audio uploads elsewhere in this codebase; a Google Docs/Sheets/Slides link is
-// found directly in the message text instead (no attach step needed) and resolved the same way -
-// asking the model to copy a long id back into a tool call is a much less reliable way to get
-// there than just resolving the link server-side before the model ever sees the raw text
+// uploaded file, or a google docs link in the message
 const resolveAttachment = async (message: string, file: unknown): Promise<{ name: string; bytes: Buffer; mime: string } | null> => {
   if (file && typeof file === 'object') {
     const { name, data } = file as Record<string, unknown>;
@@ -1114,10 +1071,6 @@ const resolveAttachment = async (message: string, file: unknown): Promise<{ name
   return fetchGoogleDoc(link.kind, link.id);
 };
 
-// modelContent is the same text this turn actually sends the model, minus the live image_url part
-// - it's what gets persisted to chat history, so a later turn can reconstruct the exact same
-// content via contentForMessage above (null when there was nothing attached, so a plain message
-// persists exactly as typed)
 const buildUserContent = async (
   message: string,
   file: unknown,
@@ -1153,8 +1106,7 @@ export const runAssistant = async (
 
   const messages: OpenAI.ChatCompletionMessageParam[] = [
     { role: 'system', content: systemPrompt() },
-    // only a user turn can carry an attached-image marker (contentForMessage's multi-part return) -
-    // OpenAI's own types only allow that content shape for role "user", never "assistant"
+    // openai only allows image parts on user messages
     ...history.map((m): OpenAI.ChatCompletionMessageParam =>
       m.role === 'user' ? { role: 'user', content: contentForMessage(stripOldAttachedFiles(m.content)) } : { role: 'assistant', content: m.content }
     ),
@@ -1182,8 +1134,6 @@ export const runAssistant = async (
       try {
         args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
       } catch {
-        // malformed JSON from the model - falls through to the executor lookup below with {}
-        // (the executor's own validation then reports back whatever it was actually missing)
       };
 
       const executor = TOOL_EXECUTORS[call.function.name];

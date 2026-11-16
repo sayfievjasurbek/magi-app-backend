@@ -1,5 +1,4 @@
-// End to end smoke test: the real server over HTTP against the real Supabase project in .env.
-// Run with `npm run e2e`. Not part of `npm test`. It writes test data and deletes it again (finally).
+// e2e smoke test against the real db - `npm run e2e`, cleans up after itself
 import 'dotenv/config';
 import bcrypt from 'bcrypt';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -208,7 +207,7 @@ const cleanup = async () => {
   await drop('questions', 'id', [...questions]);
   await drop('modules', 'id', [...modules]);
   await drop('permitted_urls', 'id', [...urls]);
-  // a select is capped at 1000 rows, so the bulk urls are removed by their marker instead of by the ids swept above
+  // selects cap at 1000 rows so delete these by marker
   const { error: bulkError } = await database.from('permitted_urls').delete().like('url', `https://e2e-${RUN}.example/%`);
   if (bulkError) errors.push(`delete bulk urls: ${bulkError.message}`);
   if (track.jwts.size) await drop('tokens', 'token', [...track.jwts]);

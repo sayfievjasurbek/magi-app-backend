@@ -564,8 +564,7 @@ describe('listAttemptsSummary', () => {
     queue('module_professor', [{ module_id: 2 }]); // taught
     queue('exam_module', [{ exam_id: 7 }]); // linked via a taught module
     queue('exams', [{ id: 7 }]); // live check on the linked-but-not-created exam
-    // students is who the exam was assigned to, not who has started it - 5 assigned to exam 5
-    // but only 3 have an assignments row at all, proving the count doesn't come from there
+    // 5 assigned but only 3 started - count comes from exam_student
     queue('exam_student', [
       { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 }, { exam_id: 5 },
       { exam_id: 7 },
@@ -849,8 +848,7 @@ describe('submitAttempt', () => {
     queue('questions', [{ id: 7, model_answers: ['Model answer text'] }]);
 
     await submitAttempt(STUDENT.id, 9);
-    // the review runs on a floating promise, not awaited by submitAttempt itself - drain the
-    // microtask queue it's chained on instead of a real/fake timer
+    // ai review isn't awaited, flush microtasks
     for (let i = 0; i < 50; i++) await Promise.resolve();
 
     expect(reviewAnswers).toHaveBeenCalledWith([
@@ -940,8 +938,7 @@ describe('submitAttempt', () => {
   });
 
   it('a concurrent flag between reading the attempt and submitting it is not clobbered', async () => {
-    // the in-memory attempt looks in_progress (read before the race), but the row is actually
-    // flagged in the DB by the time finishAttempt's guarded update runs
+    // got flagged in the db after we read it
     queueOwnAttempt(attemptRow({ status: 'in_progress' }));
     queue('exam_question', []);
     queue('assignments', []);
@@ -1099,15 +1096,13 @@ describe('aiReviewAttempt', () => {
     queue('exam_question', [{ question_id: 7, marks: 30 }]);
   };
 
-  // incidentsForAttempt (cheating.service.js, not mocked here) queries cheating_reason for the
-  // ids, then cheatings for the rows themselves
+  // incidentsForAttempt: cheating_reason then cheatings
   const queueIncidents = (names: string[]) => {
     queue('cheating_reason', names.map((_, i) => ({ cheating_id: i + 1 })));
     queue('cheatings', names.map((name, i) => ({ id: i + 1, name, explanation: '', created_at: NOW.toISOString() })));
   };
 
-  // proctoringPhotosForAttempt (monitoring.service.js, not mocked here) queries the face-snapshot
-  // join table, then the face_snapshots rows themselves
+  // proctoringPhotosForAttempt: join table then face_snapshots
   const queuePhotos = (urls: string[]) => {
     queue('assignment_face_snapshot', urls.map((_, i) => ({ face_snapshot_id: i + 1 })));
     queue('face_snapshots', urls.map((url) => ({ url, created_at: NOW.toISOString() })));

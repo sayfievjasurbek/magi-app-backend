@@ -36,17 +36,14 @@ app.use(
 )
 app.use(sameOrigin);
 
-// the host's health check (Railway, or whatever runs this next) - a cheap, fast read confirms
-// the one thing that actually makes this app "up": the database is reachable. Anything else
-// failing (OpenAI, email) degrades individual features gracefully instead, not the whole service.
+// health check for railway - only the db being reachable matters here
 app.get("/health", async (req, res) => {
   try {
     const { error } = await database.from('users').select('id').limit(1);
     if (error) throw new Error(error.message);
     res.json({ success: true });
   } catch (err) {
-    // this endpoint has no auth gate (the host's checker needs to reach it) - the real error is
-    // logged server-side only, never handed to whoever happens to request it
+    // no auth on this route, so don't leak the error
     console.error('health check failed:', err instanceof Error ? err.message : err);
     res.status(503).json({ success: false, message: 'database unreachable' });
   };
@@ -54,9 +51,7 @@ app.get("/health", async (req, res) => {
 app.get("/docs.json", (req, res) => res.json(openapi));
 app.use("/docs", apiReference({ content: openapi, theme: "purple", pageTitle: "MAGI API" }));
 
-// every response here is per-session data keyed by the jwt cookie, not the URL - without this a
-// shared browser cache (or a proxy) can serve one account's GET response to a different account
-// that later requests the exact same URL after signing in
+// responses are per-user (cookie), don't let a shared cache serve them to someone else
 app.use("/api", (req, res, next) => {
   res.set("Cache-Control", "no-store");
   next();

@@ -1,29 +1,13 @@
-// A small stand-in for supabase-js's query builder, backed directly by Postgres instead of
-// PostgREST over HTTP - implements exactly the chainable surface this codebase actually uses
-// (grepped across features/ and lib/: select/insert/update/upsert/delete, eq/neq/in/is/ilike,
-// order/limit, single/maybeSingle, the count+head pattern, and awaiting the builder directly),
-// nothing more. Every feature file keeps calling `database.from(table)...` exactly as before.
+// minimal stand-in for the supabase-js query builder on plain pg - only what we actually use
 
 import { types, type Pool } from 'pg';
 
-// node-postgres returns bigint (every id column in this schema) as a string by default, to avoid
-// silently losing precision past Number.MAX_SAFE_INTEGER - but PostgREST (what every id comparison
-// and .includes() check in this codebase was written against) always serialized them as plain JSON
-// numbers, and no id here ever gets remotely close to that ceiling. Parsing bigint as a number
-// everywhere keeps every existing `===`/`.includes()` id check working exactly as it did before.
-// A module-level side effect (not inside a function) so it applies the moment this file is
-// imported, before any query - including from the dedicated test suite, which never imports db.ts.
+// pg returns bigint as a string by default, all our id checks expect numbers
 types.setTypeParser(20, (value) => parseInt(value, 10));
 
 export type PgError = { message: string; code?: string };
-// a discriminated union, matching supabase-js's own PostgrestResponse shape: once `error` has
-// been checked and ruled out, `data` narrows to non-null without an extra null check - this is
-// why `.single()` call sites across the codebase use `data.whatever` straight after `if (error) throw`
+// same shape as supabase-js, data narrows once error is checked
 export type PgResult<T> = { data: T; error: null; count?: number } | { data: null; error: PgError; count?: number };
-// supabase-js types a plain select's `data` as `Row[]` (not a bare `any`), which matters:
-// `(data ?? []).map(...)` only infers the callback param without an explicit annotation when
-// `data` is an array type - a bare `any` makes `any ?? []` fail to do that. `.single()` switches
-// the shape to one (non-null) row instead, same as the real client.
 type ManyOrOne<T, Mode extends 'many' | 'one'> = Mode extends 'one' ? T : T[];
 
 type FilterOp = 'eq' | 'neq' | 'in' | 'is' | 'ilike' | 'like';
@@ -45,8 +29,7 @@ const quote = (ident: string) => `"${ident}"`;
 export class PgTable<T = any, Mode extends 'many' | 'one' = 'many'> implements PromiseLike<PgResult<ManyOrOne<T, Mode>>> {
   private filters: Filter[] = [];
   private action: Action = { kind: 'select', columns: '*' };
-  // once a mutation verb is set, a later `.select(cols)` means "RETURNING these columns", not
-  // "run a separate SELECT instead" - the common `.insert(x).select('cols').single()` chain
+  // after insert/update, select() means RETURNING
   private verbSet = false;
   private returningColumns = '*';
   private orderBy: { col: string; ascending: boolean }[] = [];
@@ -139,8 +122,6 @@ export class PgTable<T = any, Mode extends 'many' | 'one' = 'many'> implements P
     return this as unknown as PgTable<U | null, 'one'>;
   }
 
-  // appends placeholders to the shared `values` array as it goes, so a caller that already
-  // pushed e.g. an UPDATE's SET values gets WHERE placeholders correctly offset after them
   private buildWhere(values: unknown[]): string {
     const clauses = this.filters.map((f) => {
       switch (f.op) {
@@ -262,9 +243,7 @@ export class PgTable<T = any, Mode extends 'many' | 'one' = 'many'> implements P
   }
 }
 
-/** `SELECT * FROM "name"(arg => $1, ...)` - every `.rpc()` call in this codebase passes fully
- * named params and its function returns either one row of one column (unwrapped to that scalar/
- * JSON value here) or a set of rows (returned as-is) - no function here needs anything richer. */
+// SELECT * FROM fn(arg => $1, ...) - one value gets unwrapped
 export async function rpc(pool: Pool, name: string, params: Record<string, unknown> = {}): Promise<PgResult<any>> {
   try {
     const keys = Object.keys(params);

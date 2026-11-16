@@ -1,5 +1,4 @@
-// db.ts and email.config.ts still throw for their own variables and stay as they are,
-// this reports every problem at once instead of only the first import that fails
+// report every missing var at once
 
 const REQUIRED = ['DATABASE_URL', 'DATABASE_KEY', 'JWT_SECRET', 'EMAIL_TOKEN', 'SENDER_EMAIL', 'CLIENT_URL'];
 const PLACEHOLDER_SECRET = 'the_jwt_secret_is_empty_for_now';

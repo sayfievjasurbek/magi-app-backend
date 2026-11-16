@@ -1,4 +1,3 @@
-// Attendance domain: the endpoints of attendance.route.ts and the schemas they use (helpers in docs/common.ts).
 import { authed, envelope, errors, id, json, nullable, ok, pathParam, ref } from '../../docs/common.js';
 
 export const tags = [{ name: 'Attendance', description: "A class's day-by-day attendance roster" }];

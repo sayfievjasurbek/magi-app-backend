@@ -28,15 +28,12 @@ const queue = (...items: { data: unknown; error: unknown }[]) => results.push(..
 const MODULE = { id: 7, name: 'Algorithms' };
 const SUE = { id: 5, first_name: 'Sue', last_name: 'Kim', email: 'sue@magi.edu' };
 
-// the three calls findManagedModule makes for a plain "professor" position managing a module:
-// the position lookup (not an admin), then the module_professor link, then the module itself
+// plain professor: position, module_professor, module
 const managed = () => queue(ok({ position: 'professor' }), ok({ module_id: MODULE.id }), ok(MODULE));
 
-// requireManagedModule's own query sequence for an administrator/director actor instead - seeing
-// all modules skips the module_professor link check entirely, unlike a plain professor above
+// admin/director skips the module_professor check
 const managedAsAdmin = () => queue(ok({ position: 'administrator' }), ok(MODULE));
-// the extra position check requireAdministrator makes, for actions now gated to it (create/delete
-// a class, staffing it with professors or students) - queued right after managed()/managedAsAdmin()
+// extra position check for admin-only actions
 const isAdmin = () => queue(ok({ position: 'administrator' }));
 
 beforeEach(() => {

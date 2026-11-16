@@ -13,8 +13,7 @@ import * as attendanceDocs from '../features/attendance/attendance.docs.js';
 // every domain owns its <domain>.docs.ts, so adding endpoints never touches this one
 const domains = [authDocs, moduleDocs, examDocs, questionDocs, attemptDocs, monitoringDocs, cheatingDocs, notificationDocs, aiDocs, attendanceDocs];
 
-// two domains claiming the same name would otherwise silently keep the last one: a schema shared by
-// several domains belongs in common.ts, an endpoint belongs to exactly one domain
+// fail loudly instead of silently keeping the last duplicate
 export const mergeSchemas = (groups: Record<string, object>[]) => {
   const merged: Record<string, object> = {};
   for (const group of groups) {

@@ -1,6 +1,4 @@
-// Uploads proctoring photos to the Supabase Storage bucket shared with the Rust desktop
-// backend (`proctoring`, public-read) - see magi_app/backend/src/storage.rs for the same
-// logic on that side.
+// supabase storage, bucket shared with the desktop app
 
 import { database } from './db.js';
 import { HttpError } from './errors.js';
@@ -11,8 +9,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const PROFILE_PHOTO_MAX_BYTES = 3 * 1024 * 1024;
 
 const SUBMISSIONS_BUCKET = 'submissions';
-// base64 inflates by ~4/3 and server.ts caps the JSON body at 10mb, so the decoded file has to
-// stay comfortably under that
+// json body limit is 10mb
 const SUBMISSION_MAX_BYTES = 7 * 1024 * 1024;
 
 /** Strips a `data:image/...;base64,...` prefix if present and returns the raw bytes + mime type. */
@@ -44,9 +41,7 @@ export const decodeImageData = (value: unknown): { bytes: Buffer; mime: string; 
 
 const AUDIO_MAX_BYTES = 8 * 1024 * 1024;
 
-/** Strips a `data:audio/...;base64,...` prefix and returns the raw bytes + mime type; unlike
- * decodeImageData there is no bare-base64 fallback, since the desktop app always sends the
- * prefix for a MediaRecorder blob. */
+// desktop app always sends the data: prefix for audio
 export const decodeAudioData = (value: unknown): { bytes: Buffer; mime: string; ext: string } => {
   if (typeof value !== 'string' || !value) throw new HttpError(400, 'audio is required');
 
@@ -102,9 +97,7 @@ export const uploadProfilePhoto = async (userId: number, image: unknown): Promis
   return database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 };
 
-/** Uploads an image a professor attached to the Magi AI chat under `ai-chat/{professorId}/{random}.{ext}`,
- * so a later turn's reconstructed conversation history can hand the model the real image again
- * instead of just the memory that one was sent (see assistant.service.ts's attached-image marker). */
+// so later turns can show the model the same image again
 export const uploadChatImage = async (professorId: number, dataUrl: string): Promise<string> => {
   const { bytes, mime } = decodeAnyFileData(dataUrl);
   const ext = mime === 'image/jpeg' ? 'jpg' : (mime.split('/')[1] ?? 'png');

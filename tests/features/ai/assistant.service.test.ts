@@ -71,8 +71,6 @@ describe('runAssistant', () => {
   });
 
   describe('when OpenAI itself fails', () => {
-    // each of these used to reach the professor as the same generic "Something went wrong" 500 -
-    // a dead key and an empty billing balance looked identical to an actual bug
     it('reports a clear, actionable message for an invalid/expired API key', async () => {
       create.mockRejectedValueOnce(new OpenAI.AuthenticationError(401, { message: 'Your API key has been invalidated.' }, 'Your API key has been invalidated.', new Headers()));
 
@@ -408,8 +406,7 @@ describe('runAssistant', () => {
   });
 
   it('grades an attempt once the professor confirms, notifying the student via the service', async () => {
-    // a fresh message only carries its own visible text forward, not the real id behind an earlier
-    // lookup - grade_attempt re-resolves the attempt via get_attempt before grading, same as live
+    // new message, so it has to look the attempt up again before grading
     create
       .mockResolvedValueOnce(toolCallRound(toolCall('call_1', 'get_attempt', { attemptId: 77 })))
       .mockResolvedValueOnce(toolCallRound(toolCall('call_2', 'grade_attempt', { attemptId: 77, score: 85, feedback: 'Good work' })))

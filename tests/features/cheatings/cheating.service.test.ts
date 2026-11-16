@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// one chainable fake for the whole builder: every call lands in `calls`, every awaited query takes the next queued result
+// chainable fake db, each awaited query takes the next queued result
 const { from, calls, results } = vi.hoisted(() => {
   const calls: any[][] = [];
   const results: any[] = [];

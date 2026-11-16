@@ -1,7 +1,4 @@
-// Compares a face-snapshot photo taken during an exam against the student's own reference
-// photo (set in Settings), so a mismatch can be auto-flagged as a face_mismatch cheating
-// incident - see monitoring.service.ts. Self-hosted (no paid API): @vladmandic/face-api on
-// @tensorflow/tfjs-node, running entirely on this server. Needs Node <=22 - see Dockerfile.
+// face-api on tfjs-node, runs locally (needs node <=22)
 
 import * as tf from '@tensorflow/tfjs-node';
 import * as faceapi from '@vladmandic/face-api';
@@ -38,15 +35,13 @@ const descriptorFor = async (imageBytes: Buffer): Promise<Float32Array | null> =
   };
 };
 
-/** Whether face-api can find a face in the photo at all - used to reject an unusable reference photo at upload time. */
+// used to reject a bad reference photo on upload
 export const hasFace = async (imageBytes: Buffer): Promise<boolean> => {
   await ensureModelsLoaded();
   return (await descriptorFor(imageBytes)) !== null;
 };
 
-// a face-less or near-uniform frame (camera not warmed up yet, bad lighting) can still have just
-// enough noise for TinyFaceDetector to false-positive a "face" in it - a cheap brightness check
-// catches what hasFace alone missed, same idea as a flat-field check on a camera
+// dark/flat frames can still false-positive a face
 const MIN_MEAN_BRIGHTNESS = 15; // 0-255 scale
 const MAX_MEAN_BRIGHTNESS = 245;
 

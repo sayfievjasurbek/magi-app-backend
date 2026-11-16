@@ -15,8 +15,7 @@ type Media = { id: number; url: string; label: string | null; created_at: string
 
 const ATTEMPT_COLUMNS = 'id, exam_id, status, submitted_at';
 
-// a cheating incident turns in_progress into flagged in the same column, so the attempt is
-// still running as long as it has not been submitted
+// flagged attempts are still running
 const isRunning = (attempt: Attempt) =>
   (attempt.status === 'in_progress' || attempt.status === 'flagged') && !attempt.submitted_at;
 
@@ -55,8 +54,7 @@ const parseReason = (value: unknown): string => {
   return reason;
 };
 
-// mirrors cheating.service.ts's own flaggableStatuses/createIncident - duplicated rather than
-// imported cross-feature, same as isRunning/ATTEMPT_COLUMNS above
+// same as cheating.service.ts
 const flaggableStatuses = ['in_progress', 'submitted', 'auto_submitted'];
 
 const flagFaceMismatch = async (attemptId: number, explanation: string): Promise<void> => {
@@ -77,9 +75,7 @@ const flagFaceMismatch = async (attemptId: number, explanation: string): Promise
   if (statusError) console.error('Error flagging attempt after a face_mismatch incident:', statusError.message);
 };
 
-// a face-snapshot taken mid-exam, compared against the student's own reference photo (if they
-// ever set one in Settings) - a mismatch auto-flags the attempt the same way a self-reported
-// incident would. Never throws: a broken comparison must not fail the photo upload itself.
+// compare against the student's reference photo, never throws
 const checkFaceMatch = async (attemptId: number, studentId: number, image: unknown): Promise<void> => {
   try {
     const { data: student, error } = await database
@@ -157,14 +153,13 @@ export const addMedia = async (kind: string, attemptIdParam: string, studentId: 
     .from(media.join)
     .insert({ assignment_id: attemptId, [media.column]: row.id });
 
-  // PostgREST has no transaction over two inserts: drop the media row again so a failed add leaves nothing behind
+  // no transaction here, undo the media row
   if (linkError) {
     await database.from(media.table).delete().eq('id', row.id);
     throw new Error(linkError.message);
   };
 
-  // not awaited: the student's app gets its response immediately, the face check (a second or
-  // so of ML inference) runs after, and flags the attempt in the background if it mismatches
+  // not awaited on purpose, inference is slow
   if (kind === 'face-snapshots') void checkFaceMatch(attemptId, studentId, payload);
 
   return row;
@@ -196,9 +191,7 @@ export const listMedia = async (kind: string, attemptIdParam: string, user: Call
   return (data ?? []) as Media[];
 };
 
-// No access check - the caller (attempts domain, deciding whether to deep-review an attempt)
-// has already verified it can see this attempt. Pulls from both the face camera and the
-// window-switch screen captures, newest first, capped to keep the vision call's payload small.
+// caller already checked access
 export const proctoringPhotosForAttempt = async (attemptId: number, limit = 6): Promise<{ url: string; created_at: string }[]> => {
   const wanted = ['face-snapshots', 'snapshots'] as const;
   const found: { url: string; created_at: string }[] = [];

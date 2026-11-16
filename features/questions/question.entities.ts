@@ -1,5 +1,3 @@
-// Questions domain: one type per table it owns, field for field from migrations/003_exam_schema.sql
-// and 005_questions_owner.sql (created_by).
 import { type TimeUnit } from '../../lib/deadline.js';
 
 export type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay' | 'file_upload';

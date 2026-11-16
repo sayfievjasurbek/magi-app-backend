@@ -60,8 +60,7 @@ export const login = async ( req: Request, res: Response ) => {
         reason: string | null
       }>();
 
-    // A real failure here (a DB hiccup, or more than one row for the same email) is not the same
-    // thing as "that email has no account" - the former must not be reported as a wrong password
+    // a db error isn't a wrong password
     if (userError) {
       console.log('Error looking up user during login:', userError.message);
       throw new Error(userError.message);
@@ -120,8 +119,7 @@ export const login = async ( req: Request, res: Response ) => {
     const expires_at = new Date();
 		expires_at.setDate(expires_at.getDate() + 7); // 7days
 
-    // Store the token in the database (hashed, like every other token type - a DB leak
-    // should not hand out ready-to-use session cookies)
+    // stored hashed
     const hashedSessionToken = crypto.createHash('sha256').update(token).digest('hex');
     const { error: tokenError } = await database
       .from('tokens')
@@ -138,8 +136,7 @@ export const login = async ( req: Request, res: Response ) => {
 
     return res.status(200).json( {
       success: true,
-      // the cookie is what web clients actually use; the desktop app (no cookie jar) reads
-      // this token instead and sends it back as `Authorization: Bearer <token>`
+      // desktop app has no cookie jar, it sends this back as a bearer token
       token,
       user: {
         id: user.id,
@@ -231,8 +228,7 @@ export const signup = async ( req: Request, res: Response ) => {
       .from(roleTable)
       .insert({ user_id: newUser.id });
 
-    // the two writes are not one transaction: a user with no role can never log in
-    // (get_user_role finds nothing) and, for signup, permanently occupies their real email
+    // not one transaction - a user without a role row can't log in
     if (roleError) {
       console.log('Error assigning role to new user:', roleError);
       await database.from('users').delete().eq('id', newUser.id);
@@ -266,8 +262,7 @@ export const signup = async ( req: Request, res: Response ) => {
     // Hash the token before storing
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-    // Store the token before sending the email: a send failure after this is recoverable
-    // (resend through verifyEmail), a send that goes out before the token exists is not
+    // token first, then the email (a failed send can be resent)
     const { data: tokenData, error: tokenError } = await database
       .from('tokens')
       .insert({
@@ -308,12 +303,10 @@ export const signup = async ( req: Request, res: Response ) => {
   };
 };
 
-// +998 followed by 9 digits - the frontend normalizes spaces/dashes out before sending, but this
-// is the actual boundary, so it checks again rather than trusting that
+// +998 and 9 digits
 const isValidUzPhone = (value: string): boolean => /^\+998\d{9}$/.test(value);
 
-// students created this way have no real inbox of their own - "humoyun@magi.com" rather than
-// something they'd need to own - so a collision just means trying the next suffix
+// generated login, try the next suffix on collision
 const uniqueLogin = async (firstName: string): Promise<string> => {
   const base = firstName.toLowerCase().replace(/[^a-z0-9]/g, '') || 'student';
   for (let suffix = 0; suffix < 50; suffix++) {
@@ -325,8 +318,7 @@ const uniqueLogin = async (firstName: string): Promise<string> => {
   return `${base}${crypto.randomInt(1000, 9999)}@magi.com`;
 };
 
-// a random 5-digit code for the given role table/column - not the users.id primary key, which is
-// never meant to be shown to anyone. For students this also ends up on proctoring photos.
+// random 5 digit code, not the real id
 const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student_code' | 'professor_code' | 'id_number'): Promise<string> => {
   for (let attempt = 0; attempt < 20; attempt++) {
     const candidate = String(crypto.randomInt(0, 100_000)).padStart(5, '0');
@@ -337,9 +329,7 @@ const uniqueRoleCode = async (table: 'students' | 'professors', column: 'student
   throw new Error(`Could not generate a unique ${column}`);
 };
 
-// a professor creating a student directly: no email to verify, login and password are both
-// generated, and a recoverable copy of the password is kept so the professor can look it up if
-// the student forgets it - the account is active immediately either way
+// professor-created student: generated login/password, active right away
 export const createStudent = async (req: Request, res: Response) => {
   try {
     const { firstName, lastName, phone, parentPhone, parentRelation, age, photo, email, password, idNumber }:
@@ -372,8 +362,6 @@ export const createStudent = async (req: Request, res: Response) => {
       message: 'age must be an integer between 1 and 100',
     });
 
-    // optional - a professor can hand the student a reference photo up front instead of leaving
-    // it to the student to set later; same quality bar as the student's own upload (setMyProfilePhoto)
     let photoBytes: Buffer | null = null;
     if (photo) {
       photoBytes = decodeImageData(photo).bytes;
@@ -381,11 +369,7 @@ export const createStudent = async (req: Request, res: Response) => {
       if (!(await hasFace(photoBytes))) throw new HttpError(400, 'invalid photo: no face detected');
     }
 
-    // email, password and idNumber are each optional - a professor can hand them out themselves
-    // (an existing gmail, a password they'll tell the student, an ID card number already on file)
-    // or leave any of them blank and get one generated the same way as before. Each is validated
-    // as an actual string first - req.body is unchecked JSON, and e.g. a number here would
-    // otherwise reach bcrypt.hash/.trim() and crash with a 500 instead of a clean 400.
+    // all optional, generated if left empty. check they're strings, body is unchecked json
     if (email !== undefined && typeof email !== 'string') return res.status(400).json({ success: false, message: 'email must be a string' });
     if (password !== undefined && typeof password !== 'string') return res.status(400).json({ success: false, message: 'password must be a string' });
     if (idNumber !== undefined && typeof idNumber !== 'string') return res.status(400).json({ success: false, message: 'idNumber must be a string' });
@@ -437,9 +421,7 @@ export const createStudent = async (req: Request, res: Response) => {
     if (newUserError) throw new Error(newUserError.message);
     if (!newUser) throw new Error('New user data is null after insertion');
 
-    // the photo upload and the students-row insert are not one transaction with the user insert
-    // above: a user with no students row can never log in (get_user_role finds nothing), so
-    // either failing here rolls back the user too, same as createModule/createQuestion do
+    // roll the user back if this fails, otherwise they can never log in
     let profilePhotoUrl: string | null = null;
     try {
       profilePhotoUrl = photoBytes ? await uploadProfilePhoto(newUser.id, photo) : null;
@@ -475,13 +457,7 @@ export const createStudent = async (req: Request, res: Response) => {
   };
 };
 
-// every student this professor created directly, newest first - shows up here even before being
-// linked to a module, which listing module rosters alone would miss
-// every student this professor created directly, plus every student in a module they manage -
-// one fixed set of queries instead of the admin panel previously fetching each managed module's
-// roster separately to build this same list client-side (slow with more than a few modules). An
-// optional search narrows by name/email/code - used by the Students page and by Magi AI's
-// list_students tool to resolve a name to an id before enrolling them in a group.
+// students this professor created + everyone in their modules, optional search
 export const listManagedStudents = async (professorId: number, search?: string) => {
   let studentIds: Set<number>;
 
@@ -532,8 +508,6 @@ export const listManagedStudents = async (professorId: number, search?: string) 
     .is('deleted_at', null);
   if (usersError) throw new Error(usersError.message);
 
-  // whether each student is in any group at all - lets a group's own roster page offer
-  // "not in a group yet" as its own filter when picking who to add
   const { data: memberships, error: membershipsError } = await database
     .from('module_student')
     .select('student_id')
@@ -562,9 +536,7 @@ export const listManagedStudents = async (professorId: number, search?: string) 
     .sort((a, b) => b.id - a.id);
 
   if (search?.trim()) {
-    // strips everything but letters/digits before comparing, so a run-together query like a
-    // username or a name typed without the space it's actually stored with still matches - see
-    // listManagedProfessors above, which this mirrors (originally bolted on there after a bug report)
+    // compare letters/digits only so "behruz123" matches "Behruz 123"
     const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/gi, '');
     const needle = normalize(search);
     students = students.filter((s) =>
@@ -621,8 +593,6 @@ export const getStudentDetail = async (req: Request, res: Response) => {
   };
 };
 
-// a professor granting one student an individual url/app exception, on top of whatever their
-// group and exams already permit
 export const addStudentPermittedUrl = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
@@ -681,16 +651,12 @@ export const removeStudentPermittedApp = async (req: Request, res: Response) => 
   };
 };
 
-// a professor correcting a student's own profile data - same fields createStudent accepts,
-// each optional and only touched when present in the body
 export type UpdateStudentPatch = {
   firstName?: s; lastName?: s | null; phone?: s | null; parentPhone?: s | null; parentRelation?: s | null;
   age?: number | null; email?: s; idNumber?: s; studentCode?: s; password?: s;
 };
 
-// the core of updateStudent below, as a plain function the Magi AI chat can call directly the same
-// way it already calls updateModule/updateExam/updateQuestion - the controller is now a thin
-// req/res wrapper over this, same split as listManagedStudents/listCreatedStudents above
+// plain function so the ai chat can call it too
 export const updateStudentProfile = async (professorId: number, studentId: number, patch: UpdateStudentPatch) => {
   if (!(await managesStudent(professorId, studentId))) throw new HttpError(404, 'Student not found');
 
@@ -725,8 +691,7 @@ export const updateStudentProfile = async (professorId: number, studentId: numbe
     userPatch.email = trimmedEmail;
   };
 
-  // same as changePassword/resetPassword: the professor is choosing this on the student's
-  // behalf, so (unlike those) the recovery_secret below is refreshed to match, not cleared
+  // professor sets it, so refresh recovery_secret instead of clearing it
   if (password !== undefined) {
     if (typeof password !== 'string') throw new HttpError(400, 'password must be a string');
     if (password.length < 6 || password.length > 100) throw new HttpError(400, 'password must be between 6 and 100 characters long');
@@ -798,9 +763,7 @@ export const updateStudent = async (req: Request, res: Response) => {
   };
 };
 
-// a professor removing a student account they (or a colleague) created - soft delete, same
-// users.deleted_at/active_status/reason columns every account deletion in this system uses;
-// a deleted account can no longer log in (see the active_status check in login above)
+// soft delete
 export const deleteStudent = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
@@ -829,9 +792,6 @@ export const deleteStudent = async (req: Request, res: Response) => {
   };
 };
 
-// a professor clearing a student's reference photo - e.g. a bad capture that still passed the
-// upload checks (too dark but technically had a detectable face). Once cleared, the student can
-// set a new one themselves (setMyProfilePhoto only refuses when profile_photo_url is already set)
 export const resetStudentPhoto = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
@@ -855,8 +815,7 @@ export const resetStudentPhoto = async (req: Request, res: Response) => {
   };
 };
 
-// a professor looking up a student's credentials because they forgot them - only works for
-// accounts created through createStudent above; self-signup accounts have no recovery_secret
+// only works for professor-created accounts
 export const getStudentCredentials = async (req: Request, res: Response) => {
   try {
     const studentId = Number(req.params.id);
@@ -962,11 +921,7 @@ export const createProfessor = async (req: Request, res: Response) => {
   };
 };
 
-// every professor this professor created directly, plus every co-professor on a module they
-// manage - one fixed set of queries instead of the admin panel previously fetching each managed
-// module's roster separately to build this same list client-side (slow with more than a few modules).
-// An optional search narrows by name/email/professor_code - used by the Professors page and by
-// Magi AI's list_professors tool to resolve a name to an id before assigning a mentor.
+// professors this one created + co-professors on their modules, optional search
 export const listManagedProfessors = async (professorId: number, search?: string) => {
   let professorIds: Set<number>;
 
@@ -1002,8 +957,6 @@ export const listManagedProfessors = async (professorId: number, search?: string
     for (const row of created ?? []) professorIds.add(row.user_id);
   };
 
-  // this professor managing a module (so in the set via module_professor above, or always in
-  // the "everyone" case) doesn't belong in their own "other employees" list
   professorIds.delete(professorId);
 
   if (!professorIds.size) return [];
@@ -1032,9 +985,7 @@ export const listManagedProfessors = async (professorId: number, search?: string
     .sort((a, b) => b.id - a.id);
 
   if (search?.trim()) {
-    // strips everything but letters/digits before comparing, so "behruz123" still matches a
-    // first_name/last_name of "Behruz"/"123" even though the stored name has a space between them
-    // that the search text doesn't (e.g. typed as a run-together username/display name)
+    // letters/digits only, see listManagedStudents
     const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/gi, '');
     const needle = normalize(search);
     professors = professors.filter((p) =>
@@ -1083,8 +1034,6 @@ export const getProfessorDetail = async (req: Request, res: Response) => {
   };
 };
 
-// a professor looking up another professor's credentials because they forgot them - only works
-// for accounts created through createProfessor above
 export const getProfessorCredentials = async (req: Request, res: Response) => {
   try {
     const professorId = Number(req.params.id);
@@ -1151,13 +1100,11 @@ export const changePassword = async (req: Request, res: Response) => {
     const { error: updateError } = await database.from('users').update({ password: hashedPassword }).eq('id', req.user!.id);
     if (updateError) throw new Error(updateError.message);
 
-    // the password just changed, so any recovery_secret a professor had on file is now stale -
-    // only accounts createStudent/createProfessor made have one, this is a no-op otherwise
+    // old recovery_secret is stale now
     await database.from('students').update({ recovery_secret: null }).eq('user_id', req.user!.id);
     await database.from('professors').update({ recovery_secret: null }).eq('user_id', req.user!.id);
 
-    // let the professor who created this student's account know their recorded password no
-    // longer works - best-effort, and a no-op for self-signup students (no created_by)
+    // tell the professor who created the account
     if (req.user!.role === 'student') {
       const { data: student } = await database
         .from('students')
@@ -1181,9 +1128,7 @@ export const changePassword = async (req: Request, res: Response) => {
   };
 };
 
-// the logged-in user's own current password, so the password-change form can pre-fill it
-// instead of asking them to recall it - only available for accounts created with a recoverable
-// password (same recovery_secret a professor would look up for them, see getStudentCredentials)
+// prefill for the change password form, only if recoverable
 export const getMyCurrentPassword = async (req: Request, res: Response) => {
   try {
     const table = req.user!.role === 'student' ? 'students' : 'professors';
@@ -1200,8 +1145,6 @@ export const getMyCurrentPassword = async (req: Request, res: Response) => {
   };
 };
 
-// the logged-in user's own full profile - role-specific fields (phone, student_code, the
-// reference photo) layer on top of the base user record for students
 export const getMyProfile = async (req: Request, res: Response) => {
   try {
     const { data: user, error } = await database
@@ -1219,8 +1162,6 @@ export const getMyProfile = async (req: Request, res: Response) => {
         .eq('user_id', req.user!.id)
         .maybeSingle();
       if (studentError) throw new Error(studentError.message);
-      // same check setMyProfilePhoto itself runs before refusing a retake - lets the student's
-      // own settings page show "meets requirements" instead of a Retake/Upload new it would reject
       const profilePhotoLocked = student?.profile_photo_url ? await currentPhotoStillUsable(student.profile_photo_url) : false;
       return res.status(200).json({ success: true, profile: { ...user, ...student, role: req.user!.role, profile_photo_locked: profilePhotoLocked } });
     }
@@ -1241,8 +1182,7 @@ export const getMyProfile = async (req: Request, res: Response) => {
   };
 };
 
-// the logged-in user editing their own name/phone - email and role aren't editable here (email
-// changes would need their own re-verification flow, and role is never self-service)
+// email and role aren't editable here
 export const updateMyProfile = async (req: Request, res: Response) => {
   try {
     const { firstName, lastName, phone }: { firstName?: s, lastName?: s | null, phone?: s | null } = req.body;
@@ -1281,11 +1221,7 @@ export const updateMyProfile = async (req: Request, res: Response) => {
   };
 };
 
-// a student setting their own reference photo - gives staff something to compare the
-// identity_check photo taken during an exam against
-// whether the student's current reference photo would itself still pass setMyProfilePhoto's own
-// checks - lets a student replace a bad one themselves (e.g. set before these checks existed, or
-// a since-expired/broken storage url) instead of being stuck until a professor resets it for them
+// lets a student replace a reference photo that wouldn't pass the checks anymore
 const currentPhotoStillUsable = async (url: string): Promise<boolean> => {
   try {
     const response = await fetch(url);
@@ -1321,9 +1257,7 @@ export const setMyProfilePhoto = async (req: Request, res: Response) => {
   };
 };
 
-// the desktop app's entry gate before an exam starts: a photo taken right then, checked against
-// the student's reference photo. No reference photo on file means nothing to gate on, so it's
-// reported as a pass (hasReference: false) rather than blocking a student who never set one up.
+// no reference photo on file = pass
 export const checkMyIdentity = async (req: Request, res: Response) => {
   try {
     const { data: student, error } = await database
@@ -1469,9 +1403,7 @@ export const verifyAccount = async ( req: Request, res: Response ) => {
       .eq('token', hashedToken)
       .eq('token_type', 'verify_account_email');
     
-    // Send welcome email - best-effort: the account is already verified and the token already
-    // revoked above, so a send failure here (sendWelcomeEmail throws, it never returns false)
-    // must not turn an already-successful verification into a 500 the client has to retry into
+    // best-effort, already verified at this point
     try {
       await sendWelcomeEmail(updatedUser.email);
     } catch (emailError) {
@@ -1754,8 +1686,7 @@ export const resetPassword = async ( req: Request, res: Response ) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // the password just changed, so any recovery_secret a professor had on file is now stale -
-    // only accounts createStudent/createProfessor made have one, this is a no-op otherwise
+    // old recovery_secret is stale now
     await database.from('students').update({ recovery_secret: null }).eq('user_id', getUserIdByToken.user_id);
     await database.from('professors').update({ recovery_secret: null }).eq('user_id', getUserIdByToken.user_id);
 
@@ -1766,9 +1697,7 @@ export const resetPassword = async ( req: Request, res: Response ) => {
       .eq('token', hashedToken)
       .eq('token_type', 'update_account_password'); 
     
-    // Send password reset success email - best-effort: the password is already changed and the
-    // token already revoked above, so a send failure here (sendResetSuccessEmail throws, it
-    // never returns false) must not turn an already-successful reset into a 500 to retry into
+    // best-effort, password is already changed
     try {
       await sendResetSuccessEmail(updatedUser.email);
     } catch (emailError) {

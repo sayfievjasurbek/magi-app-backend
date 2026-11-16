@@ -5,7 +5,7 @@ export const tags = [{ name: 'Attempts', description: 'A student sitting an exam
 
 const timeUnit = { type: 'string', enum: ['seconds', 'minutes', 'hours', 'days'], example: 'seconds' };
 const attemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded', 'flagged'], example: 'submitted' };
-// `flagged` is staff business: a student reads in_progress while the attempt runs, submitted or auto_submitted afterwards
+// students never see flagged
 const studentAttemptStatus = { type: 'string', enum: ['pending', 'in_progress', 'submitted', 'auto_submitted', 'graded'], example: 'in_progress' };
 
 const answerFields = {

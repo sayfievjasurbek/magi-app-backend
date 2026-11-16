@@ -19,8 +19,7 @@ const moduleStudentIds = async (moduleId: number): Promise<number[]> => {
   return (data ?? []).map((row: { student_id: number }) => row.student_id);
 };
 
-// the whole roster for one day, present/absent/unmarked - not just the students someone has
-// already marked, so a freshly-opened day always shows everyone
+// whole roster, including students nobody marked yet
 export const getAttendance = async (moduleIdParam: string, professorId: number, dateParam: unknown): Promise<AttendanceEntry[]> => {
   const date = requireDateOnly(dateParam);
   const managed = await requireManagedModule(moduleIdParam, professorId);

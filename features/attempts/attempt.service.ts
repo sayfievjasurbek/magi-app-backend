@@ -35,7 +35,7 @@ const ATTEMPT_STATUSES: AttemptStatus[] = ['pending', 'in_progress', 'submitted'
 const STARTABLE_EXAM_STATUSES = ['scheduled', 'ongoing', 'demo'];
 // the question types a professor has to grade by hand; the rest is graded at submit
 const MANUAL_TYPES = ['short_answer', 'essay', 'file_upload'];
-// of those, the ones AI review can judge from the text itself - a file_upload has no text to compare against model_answers
+// file_upload has no text for ai to review
 const AI_REVIEWABLE_TYPES = ['short_answer', 'essay'];
 // reads are not paginated: one exam answers with its first attempts, as the media and incident lists do
 const ATTEMPT_LIMIT = 500;
@@ -45,16 +45,14 @@ const unwrap = <T>({ data, error }: { data: T | null; error: { message: string }
   return data;
 };
 
-// `flagged` is written by the cheating domain and does not end the session, so an unsubmitted attempt stays open
+// flagged doesn't end the attempt
 const isOpen = (attempt: Attempt) =>
   attempt.submitted_at === null && (attempt.status === 'in_progress' || attempt.status === 'flagged');
 
 const remainingSeconds = (attempt: Attempt, exam: Exam) =>
   isOpen(attempt) ? Math.max(0, Math.floor((deadline(attempt, exam) - Date.now()) / 1000)) : 0;
 
-// how far past its deadline an attempt is - live while it's still open and overdue (nothing closes
-// it anymore, see finishAttempt below), frozen at the lateness it was actually submitted with once
-// closed. Always 0 on time, and always 0 for an unlimited_time retake (its deadline never arrives).
+// 0 if on time or unlimited
 const lateSeconds = (attempt: Attempt, exam: Exam) => {
   const dl = deadline(attempt, exam);
   const at = isOpen(attempt) ? Date.now() : attempt.submitted_at ? Date.parse(attempt.submitted_at) : dl;
@@ -229,8 +227,6 @@ const attemptPermittedUrls = async (attemptId: number) => {
     .in('id', links.map((link: { permitted_url_id: number }) => link.permitted_url_id))) ?? [];
 };
 
-// same shape as attemptPermittedUrls - frozen by start_attempt() alongside it, from the exam's,
-// the student's and their group's app grants
 const attemptPermittedApps = async (attemptId: number) => {
   const links = unwrap(await database.from('assignment_permitted_app').select('permitted_app_id').eq('assignment_id', attemptId)) ?? [];
   if (!links.length) return [];
@@ -241,10 +237,7 @@ const attemptPermittedApps = async (attemptId: number) => {
     .in('id', links.map((link: { permitted_app_id: number }) => link.permitted_app_id))) ?? [];
 };
 
-// Closes an attempt: marks every objective answer, stores the total and moves the status on.
-// A flagged attempt keeps its status until a professor grades it, so the flag is not lost.
-// Only ever called from an explicit student submit now - nothing closes an attempt on its behalf
-// just because its deadline passed, so there is no "auto" path left here anymore.
+// grades the objective answers. keeps flagged status so the flag isn't lost
 const finishAttempt = async (attempt: Attempt, exam: Exam) => {
   const examQuestions = unwrap(await database.from('exam_question').select('question_id, marks').eq('exam_id', attempt.exam_id)) ?? [];
   const questionIds = examQuestions.map((row: { question_id: number }) => row.question_id);
@@ -291,9 +284,7 @@ const finishAttempt = async (attempt: Attempt, exam: Exam) => {
   const naturalStatus: AttemptStatus = hasManual ? 'submitted' : 'graded';
   const submissionFields = { submitted_at: new Date().toISOString(), auto_submitted: false, score: Math.min(awarded, exam.max_marks) };
 
-  // guarded on the attempt's *current* DB status, not the possibly-stale `attempt` passed in - a
-  // cheating/face-mismatch incident can flag the row in the window between when the caller first
-  // read it and this write, and that flag must survive the submit, not get silently overwritten
+  // check the current db status, it may have been flagged since we read it
   const settled = unwrap(await database
     .from('assignments')
     .update({ ...submissionFields, status: naturalStatus })
@@ -311,8 +302,7 @@ const finishAttempt = async (attempt: Attempt, exam: Exam) => {
     .single()) as Attempt;
 };
 
-// starting an exam whose attempt is still open picks it up where it was left (the app was
-// closed, the connection dropped) instead of refusing a student who never got to submit
+// app closed / connection dropped - pick it back up
 const resumeAttempt = async (studentId: number, attemptId: number) => {
   const { attempt, exam } = await loadOwnAttempt(studentId, attemptId);
   const current = attempt;
@@ -333,10 +323,7 @@ export const startAttempt = async (studentId: number, body: { examId?: unknown }
   const exam = await loadExam(examId);
   if (!(await sitsExam(exam, studentId))) throw new HttpError(404, 'Exam not found');
 
-  // one attempt per student per exam is a unique constraint; an existing attempt is resumed as-is,
-  // before the exam-window checks below - a professor-granted retake (allowRetake) reopens an
-  // attempt whose exam window may since have closed, and resumeAttempt judges it by the attempt's
-  // own deadline (unlimited for a retake), not the exam's
+  // resume before the window checks - a retake can be past the exam's end
   const existing = unwrap(await database.from('student_assignment').select('assignment_id').eq('student_id', studentId).eq('exam_id', examId).maybeSingle()) as { assignment_id: number } | null;
   if (existing) return resumeAttempt(studentId, existing.assignment_id);
 
@@ -365,9 +352,7 @@ export const startAttempt = async (studentId: number, body: { examId?: unknown }
     0
   );
 
-  // the attempt, its student link, its questions in their attempt order and the permitted urls are
-  // one transaction in the database (migrations/008_start_attempt.sql): a half started attempt is
-  // unusable, and PostgREST cannot span four writes
+  // one transaction in the db (008_start_attempt.sql)
   const { data, error } = await database.rpc('start_attempt', {
     param_student_id: studentId,
     param_exam_id: examId,
@@ -443,21 +428,16 @@ export const listExamAttempts = async (caller: Caller, query: { examId?: unknown
   return attempts.map((attempt: Attempt) => staffSummary(attempt, exam, studentById.get(studentIdByAttempt.get(attempt.id) as number) ?? null));
 };
 
-// an attempt is "awaiting" once it's submitted but has no grade yet - mirrors AWAITING on the Attempts overview page
 const AWAITING_STATUSES = new Set(['submitted', 'auto_submitted', 'flagged']);
 
-// counts per exam for every exam the professor manages, in a fixed number of queries - the
-// admin panel's Attempts overview used to call listExamAttempts once per exam to build this,
-// which got slow once there were more than a handful (worse now that homework exams exist too)
+// fixed number of queries instead of one per exam
 export const listAttemptsSummary = async (professorId: number): Promise<{ exam_id: number; students: number; awaiting: number; graded: number }[]> => {
   const examIds = await managedExamIds(professorId);
   if (!examIds.length) return [];
 
   const counts = new Map(examIds.map((id) => [id, { exam_id: id, students: 0, awaiting: 0, graded: 0 }]));
 
-  // "students" is who the exam was actually assigned to (exam_student), not who has started it -
-  // that count is frozen per exam at assignment time, so an exam from before students joined the
-  // class doesn't silently grow when the roster does later
+  // who it was assigned to, not who started it
   const assigned = unwrap(await database.from('exam_student').select('exam_id').in('exam_id', examIds)) ?? [];
   for (const row of assigned as { exam_id: number }[]) {
     const count = counts.get(row.exam_id);
@@ -487,8 +467,7 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
       questions: await attemptQuestions(current, false),
       permitted_urls: await attemptPermittedUrls(current.id),
       permitted_apps: await attemptPermittedApps(current.id),
-      // disclosed only when a professor explicitly chose to show this student what was
-      // recorded against them - never by default, see setCheatingDisclosure below
+      // only when the professor chose to show it
       ...(current.cheating_disclosed ? { cheating_incidents: await incidentsForAttempt(current.id) } : {}),
     };
   }
@@ -518,8 +497,6 @@ export const getAttempt = async (caller: Caller, attemptId: number | null) => {
   };
 };
 
-// how much of the exam the student actually answered, independent of whether it was graded yet
-// or whether any answer is right - a reference figure next to the staff's own marks
 const completionOf = (questions: Array<{ answer: string; selected_option_ids: number[]; marks: number }>) => {
   const answered = questions.filter((q) => q.answer.trim() !== '' || q.selected_option_ids.length > 0);
   return {
@@ -658,8 +635,6 @@ export const syncAnswers = async (studentId: number, attemptId: number | null, b
   return { synced: patches.length, remaining_seconds: remainingSeconds(current, exam), late_seconds: lateSeconds(current, exam) };
 };
 
-// a `file_upload` question is answered by uploading a file instead of typing - the file's
-// public URL becomes the answer, same column every other question type already writes to
 export const uploadAnswerFile = async (
   studentId: number,
   attemptId: number | null,
@@ -701,8 +676,7 @@ export const uploadAnswerFile = async (
   return { url, remaining_seconds: remainingSeconds(current, exam) };
 };
 
-// a malformed/oversized timeline must never fail the submission itself - it's a nice-to-have
-// chart for staff, not something the student's own exam result should ever depend on
+// bad timeline shouldn't fail the submit
 const MAX_TIMELINE_POINTS = 500;
 const parseTypingTimeline = (value: unknown): TypingTimelinePoint[] | null => {
   if (!Array.isArray(value) || value.length > MAX_TIMELINE_POINTS) return null;
@@ -737,9 +711,7 @@ export const submitAttempt = async (studentId: number, attemptId: number | null,
     }
   }
 
-  // best-effort - the professor's "Run AI review" button is still there for a manual re-ask, but
-  // the review is ready without anyone having to click it. Never let this slow down or fail the
-  // student's own submission: no manual-type questions and no API key are both routine, not errors
+  // run the ai review in the background, never block the submit
   if (aiConfigured()) {
     void runAiReview(submitted, exam, false).catch((err) => {
       console.error(`ai review of attempt ${submitted.id} after submit failed:`, err instanceof Error ? err.message : err);
@@ -762,8 +734,7 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
 
   if (body.feedback !== undefined && body.feedback !== null && typeof body.feedback !== 'string') throw new HttpError(400, 'feedback must be a string');
 
-  // one overall grade for the whole attempt instead of marking each manually-graded question on
-  // its own - skips question_assignment entirely and sets the total directly
+  // one overall score instead of per question
   if (body.score !== undefined) {
     if (!Number.isSafeInteger(body.score) || (body.score as number) < 0) throw new HttpError(400, 'score must be a whole number of zero or more');
     if ((body.score as number) > exam.max_marks) throw new HttpError(400, `score cannot exceed ${exam.max_marks}`);
@@ -839,10 +810,7 @@ export const gradeAttempt = async (professorId: number, attemptId: number | null
   return staffSummary(graded, exam, await loadStudent(studentId));
 };
 
-// Reopens a finished attempt so the student can resubmit it - e.g. they ran out of time or the
-// professor wants another shot after a dispute. Unlimited time, not just "resumed": a retake that
-// still raced the clock would defeat the point of granting one. Reused answers/timeline are
-// cleared since they belonged to the submission being redone, same as a fresh attempt would start.
+// reopen a submitted attempt with no time limit, answers are cleared
 export const allowRetake = async (professorId: number, attemptId: number | null) => {
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
@@ -895,10 +863,7 @@ export const allowRetake = async (professorId: number, attemptId: number | null)
   return staffSummary(reopened, exam, await loadStudent(studentId));
 };
 
-// A student is never told an attempt was flagged, let alone shown the incidents behind it -
-// that is staff business by default (see studentStatus above). This is the one deliberate
-// opt-in: a professor who fails a student for cheating can choose to show exactly what was
-// recorded, instead of leaving them guessing why they failed.
+// lets the professor show a student what was recorded against them
 export const setCheatingDisclosure = async (professorId: number, attemptId: number | null, disclosed: boolean) => {
   if (!attemptId) throw new HttpError(404, 'Attempt not found');
 
@@ -959,10 +924,7 @@ const storeAiReview = async (assignmentId: number, review: AiReview) => {
   };
 };
 
-// shared by the professor-triggered endpoint below and the automatic run right after submit -
-// never touches assignments/question_assignment, which is still entirely the professor's own
-// call via gradeAttempt above. Cached after the first run; pass force to re-ask (e.g. the
-// professor edited the question's model answer since)
+// cached after the first run, force to redo it
 const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promise<AiReview> => {
   if (!force) {
     const cached = await loadCachedAiReview(current.id);
@@ -973,8 +935,6 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
   const manual = (questions as any[]).filter((q) => AI_REVIEWABLE_TYPES.includes(q.question_type) && q.answer.trim() !== '');
   if (!manual.length) throw new HttpError(400, 'No answered short-answer or essay questions to review');
 
-  // model_answers isn't part of the staff grading view above (that reads exam_question/questions
-  // for the grading-relevant columns only) - one extra read for the one extra column this needs
   const modelAnswers = unwrap(await activeOnly(database
     .from('questions')
     .select('id, model_answers')
@@ -1002,8 +962,7 @@ const runAiReview = async (current: Attempt, exam: Exam, force: boolean): Promis
     longest_freeze: q.longest_freeze,
   })), incidentCounts);
 
-  // the text-only pass already found this attempt at least "medium" - worth the extra vision
-  // call to actually look at the proctoring photos before settling on a verdict
+  // medium or worse - check the photos too
   const finalReview = (aiProbabilityOf(review.cheating_likelihood) ?? 0) >= 50
     ? await deepenReview(current.id, review, incidentCounts)
     : review;
@@ -1020,8 +979,7 @@ const deepenReview = async (attemptId: number, review: AiReview, incidents: Inci
     const deep = await deepReviewAnswers(review.cheating_reasoning, incidents, photos);
     return { ...review, cheating_likelihood: deep.cheating_likelihood, cheating_reasoning: deep.cheating_reasoning };
   } catch (error) {
-    // the first-pass verdict is still a usable answer - a failed deep pass (timeout, API error)
-    // shouldn't block the whole review
+    // keep the first verdict if this fails
     console.error('Deep AI review failed, keeping the first-pass verdict:', error instanceof Error ? error.message : error);
     return review;
   };

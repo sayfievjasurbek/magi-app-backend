@@ -1,6 +1,3 @@
-// Persists the Magi AI chat as separate conversations (see assistant.service.ts) - a sidebar of
-// past conversations a professor can switch between, same shape as ChatGPT/Claude.ai, so it
-// survives closing the panel or reloading the page.
 import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { getClient, MODEL } from '../../lib/ai.js';
@@ -10,8 +7,7 @@ export type Conversation = { id: number; title: string | null; updatedAt: string
 export type ChatHistoryMessage = {
   role: 'user' | 'assistant';
   content: string;
-  // what a later turn should actually hand the model for this message - null means content IS
-  // that (no file was attached); see assistant.service.ts's buildUserContent/contentForMessage
+  // null = same as content
   modelContent: string | null;
   actions: unknown;
   fileName: string | null;
@@ -44,8 +40,6 @@ export const createConversation = async (professorId: number): Promise<Conversat
   return { id: data.id, title: data.title, updatedAt: data.updated_at };
 };
 
-// 404s rather than 403 on a conversation that exists but belongs to someone else - same
-// not-found framing every other owned-resource lookup in this codebase uses
 const requireOwnedConversation = async (professorId: number, conversationId: number): Promise<void> => {
   const { data, error } = await database.from('ai_chat_conversations').select('id, professor_id').eq('id', conversationId).maybeSingle();
   if (error) throw new Error(error.message);
@@ -83,10 +77,7 @@ const autoTitle = (content: string): string => {
   return trimmed.length > TITLE_LENGTH ? `${trimmed.slice(0, TITLE_LENGTH)}...` : trimmed;
 };
 
-// the sidebar needs a title the instant the conversation exists, so saveChatMessage sets autoTitle
-// (a plain truncation) synchronously first - this replaces it moments later with a real summary of
-// what the professor actually asked, same idea as ChatGPT/Claude.ai's own title generation.
-// best-effort: a title stuck at the truncated fallback is a cosmetic issue, never worth failing over
+// replaces the truncated title with a generated one, fine if it fails
 const generateConversationTitle = async (conversationId: number, firstMessage: string): Promise<void> => {
   try {
     const openai = getClient();
@@ -114,8 +105,7 @@ const generateConversationTitle = async (conversationId: number, firstMessage: s
   };
 };
 
-// best-effort, same as lib/notifications.ts's notify: a history row failing to save must never
-// break the chat reply that already went back to the professor
+// don't break the reply over this
 export const saveChatMessage = async (
   conversationId: number,
   role: 'user' | 'assistant',
@@ -124,9 +114,7 @@ export const saveChatMessage = async (
   fileName?: string | null,
   modelContent?: string | null,
 ): Promise<void> => {
-  // node-postgres sends a plain JS array/object as a Postgres array literal, not JSON text - jsonb
-  // columns need the JSON text itself, hence the explicit stringify (reads back already-parsed,
-  // via pg's own default jsonb type parser)
+  // jsonb needs the string, pg would send an array literal
   const { error } = await database
     .from('ai_chat_messages')
     .insert({

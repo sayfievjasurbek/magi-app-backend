@@ -5,9 +5,7 @@ import JSZip from 'jszip';
 import { decodeFileData, extractFile } from '../../lib/file-extract.js';
 import { HttpError } from '../../lib/errors.js';
 
-// a minimal but real docx, built by hand rather than taken from a fixture, specifically to put
-// text in a header - this is exactly the shape of a resume template, where the candidate's name
-// sits in a header while the body starts straight into "Experience: ..."
+// hand built docx with the name in a header, like most resume templates
 const docxWithHeader = async (headerLines: string[], bodyText: string): Promise<Buffer> => {
   const zip = new JSZip();
   zip.file('[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -36,8 +34,6 @@ ${headerLines.map((line) => `<w:p><w:r><w:t>${line}</w:t></w:r></w:p>`).join('\n
   return zip.generateAsync({ type: 'nodebuffer' });
 };
 
-// one slide's own OOXML part - just enough for a DrawingML text run to parse, same minimal-but-real
-// approach as docxWithHeader above
 const pptxSlideXml = (text: string): string => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
 <p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>${text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld>
@@ -92,8 +88,7 @@ describe('extractFile', () => {
   });
 
   it('reads a .docx by its extension even without the exact mime type', async () => {
-    // a real, mammoth-authored fixture (its own test suite relies on this exact file) - only
-    // asserting the extraction pipeline actually runs and returns text, not mammoth's own output
+    // fixture from mammoth's own tests
     const buf = readFileSync(new URL('../../node_modules/mammoth/test/test-data/utf8-bom.docx', import.meta.url));
 
     const result = await extractFile('notes.docx', 'application/octet-stream', buf);
@@ -114,8 +109,7 @@ describe('extractFile', () => {
 
   it('reads a .pptx slide by slide, in numeric order (slide10 after slide2, not before)', async () => {
     const buf = await pptxWithSlides(['Welcome to the course', 'Topic: Databases']);
-    // a slide numbered 10 would sort before slide2 alphabetically - append it after building the
-    // first two normally, to prove the reader sorts by the actual slide number instead
+    // slide10 sorts before slide2 alphabetically
     const zip = await JSZip.loadAsync(buf);
     zip.file('ppt/slides/slide10.xml', pptxSlideXml('Thank you'));
     const withTenthSlide = await zip.generateAsync({ type: 'nodebuffer' });
@@ -176,8 +170,7 @@ Skills: Node.js, Postgres\par
   });
 
   it('renders a scanned/image-only PDF (no embedded text) as an image instead', async () => {
-    // same minimal single-page PDF, but with no text stream at all - the common shape of a
-    // scanned certificate or a photographed form
+    // no text stream, like a scanned pdf
     const pdf = [
       '%PDF-1.1',
       '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',

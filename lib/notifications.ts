@@ -1,9 +1,3 @@
-// In-app notifications for things sent to a user - mostly from the professor/admin side (an exam
-// assigned, a module enrollment, an attempt graded), but also the other way (a student changing
-// their own password notifies the professor who created their account). Called from other
-// features' services the same way lib/storage.ts or lib/recovery.ts are - never imported the
-// other way around.
-
 import { database } from './db.js';
 
 export type NotificationType = 'exam_assigned' | 'module_enrolled' | 'exam_graded' | 'password_changed' | 'exam_updated' | 'retake_allowed';

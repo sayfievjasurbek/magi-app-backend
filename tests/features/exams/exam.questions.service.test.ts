@@ -44,8 +44,7 @@ const asUser = (id: number, role: Role): TokenPayload =>
 
 const argsOf = (table: string, method: string) => calls.filter((call) => call.table === table && call.method === method).map((call) => call.args);
 
-// loadManagedExam's minimal query pair: the exam row (owned, so managesExam short-circuits) then
-// requireNotAdministrator's own position check - every write below goes through both first
+// exam row + position check, every write does these two first
 const ownedExam = () => queue.push(rows({ id: 1, created_by: 7, max_marks: 10 }), rows({ position: 'professor' }));
 const noAttempts = () => rows([]);
 

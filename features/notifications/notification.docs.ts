@@ -1,4 +1,3 @@
-// Notifications domain: the endpoints of notification.route.ts and the schemas they use (helpers in docs/common.ts).
 import { authed, dateTime, envelope, errors, id, messageOnly, nullable, ok, ref } from '../../docs/common.js';
 
 export const tags = [{ name: 'Notifications', description: "Things sent to the current user - mostly from the professor/admin side, but also a student's own password change notifying their professor" }];

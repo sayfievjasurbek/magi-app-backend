@@ -20,8 +20,7 @@ import { listManagedProfessors } from '../../../features/auth/auth.controller.js
 const ok = (data: unknown) => ({ data, error: null });
 const queue = (...items: { data: unknown; error: unknown }[]) => results.push(...items);
 
-// seesAllModules, then module_professor (managed), module_professor (roster, skipped - no managed
-// modules here), professors.created_by, professors columns, users - the plain "professor" position path
+// query order for a plain professor
 const plainProfessorQueue = () => queue(
   ok({ position: 'professor' }),
   ok([]),

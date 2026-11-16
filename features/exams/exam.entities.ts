@@ -1,6 +1,3 @@
-// Exams domain: one type per table it owns, field for field from migrations/003_exam_schema.sql
-// and 006_exam_owner_and_events.sql (exams.created_by).
-
 export type ExamStatus = 'demo' | 'scheduled' | 'ongoing' | 'completed' | 'delayed' | 'cancelled';
 
 export type ExamEventName =

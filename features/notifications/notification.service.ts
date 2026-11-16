@@ -1,6 +1,3 @@
-// Notifications domain: the current user's own notifications (writes happen from lib/notifications.ts,
-// called out of other features when something is sent to a user - an exam, a module, a grade).
-
 import { database } from '../../lib/db.js';
 import { HttpError } from '../../lib/errors.js';
 import { parseId } from '../../lib/utils.js';

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// one chainable fake for the whole builder: every call lands in `calls`, every awaited query takes the next queued result
+// chainable fake db, each awaited query takes the next queued result
 const { from, calls, results } = vi.hoisted(() => {
   const calls: any[][] = [];
   const results: any[] = [];
@@ -46,8 +46,7 @@ const callsOf = (method: string) => calls.filter(([name]) => name === method);
 
 const rejected = async (promise: Promise<unknown>): Promise<any> => promise.then(() => null, (error) => error);
 
-// the face match check is fire-and-forget (addMedia does not await it), so tests give its
-// promise chain a tick to finish before asserting on what it did
+// face check isn't awaited, give it a tick
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 const inProgress = row({ id: 7, exam_id: 3, status: 'in_progress', submitted_at: null });
@@ -99,8 +98,7 @@ describe('addMedia', () => {
 
       await addMedia(kind, '7', 5, 'data:image/jpeg;base64,AAA', undefined);
 
-      // face-snapshots also kicks off a (fire-and-forget) face match check, which reads the
-      // student's profile_photo_url first - its own synchronous prefix lands in the same tick
+      // face-snapshots also reads students for the face check
       const expectedTables = ['assignments', 'student_assignment', table, join];
       if (kind === 'face-snapshots') expectedTables.push('students');
       expect(tables()).toEqual(expectedTables);

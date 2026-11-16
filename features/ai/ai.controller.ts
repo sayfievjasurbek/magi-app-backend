@@ -30,8 +30,7 @@ export const getAiConversationMessages = async (req: Request, res: Response) => 
     if (!Number.isInteger(conversationId)) return res.status(400).json({ success: false, message: 'Invalid conversation id' });
 
     const messages = await getConversationMessages(req.user!.id, conversationId);
-    // modelContent is an internal reconstruction detail (resolveConversation's own use below) -
-    // the chat panel only ever needs what the professor actually typed and the file's name
+    // modelContent is internal
     const publicMessages = messages.map(({ role, content, actions, fileName, createdAt }) => ({ role, content, actions, fileName, createdAt }));
     return res.status(200).json({ success: true, messages: publicMessages });
   } catch (error) {
@@ -53,15 +52,8 @@ export const removeAiConversation = async (req: Request, res: Response) => {
 
 type ResolvedConversation = { conversationId: number | null; history: { role: 'user' | 'assistant'; content: string }[] };
 
-// a bad/unowned conversationId (HttpError) is the professor's own mistake and should surface as
-// one - but conversation persistence itself being unavailable (the table not migrated yet, a
-// transient DB error) must not take Magi AI down with it; it falls back to an unsaved exchange
-// instead, the same way grading/attendance already treat their own notification writes as
-// best-effort (see lib/notifications.ts). clientHistory is that fallback's memory: once
-// persistence has failed once, conversationId stays null for the rest of the browser session, so
-// without it every later turn would look like a brand new conversation - the client's own
-// locally-tracked messages are the only thing left that remembers what was actually said. When
-// persistence IS working, this is never touched - the DB stays the only source of truth then.
+// a bad conversationId is a 4xx, but if saving history itself fails just carry on unsaved
+// with the client's own history
 export const resolveConversation = async (
   professorId: number,
   requestedId: unknown,
@@ -74,8 +66,6 @@ export const resolveConversation = async (
     };
     if (!Number.isInteger(requestedId)) throw new HttpError(400, 'Invalid conversation id');
     const messages = await getConversationMessages(professorId, requestedId as number); // 404s if not owned
-    // modelContent (not content) is what the model should actually see - it carries forward
-    // whatever was extracted from an attached file, or a persisted image's own marker
     return { conversationId: requestedId as number, history: messages.map((m) => ({ role: m.role, content: m.modelContent ?? m.content })) };
   } catch (error) {
     if (error instanceof HttpError) throw error;
@@ -84,9 +74,6 @@ export const resolveConversation = async (
   };
 };
 
-// Magi AI, talking to a professor and acting on their behalf through assistant.service's tools.
-// conversationId is optional - omitting it (a "new chat") starts one; the DB is the source of
-// truth for that conversation's history from here on, not whatever the client happens to send.
 export const chatWithAssistant = async (req: Request, res: Response) => {
   try {
     if (!aiConfigured()) return res.status(503).json({ success: false, message: 'AI is not configured' });

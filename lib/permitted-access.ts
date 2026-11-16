@@ -1,9 +1,4 @@
-// Shared plumbing for "permitted" (whitelisted) urls and apps, which can be granted at exam,
-// module ("group" in the admin panel) and individual-student level. What's actually in effect for
-// an attempt is merged and frozen by the start_attempt() database function at attempt start
-// (034_group_and_student_permitted_access.sql) - this file only manages the grants themselves,
-// the same shape exam.service.ts's permitted-url endpoints already used before there were three
-// levels of them.
+// permitted urls/apps at exam, group and student level. start_attempt() merges them
 import { database } from './db.js';
 import { HttpError } from './errors.js';
 
@@ -46,9 +41,6 @@ export const findOrCreatePermittedApp = async (name: string): Promise<{ id: numb
   return created!;
 };
 
-// table: the join table (e.g. 'module_permitted_url'); ownerColumn/ownerId: the half pointing at
-// what granted it (module_id, student_id, exam_id); permittedColumn/permittedId: the half
-// pointing at the permitted_urls/permitted_apps row
 export const linkPermitted = async (
   table: string,
   ownerColumn: string,
@@ -57,8 +49,7 @@ export const linkPermitted = async (
   permittedId: number,
   duplicateMessage: string,
 ): Promise<void> => {
-  // table/column names are picked by this file's own callers, never request input - the dynamic
-  // shape is what defeats supabase-js's generated column typing here, not an unknown payload
+  // table names come from our own callers, not input
   const { error } = await database.from(table).insert({ [ownerColumn]: ownerId, [permittedColumn]: permittedId } as never);
   if (error) {
     if (error.code === '23505') throw new HttpError(409, duplicateMessage);
@@ -103,8 +94,6 @@ export const studentPermittedUrls = (studentId: number) => permittedFor('student
 export const studentPermittedApps = (studentId: number) => permittedFor('student_permitted_app', 'student_id', studentId, 'permitted_apps', 'permitted_app_id', 'name');
 export const examPermittedApps = (examId: number) => permittedFor('exam_permitted_app', 'exam_id', examId, 'permitted_apps', 'permitted_app_id', 'name');
 
-// which of the student's modules this exam is actually linked to - shared by effectivePermittedUrls
-// and effectivePermittedApps so checking both for one exam only computes it once
 export const sharedModuleIds = async (examId: number, studentId: number): Promise<number[]> => {
   const { data: studentModules, error: moduleError } = await database.from('module_student').select('module_id').eq('student_id', studentId);
   if (moduleError) throw new Error(moduleError.message);
@@ -114,8 +103,7 @@ export const sharedModuleIds = async (examId: number, studentId: number): Promis
   return (examModules ?? []).map((row) => row.module_id).filter((id) => studentModuleIds.has(id));
 };
 
-// the live, pre-attempt view: what would be merged if the student started this exam right now -
-// same three-source merge start_attempt() freezes onto the attempt once it actually starts
+// what start_attempt() would merge right now
 const effectiveFor = async (
   examId: number,
   studentId: number,

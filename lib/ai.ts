@@ -1,17 +1,10 @@
-// AI-assisted grading (the attempts domain's aiReviewAttempt): per-question "how close is this
-// answer to correct" plus an overall "does this look AI-written" signal, both only ever a
-// suggestion the professor reviews - the professor's own grade (assignments/question_assignment)
-// is never touched here. Uses OpenAI; the app works fine without a key, this feature just
-// reports itself unconfigured until OPENAI_API_KEY is set.
+// ai-assisted grading - only ever a suggestion, never writes the grade
 
 import OpenAI from 'openai';
 
 export const MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 
-// a student's own typed/pasted character counts for one answer - already tracked for proctoring
-// (see attempt.service.ts's paste_ratio), reused here as a second, non-AI signal: a wall of text
-// pasted in one go is a much more reliable "wrote this somewhere else first" signal than anything
-// the model can infer from the words alone
+// typing/paste numbers, a big paste says more than the text itself
 export type ManualAnswer = {
   question_id: number;
   question: string;
@@ -34,14 +27,11 @@ export type AiReview = {
   per_question: { question_id: number; percent_correct: number; reasoning: string; writing_notes: string }[];
 };
 
-// counts of camera/behavior incidents (phone_seen, extra_person, tab_switch_limit, ...) logged
-// for this attempt by the proctoring side - a second, non-text signal alongside typing metrics
 export type IncidentCount = { name: string; count: number };
 
 export type DeepReview = { cheating_likelihood: 'low' | 'medium' | 'high'; cheating_reasoning: string };
 
-// the SDK's own default (10 min) would hold a professor's "Run AI review" request open far
-// longer than any reasonable wait - this is a suggestion feature, not worth blocking on
+// sdk default is 10 min
 const REQUEST_TIMEOUT_MS = 30_000;
 
 let client: OpenAI | null = null;
@@ -110,8 +100,7 @@ const REVIEW_SCHEMA = {
   },
 } as const;
 
-// the answer arrives as rich-text HTML from the desktop app's editor - plain text is both
-// cheaper (fewer tokens) and clearer for the model to judge than markup noise
+// strip the editor html, fewer tokens
 const stripHtml = (html: string) =>
   html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
 
@@ -181,8 +170,7 @@ const DEEP_REVIEW_SCHEMA = {
   },
 } as const;
 
-// Only called when the first pass already came back medium/high - a vision call costs more than
-// the text-only one, so it's reserved for attempts that actually need the closer look.
+// vision call, only for medium/high
 export const deepReviewAnswers = async (
   priorReasoning: string,
   incidents: IncidentCount[],

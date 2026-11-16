@@ -33,8 +33,7 @@ const parseReason = (value: unknown): string | null => {
   return value.trim();
 };
 
-// class names read as duplicates to an admin even if the casing differs ("Class2" vs "class2"),
-// so this is a case-insensitive exact match - excludeId lets a rename keep its own current name
+// case-insensitive, excludeId for renames
 const requireUniqueName = async (name: string, excludeId?: number) => {
   let query = activeOnly(database.from('modules').select('id').ilike('name', name));
   if (excludeId) query = query.neq('id', excludeId);
@@ -43,8 +42,6 @@ const requireUniqueName = async (name: string, excludeId?: number) => {
   if (data?.length) throw new HttpError(409, `A class named "${name}" already exists`);
 };
 
-// module the professor manages, or null - someone who sees all modules (not a plain "professor"
-// position) manages every one of them directly, not just the ones they're linked to
 const findManagedModule = async (moduleId: number, professorId: number) => {
   if (!(await seesAllModules(professorId))) {
     const { data: managed, error: managedError } = await database
@@ -72,8 +69,6 @@ export const requireManagedModule = async (moduleIdParam: string, professorId: n
   return managed;
 };
 
-// the module a student is enrolled in, or 404 - also covers a module soft deleted after they
-// enrolled (deleteModule doesn't clean up module_student rows)
 const requireEnrolledModule = async (moduleIdParam: string, studentId: number) => {
   const moduleId = parseId(moduleIdParam);
   if (!moduleId) throw moduleNotFound();
@@ -127,8 +122,7 @@ const listModulesByIds = async (moduleIds: number[]) => {
   return data ?? [];
 };
 
-// a soft-deleted student keeps their module_student row (deleteStudent never cleans it up), so a
-// raw count would disagree with the roster/rating, which both filter to active users
+// deleted students keep their module_student row
 const countStudents = async (moduleIds: number[]): Promise<Record<number, number>> => {
   const { data, error } = await database
     .from('module_student')
@@ -153,8 +147,7 @@ const countStudents = async (moduleIds: number[]): Promise<Record<number, number
   return counts;
 };
 
-// the class detail page's "average age" stat - null students (nobody enrolled, or none of them
-// have an age on file) read as "unknown" rather than a misleading 0
+// null if nobody has an age
 const averageAgeForModule = async (moduleId: number): Promise<number | null> => {
   const { data: rows, error } = await database.from('module_student').select('student_id').eq('module_id', moduleId);
   if (error) throw new Error(error.message);
@@ -169,8 +162,6 @@ const averageAgeForModule = async (moduleId: number): Promise<number | null> => 
   return Math.round((known.reduce((sum, age) => sum + age, 0) / known.length) * 10) / 10;
 };
 
-// one bounded query to attach each roster student's age, instead of folding it into listPeople
-// (which also resolves professors, who don't have an age column at all)
 const studentAgesById = async (studentIds: number[]): Promise<Map<number, number | null>> => {
   if (!studentIds.length) return new Map();
   const { data, error } = await database.from('students').select('user_id, age').in('user_id', studentIds);
@@ -178,8 +169,6 @@ const studentAgesById = async (studentIds: number[]): Promise<Map<number, number
   return new Map((data ?? []).map((row) => [row.user_id, row.age]));
 };
 
-// every professor on each module, for the Classes list (shows the first one plus a "+N more"
-// count rather than nobody at all - a class can have several, same as a student can be in several)
 const professorsByModule = async (moduleIds: number[]): Promise<Record<number, Person[]>> => {
   const { data, error } = await database
     .from('module_professor')
@@ -211,9 +200,7 @@ const listPeople = async (userIds: number[]): Promise<Person[]> => {
   return (data ?? []) as Person[];
 };
 
-// same as listPeople, but drops anyone whose position isn't exactly "professor" - same rule as
-// seesAllModules (a director/administrator/unset/custom position manages every class directly
-// instead of teaching specific ones, so they should never show up as a class's own mentor)
+// only actual "professor" positions count as mentors
 const listTeachingPeople = async (userIds: number[]): Promise<Person[]> => {
   const people = await listPeople(userIds);
   if (!people.length) return people;
@@ -258,12 +245,7 @@ const findMember = async (body: Record<string, unknown>, idField: string, roleTa
   return user;
 };
 
-// creating a class is an administrator (or director) action, not a plain professor's own teaching
-// work - DashboardShell already keeps a plain professor off the Groups page for this; this is the
-// same rule enforced server-side, since nothing else (an API client, Magi AI) is bound by that
-// page's own routing. Nobody is auto-linked as a mentor: whoever creates it manages every module
-// directly already (that's what requireAdministrator just confirmed), so they aren't one of its
-// mentors just for having set it up - staffing it is a separate, explicit addProfessor call.
+// admin only. creator isn't added as a mentor, staffing is a separate step
 export const createModule = async (professorId: number, body: Record<string, unknown>) => {
   await requireAdministrator(professorId, 'create a class');
   const name = parseName(body.name);
@@ -297,8 +279,6 @@ export const listModules = async (userId: number, role: Role) => {
   return listModulesByIds(moduleIds);
 };
 
-// a professor looking up which modules one student belongs to - the Students detail page in
-// the admin panel, not scoped to modules this professor manages
 export const getStudentModules = async (studentIdParam: string) => {
   const studentId = parseId(studentIdParam);
   if (!studentId) return [];
@@ -320,9 +300,6 @@ export const getProfessorModules = async (professorIdParam: string) => {
   return listModulesByIds(moduleIds);
 };
 
-// a professor sees any module they manage (or every one, if their position isn't scoped), a
-// student only one they're enrolled in - both get the same shape back: the module with its
-// student count and its mentors, for the class detail page
 export const getModule = async (userId: number, role: Role, moduleIdParam: string) => {
   const managed = role === 'professor' ? await requireManagedModule(moduleIdParam, userId) : await requireEnrolledModule(moduleIdParam, userId);
 
@@ -365,8 +342,6 @@ export const removeModulePermittedApp = async (professorId: number, moduleIdPara
   await unlinkPermitted('module_permitted_app', 'module_id', managed.id, 'permitted_app_id', permittedAppId, 'Permitted app not found');
 };
 
-// every member's total score across this module's own graded exams, highest first - a
-// professor sees any module they manage, a student only one they are enrolled in
 export const getModuleRating = async (userId: number, role: Role, moduleIdParam: string) => {
   const moduleId =
     role === 'professor' ? (await requireManagedModule(moduleIdParam, userId)).id : (await requireEnrolledModule(moduleIdParam, userId)).id;
@@ -419,8 +394,6 @@ export const getModuleRating = async (userId: number, role: Role, moduleIdParam:
     .sort((a, b) => b.total_score - a.total_score);
 };
 
-// professors and students of the module - a professor sees any module they manage, a student
-// their own classmates and mentors for a class they're enrolled in
 export const getRoster = async (userId: number, role: Role, moduleIdParam: string) => {
   const managed = role === 'professor' ? await requireManagedModule(moduleIdParam, userId) : await requireEnrolledModule(moduleIdParam, userId);
 
@@ -465,8 +438,7 @@ export const updateModule = async (professorId: number, moduleIdParam: string, b
   return updated;
 };
 
-// deleting a class is an administrator action, same as creating one - a plain professor position
-// manages their own teaching surface (roster, exams), not whether the class itself exists
+// admin only, same as create
 export const deleteModule = async (professorId: number, moduleIdParam: string, body: Record<string, unknown>) => {
   const managed = await requireManagedModule(moduleIdParam, professorId);
   await requireAdministrator(professorId, 'delete a class');
@@ -481,9 +453,7 @@ export const addProfessor = async (professorId: number, moduleIdParam: string, b
   await requireAdministrator(professorId, 'add a professor to a class');
   const professor = await findMember(body, 'professorId', 'professors', 'professor');
 
-  // an administrator/director already manages every class directly (seesAllModules) - adding
-  // them here would make them show up as teaching this one specific class, which they don't;
-  // same rule createModule already applies to itself, just enforced here too for an existing class
+  // admins already see every class, don't list them as a mentor
   if (await seesAllModules(professor.id)) {
     throw new HttpError(400, 'This account does not teach (position is not "professor"), so it cannot be added as a class mentor');
   };

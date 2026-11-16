@@ -1,7 +1,3 @@
-// AI domain: the "is it configured" status check the admin panel polls for its indicator, and
-// Magi AI, the chat assistant embedded in the admin panel (assistant.service.ts). The AI-assisted
-// grading endpoint itself lives on the attempts domain (POST /assignments/{id}/ai-review), since
-// it only makes sense in that context.
 import { authed, envelope, json, ok, errors, ref, pathParam } from '../../docs/common.js';
 
 export const tags = [{ name: 'AI', description: 'AI-assisted grading and the Magi AI chat assistant' }];

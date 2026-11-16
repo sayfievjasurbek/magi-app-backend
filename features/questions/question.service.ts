@@ -64,8 +64,7 @@ const parseQuestionFields = (body: Record<string, unknown>): QuestionFields => {
     fields.expected_duration_unit = body.expectedDurationUnit;
   };
 
-  // optional - lets the AI reviewer compare a short_answer/essay answer against one or more
-  // acceptable answers instead of judging it on the question text alone; null/empty clears it
+  // for the ai reviewer, null/empty clears it
   if (body.modelAnswers !== undefined) {
     if (body.modelAnswers !== null) {
       if (!Array.isArray(body.modelAnswers)) throw new HttpError(400, 'modelAnswers must be an array of strings or null');
@@ -120,10 +119,7 @@ const findOwnedQuestion = async (questionId: number, professorId: number) => {
   return data;
 };
 
-// only the owner writes: a question used by someone else's exam stays theirs
-// only used by updateQuestion/deleteQuestion (getQuestion's own read path is separate) - the one
-// choke point to also gate writing a question on, so an administrator can't do a professor's own
-// teaching work, same rule exam.service.ts's loadManagedExam enforces for exam content
+// owner only, and not admins (same as loadManagedExam)
 const requireOwnedQuestion = async (questionIdParam: string, professorId: number) => {
   const questionId = parseId(questionIdParam);
   if (!questionId) throw questionNotFound();
@@ -194,8 +190,7 @@ const hasAnswers = async (questionId: number) => {
   return Boolean(data?.length);
 };
 
-// deleting a question still asked by an exam would silently drop it from every attempt
-// start_attempt builds (migrations/008_start_attempt.sql joins on questions.deleted_at is null)
+// would silently disappear from attempts (008_start_attempt.sql)
 const isAttachedToExam = async (questionId: number) => {
   const { data, error } = await database
     .from('exam_question')
@@ -228,8 +223,7 @@ const insertOptions = async (questionId: number, options: OptionInput[]) => {
   return data ?? [];
 };
 
-// the old options are soft deleted and put back when the insert fails: deleting them for real would
-// cascade into question_assignment_option and take recorded answers with it
+// soft delete so recorded answers aren't cascaded away
 const replaceOptions = async (questionId: number, options: OptionInput[]) => {
   const { data: removed, error } = await activeOnly(
     database.from('question_options').update(softDelete('options replaced')).eq('question_id', questionId)
@@ -291,9 +285,7 @@ export const createQuestion = async (professorId: number, body: Record<string, u
   };
 };
 
-// a professor writing a question bank in one sitting creates several at once; each one is
-// validated and inserted the same way createQuestion does, and a later failure rolls back
-// everything already created in this call (options cascade-delete with their question)
+// all or nothing
 export const createQuestions = async (professorId: number, body: Record<string, unknown>) => {
   if (!Array.isArray(body.questions) || !body.questions.length) {
     throw new HttpError(400, 'questions must be a non-empty array');

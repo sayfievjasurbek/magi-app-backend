@@ -1,9 +1,6 @@
 import crypto from 'crypto';
 
-// Admin-created student accounts keep a recoverable copy of their password, so a professor can
-// look it up when a student forgets it (their own deliberate call - most accounts, created via
-// self-signup, have no recovery_secret at all and aren't affected). Encrypted at rest with a key
-// derived from JWT_SECRET rather than stored as plain text, so a database leak alone isn't enough.
+// recoverable passwords for admin-created accounts, encrypted with a key from JWT_SECRET
 const key = () => crypto.createHash('sha256').update(process.env.JWT_SECRET as string).digest();
 
 export const encryptSecret = (plain: string): string => {

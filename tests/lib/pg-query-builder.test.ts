@@ -1,8 +1,5 @@
-// Unlike every other test in this suite, this one talks to a real (throwaway) Postgres instead of
-// mocking lib/db.js - it is specifically what verifies the SQL this module generates is correct,
-// since every other test mocks away exactly this module. Needs a reachable Postgres at
-// TEST_DATABASE_URL (defaults to a local one on port 5440 - see the migration plan for how to
-// start one: `docker run --rm -d -e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=magitest -p 5440:5432 postgres:16`).
+// runs against a real postgres (TEST_DATABASE_URL, default localhost:5440):
+// docker run --rm -d -e POSTGRES_PASSWORD=testpass -e POSTGRES_DB=magitest -p 5440:5432 postgres:16
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Pool } from 'pg';
 import { PgTable, rpc } from '../../lib/pg-query-builder.js';
@@ -45,9 +42,7 @@ beforeEach(async () => {
 });
 
 describe('bigint columns', () => {
-  // the actual production bug this guards against: node-postgres returns bigint as a string by
-  // default, which silently broke every `===`/`.includes()` id check in the app (PostgREST, what
-  // those checks were written against, always serialized bigint as a plain JSON number)
+  // pg returns bigint as a string by default, broke every id === check
   it('comes back as a real number, not a string', async () => {
     const { data } = await table().insert({ name: 'x' }).select().single();
     expect(typeof data.id).toBe('number');
@@ -137,9 +132,7 @@ describe('insert / update / upsert / delete', () => {
   });
 
   it('upsert inserts on first call and updates on conflict', async () => {
-    // onConflict targets a natural/composite unique key, same as every real call site in this
-    // codebase (attendance's (module_id,student_id,date), exam_question's (exam_id,question_id))
-    // - never the identity primary key itself
+    // conflict on a composite key, like attendance/exam_question do
     const first = await table().upsert({ name: 'v1', code: 'dup', score: 1 }, { onConflict: 'code' }).select().single();
     expect(first.data.score).toBe(1);
     const second = await table().upsert({ name: 'v2', code: 'dup', score: 2 }, { onConflict: 'code' }).select().single();

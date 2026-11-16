@@ -37,8 +37,7 @@ beforeEach(() => {
   for (const method of ['select', 'insert', 'update', 'delete', 'eq', 'order', 'limit', 'single', 'maybeSingle']) {
     builder[method].mockClear();
   };
-  // AI not configured by default - title generation then stays at the synchronous autoTitle
-  // fallback, same as a real deployment missing OPENAI_API_KEY would
+  // no ai key -> title stays the truncated one
   createCompletion.mockReset();
   (getClient as any).mockReset().mockReturnValue(null);
 });

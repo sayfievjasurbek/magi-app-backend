@@ -129,8 +129,7 @@ describe('worstRisk', () => {
     expect(worstRisk(['bogus', 'medium'])).toBe('medium');
   });
 
-  // `risk in RISK_ORDER` also matches Object.prototype keys, so "toString" is
-  // returned as a risk level and hides the real ones behind it.
+  // `in` also matches Object.prototype keys like toString
   it.fails('ignores inherited Object.prototype keys', () => {
     expect(worstRisk(['toString'])).toBeNull();
     expect(worstRisk(['toString', 'high'])).toBe('high');

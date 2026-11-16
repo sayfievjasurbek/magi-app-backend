@@ -1,8 +1,7 @@
 const ref = (name: string) => ({ $ref: `#/components/schemas/${name}` });
 const uuid = { type: 'string', format: 'uuid' };
 const dateTime = { type: 'string', format: 'date-time' };
-// siblings of $ref are ignored in OpenAPI 3.0, so a nullable reference (always an object here) is wrapped in allOf,
-// nullable only takes effect next to an explicit type, and a nullable enum has to list null itself
+// openapi 3.0 ignores siblings of $ref, hence the allOf wrapper
 const nullable = (schema: Record<string, any>) => {
   if ('$ref' in schema) return { type: 'object', allOf: [schema], nullable: true };
   return { ...schema, nullable: true, ...('enum' in schema ? { enum: [...schema.enum, null] } : {}) };

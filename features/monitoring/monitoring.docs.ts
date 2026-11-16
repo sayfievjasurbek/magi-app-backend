@@ -1,4 +1,3 @@
-// Monitoring domain: the endpoints of monitoring.route.ts and the schemas they use (helpers in docs/common.ts).
 import { authed, dateTime, envelope, errors, id, json, nullable, ok, pathParam, ref } from '../../docs/common.js';
 
 export const tags = [{ name: 'Monitoring', description: 'Proctoring media and exam events of an attempt' }];

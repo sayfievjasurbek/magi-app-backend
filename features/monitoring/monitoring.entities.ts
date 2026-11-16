@@ -1,6 +1,3 @@
-// Monitoring domain: one type per table it owns, field for field from migrations/003_exam_schema.sql.
-// The four media tables have the same shape; each has its own join table to an attempt.
-
 type MediaRow = {
   id: number;
   url: string;

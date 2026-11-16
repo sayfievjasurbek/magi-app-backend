@@ -1,8 +1,4 @@
-// Lets a professor paste a Google Docs/Sheets/Slides link straight into a Magi AI chat message,
-// instead of having to download it and attach the file - only works for a document shared as
-// "Anyone with the link can view", since there is no Google sign-in here to go through. Reuses
-// each format's own export endpoint, then feeds the bytes through the same extractFile() an
-// uploaded file of that type would go through.
+// read a pasted google docs/sheets/slides link (must be shared as "anyone with the link")
 import { HttpError } from './errors.js';
 import { DOCX_MIME, PPTX_MIME, XLSX_MIME, MAX_BYTES } from './file-extract.js';
 
@@ -23,9 +19,7 @@ export const findGoogleDocLink = (text: string): { kind: GoogleDocKind; id: stri
   return { kind: match[1] as GoogleDocKind, id: match[2] };
 };
 
-/** Downloads a Google Docs/Sheets/Slides link via its export endpoint - 400s with a plain
-    explanation if the document isn't link-shared (Google answers with its own HTML sign-in/denied
-    page instead of the file, rather than an HTTP error status). */
+// google returns an html login page instead of an error if it's private
 export const fetchGoogleDoc = async (kind: GoogleDocKind, id: string): Promise<{ name: string; mime: string; bytes: Buffer }> => {
   const spec = EXPORT[kind];
   const response = await fetch(spec.url(id), { redirect: 'follow' });

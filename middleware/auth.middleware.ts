@@ -7,8 +7,7 @@ import { type TokenPayload } from '../lib/types.js';
 
 export const protectRoute = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // the desktop app has no browser cookie jar to rely on, so it sends a bearer token instead;
-    // web clients keep using the httpOnly cookie exactly as before
+    // desktop app sends a bearer token, web uses the cookie
     const bearer = req.headers?.authorization;
     const token = bearer?.startsWith('Bearer ') ? bearer.slice(7) : req.cookies.jwt;
 
@@ -21,8 +20,7 @@ export const protectRoute = async (req: Request, res: Response, next: NextFuncti
       return res.status(401).json({ message: "Invalid token" });
     }
 
-    // a logged-out session's row is revoked (see logout controller); a request still carrying
-    // that cookie is rejected even though the JWT itself is still within its 7 day expiry
+    // revoked on logout even if the jwt hasn't expired yet
     const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
     const { data: session, error: sessionError } = await database
       .from('tokens')

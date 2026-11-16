@@ -1,13 +1,9 @@
-// Attempts domain: one type per table it owns, field for field from migrations/003_exam_schema.sql
-// and 007_attempt_extras.sql (position, marks_awarded, feedback). An "assignment" is one student's
-// exam attempt.
+// an "assignment" is one student's attempt at an exam
 import { type TimeUnit } from '../../lib/deadline.js';
 
 export type AttemptStatus = 'pending' | 'in_progress' | 'submitted' | 'auto_submitted' | 'graded' | 'flagged';
 
-// one sample of "characters typed so far" at a point in the attempt, taken every few seconds on
-// the student's own client - the raw material for a WPM-over-time chart (chars / 5 is the
-// standard word-length convention), never a word count or the answer text itself
+// chars typed so far, sampled every few seconds (for the wpm chart)
 export type TypingTimelinePoint = { t: number; chars: number };
 
 export type Assignment = {

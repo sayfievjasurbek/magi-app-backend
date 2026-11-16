@@ -25,8 +25,6 @@ const STUDENT_EXAM_COLUMNS = 'id, name, kind, scheduled_start, scheduled_end, st
 const EXAM_STATUSES = ['demo', 'scheduled', 'ongoing', 'completed', 'delayed', 'cancelled'] as const;
 type ExamStatus = (typeof EXAM_STATUSES)[number];
 
-// homework is the same machinery as an exam (questions, scheduling, grading, desktop-app
-// submission with the same proctoring) - kind is purely how it's labeled and filtered
 const EXAM_KINDS = ['exam', 'homework'] as const;
 
 // what a status may become; completed and cancelled are final
@@ -51,9 +49,7 @@ const requireName = (value: unknown): string => {
   return name;
 };
 
-// a name is only a duplicate within the same class/group - two different classes can each have
-// their own "Midterm" - case-insensitive, same as "Writing Test 2" vs "writing test 2"; an exam
-// not yet linked to any group has nothing to collide with, so this is a no-op until linkModule
+// names are unique per class, case-insensitive
 const requireUniqueExamNameInModules = async (name: string, moduleIds: number[], excludeExamId?: number) => {
   if (!moduleIds.length) return;
 
@@ -114,11 +110,8 @@ const loadExamRow = async (examId: number, columns: string) => {
   return data;
 };
 
-// an exam somebody else manages must not be distinguishable from one that does not exist
-// every write in this file (update/delete/schedule/link/attach/...) goes through here first - the
-// one choke point to gate writing exam content on, so an administrator (who otherwise manages
-// everything structurally) still can't do a professor's own teaching work; reads (getExam,
-// listExamQuestions) go through loadVisibleExam instead and are unaffected
+// someone else's exam looks the same as a missing one
+// all writes go through here - admins manage structure but can't edit exam content
 const loadManagedExam = async (professorId: number, examId: number, columns: string = EXAM_COLUMNS) => {
   const exam = await loadExamRow(examId, columns);
   if (!exam || !(await managesExam(exam, professorId))) throw new HttpError(404, 'Exam not found');
@@ -230,8 +223,6 @@ const examQuestions = async (examId: number) => {
 
 const totalMarks = (questions: { marks: number }[]) => questions.reduce((total, question) => total + question.marks, 0);
 
-// 'flagged' is an internal bookkeeping state (see attempt.service.ts's studentStatus) - a
-// student sees what it actually means for them instead
 const displayStatus = (attempt: { status: string; submitted_at: string | null; auto_submitted: boolean }) => {
   if (attempt.status !== 'flagged') return attempt.status;
   if (!attempt.submitted_at) return 'in_progress';
@@ -254,13 +245,10 @@ export const listExams = async (user: TokenPayload, moduleId?: number, kind?: st
   if (kind) query = query.eq('kind', kind);
   const { data, error } = await query.order('scheduled_start');
   throwOnError(error);
-  // the select string is a runtime ternary (student vs staff columns), not a literal, so
-  // supabase-js's column-level typing can't follow it - the row shape is known at this point either way
+  // select string is dynamic so supabase can't type it
   const exams = (data ?? []) as unknown as Array<{ id: number; [column: string]: unknown }>;
   if (user.role !== 'student') return exams;
 
-  // the app's Start/Resume/Submitted label per exam: whether (and how) this student has
-  // already attempted it
   const { data: links, error: linksError } = await database
     .from('student_assignment')
     .select('assignment_id, exam_id')
@@ -287,8 +275,6 @@ export const listExams = async (user: TokenPayload, moduleId?: number, kind?: st
 export const getExam = async (user: TokenPayload, examId: number) => {
   const exam = await loadVisibleExam(user, examId, user.role === 'student' ? STUDENT_EXAM_COLUMNS : EXAM_COLUMNS);
   if (user.role === 'student') {
-    // the live view of what a module or individual grant on top of this exam would add -
-    // start_attempt() freezes the same merge onto the attempt once it actually starts
     const moduleIds = await sharedModuleIds(examId, user.id);
     return {
       ...exam,
@@ -326,15 +312,13 @@ export const createExam = async (professorId: number, body: any = {}) => {
   const status = body.status === undefined ? 'scheduled' : body.status;
   if (status !== 'scheduled' && status !== 'demo') throw new HttpError(400, 'status must be scheduled or demo');
 
-  // homework is created far more often than a timed exam here, so it's the default when
-  // left unset, not 'exam'
+  // homework by default
   const kind = body.kind === undefined ? 'homework' : body.kind;
   if (!EXAM_KINDS.includes(kind)) throw new HttpError(400, `kind must be one of ${EXAM_KINDS.join(', ')}`);
 
   await requireNotAdministrator(professorId, 'create an exam/homework');
 
-  // a name only has to be unique within a class, and this exam isn't linked to one yet -
-  // linkModule is where the duplicate-name check actually happens
+  // not linked to a class yet, duplicate check happens in linkModule
   const { data, error } = await database
     .from('exams')
     .insert({
@@ -354,8 +338,6 @@ export const createExam = async (professorId: number, body: any = {}) => {
   return data;
 };
 
-// students already rostered to this exam (exam_student) - who to tell when its schedule or
-// questions change under them, same roster addStudents already notifies on assignment
 const rosteredStudentIds = async (examId: number): Promise<number[]> => {
   const { data, error } = await database.from('exam_student').select('student_id').eq('exam_id', examId);
   throwOnError(error);

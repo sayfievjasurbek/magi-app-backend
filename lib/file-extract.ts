@@ -1,20 +1,12 @@
-// Turns a file a professor attached to a Magi AI chat message into something the model can read:
-// plain text for documents (spreadsheets, Word, PDF, plain text), or a real vision input for an
-// image - no OCR needed there, the model reads it directly the same way deepReviewAnswers already
-// hands it proctoring photos (see lib/ai.ts).
+// turns an attached file into text for the model (images go through as images)
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
 import * as XLSX from 'xlsx';
 import { HttpError } from './errors.js';
 
-// base64 inflates by ~4/3 and server.ts caps the JSON body at 10mb - same ballpark as
-// SUBMISSION_MAX_BYTES in lib/storage.ts, comfortably under that with room for the rest of the
-// chat request (message, history) alongside it. Exported: lib/google-docs.ts applies the same
-// cap to an exported Google file, which never passes through decodeFileData itself.
+// json body limit is 10mb and base64 adds ~1/3
 export const MAX_BYTES = 6 * 1024 * 1024;
-// a cap on what actually reaches the model - an oversized document would otherwise balloon the
-// token count (and cost) of every following message in the same conversation, since it stays in history
 const MAX_EXTRACTED_CHARS = 30_000;
 
 /** Strips a `data:<mime>;base64,...` prefix if present and returns the raw bytes + mime type. */
@@ -52,9 +44,7 @@ const RTF_MIMES = ['application/rtf', 'text/rtf'];
 const decodeXmlEntities = (text: string): string =>
   text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
 
-// shared by the docx header/footer reader below and the pptx slide reader further down - an
-// OOXML text run is always <tag ...>text</tag>, grouped into paragraphs by a part-specific tag
-// (<w:p> for Word, <a:p> for a PowerPoint slide's DrawingML)
+// <w:t>/<w:p> in word, <a:t>/<a:p> in pptx
 const extractRuns = (xml: string, runTag: string, paragraphTag: string): string =>
   xml
     .split(new RegExp(`</${paragraphTag}>`))
@@ -63,11 +53,7 @@ const extractRuns = (xml: string, runTag: string, paragraphTag: string): string 
     .filter((line) => line.trim())
     .join('\n');
 
-// mammoth.extractRawText only reads word/document.xml (the body) - it never looks at
-// word/header*.xml or word/footer*.xml, so a name/title living in a header (common in resume
-// templates, where the body starts straight into "Experience") was silently dropped entirely.
-// A .docx is a zip, and a header/footer part's own XML is simple enough that reading its <w:t>
-// runs directly is enough - no need for mammoth's own (header-blind) parser here.
+// mammoth skips headers/footers, resumes usually have the name there
 const extractHeadersAndFooters = async (bytes: Buffer): Promise<string> => {
   try {
     const zip = await JSZip.loadAsync(bytes);
@@ -83,9 +69,6 @@ const extractHeadersAndFooters = async (bytes: Buffer): Promise<string> => {
   };
 };
 
-// a .pptx is also a zip; each slide is its own ppt/slides/slideN.xml. There is no library already
-// pulled in for this (unlike mammoth for .docx), but a slide's own XML is exactly as simple to
-// read directly as a docx header's - same approach, DrawingML's <a:t>/<a:p> instead of <w:t>/<w:p>
 const extractSlides = async (bytes: Buffer): Promise<string> => {
   const zip = await JSZip.loadAsync(bytes);
   const slideNumber = (path: string) => Number(path.match(/slide(\d+)\.xml$/)?.[1] ?? 0);
@@ -101,10 +84,7 @@ const extractSlides = async (bytes: Buffer): Promise<string> => {
   return slides.filter((slide): slide is string => slide !== null).join('\n\n');
 };
 
-// RTF has no library here either, but it's a plain-text format at heart: a destination group
-// ({\fonttbl ...}, {\colortbl ...}, ...) carries no body text and is dropped whole, a handful of
-// control words turn into whitespace, and a \'hh or \uN escape turns into the character it
-// names - everything else between the braces is the text itself
+// rough rtf -> text, drops font/color tables and control words
 const RTF_DESTINATION_GROUPS = /\{\\(?:fonttbl|colortbl|stylesheet|info|pict|object|header[lrf]?|footer[lrf]?|footnote|generator|\*)(?:[^{}]|\{[^{}]*\})*\}/g;
 const rtfToText = (raw: string): string =>
   raw
@@ -133,9 +113,7 @@ export const extractFile = async (name: string, mime: string, bytes: Buffer): Pr
     const parser = new PDFParse({ data: bytes });
     try {
       const result = await parser.getText();
-      // a scanned/image-only PDF (common for a certificate, a printed form someone photographed
-      // into one) has no embedded text to extract - render its first page as an image instead and
-      // let the model actually look at it, rather than handing it empty text and a confused reply
+      // scanned pdf, no text - send the first page as an image
       if (result.text.trim().length < 20) {
         const screenshot = await parser.getScreenshot({ first: 1 });
         const page = screenshot.pages[0];
