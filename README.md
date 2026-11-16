@@ -34,7 +34,7 @@ Used by the professor panel (magi-admin), the student website (magi-frontend) an
 
 One folder per domain under `features/`, holding its route, controller, service, entities and API docs. `lib/` and `middleware/` are the shared infrastructure.
 
-| Domain | |
+| Domain | What it covers |
 |---|---|
 | `auth` | sign in, accounts for students/professors/examiners |
 | `modules` | classes (groups), their professors and students |
